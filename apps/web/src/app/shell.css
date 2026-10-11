@@ -266,6 +266,7 @@ body {
 /* Phones: one column at a time; the list view ends with the NavRail as a bottom tab bar. */
 .chat--list > .ui-frame__sidebar {
   flex: 1;
+  min-width: 0;
   border-right: 0;
 }
 .chat--list > .ui-frame__main {

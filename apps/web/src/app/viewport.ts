@@ -8,5 +8,11 @@ const subscribe = (cb: () => void) => {
   return () => window.removeEventListener('resize', cb)
 }
 
-export const useViewportWidth = () => useSyncExternalStore(subscribe, () => window.innerWidth)
+/**
+ * The width CSS media queries see. Not window.innerWidth: Android Chrome zooms out to fit overflowing content
+ * and innerWidth grows with it, which would flip a phone into the desktop columns and keep it there.
+ */
+const viewportWidth = () => document.documentElement.clientWidth
+
+export const useViewportWidth = () => useSyncExternalStore(subscribe, viewportWidth)
 export const useIsMobile = () => useViewportWidth() < MOBILE_MAX

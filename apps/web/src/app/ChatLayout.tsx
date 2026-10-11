@@ -192,12 +192,13 @@ export function ChatLayout({
   /** Under 768px only one column is shown. */
   mobileView: 'list' | 'chat'
 }) {
-  const mobile = useViewportWidth() < MOBILE_MAX
+  const width = useViewportWidth()
+  const mobile = width < MOBILE_MAX
   const resize = useSplitWidth(
     `gonggong.railWidth.${railKind}`,
     RAIL_DEFAULT[railKind],
     RAIL_MIN_WIDTH,
-    window.innerWidth * RAIL_MAX_SHARE,
+    width * RAIL_MAX_SHARE,
     -1,
   )
   const [main, setMain] = useState<HTMLElement | null>(null)

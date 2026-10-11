@@ -114,6 +114,27 @@ a.ui-sidebar__item:hover:not([aria-current]) {
   .admin__page {
     padding-inline: var(--space-16);
   }
+  /* Title on its own row, controls wrapping below, so neither is squeezed off a phone screen. */
+  .admin__toolbar {
+    flex-wrap: wrap;
+    padding-block: var(--space-8);
+  }
+  .admin__toolbar .ui-toolbar__titles {
+    flex-basis: 100%;
+  }
+  .admin__toolbar .ui-search {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+  .admin__account {
+    margin-left: auto;
+  }
+  .admin__page > .ui-seg,
+  .admin-filters .ui-seg {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
 }
 
 /* Data tables: Pane Table; row actions live in its trailing「操作」menu. */

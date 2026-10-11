@@ -19,6 +19,12 @@ globalThis.ResizeObserver ??= class {
   disconnect() {}
 }
 
+// jsdom has no layout; tests size the viewport through window.innerWidth.
+Object.defineProperty(HTMLHtmlElement.prototype, 'clientWidth', {
+  configurable: true,
+  get: () => window.innerWidth,
+})
+
 // jsdom has no layout, so nothing ever scrolls under a toolbar.
 globalThis.IntersectionObserver ??= class {
   observe() {}

@@ -268,6 +268,17 @@ describe('nav rail', () => {
     for (const name of [/^消息/, /^通知/, '账户菜单'])
       expect(within(bar).getByRole('button', { name })).toBeTruthy()
   })
+
+  it('stays on the phone layout when overflowing content widens window.innerWidth (Android Chrome zooms out)', async () => {
+    Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: 390 })
+    try {
+      mockApi(routes([group('g1', '退款')]))
+      renderAt('/')
+      expect(screen.getByRole('navigation', { name: '应用导航' }).className).toContain('ui-rail--bar')
+    } finally {
+      delete (document.documentElement as { clientWidth?: number }).clientWidth
+    }
+  })
 })
 
 describe('sidebar rows', () => {
