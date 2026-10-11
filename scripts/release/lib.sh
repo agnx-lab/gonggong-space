@@ -18,6 +18,18 @@ docker_arch() {
 
 sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
+# docker_build <args…>: `docker build`, retried: BuildKit asks Docker Hub for the base image's metadata on every build,
+# and a flaky link to auth.docker.io fails it even when the image is local.
+docker_build() {
+  local n
+  for n in 1 2 3 4 5; do
+    docker build "$@" && return
+    echo "docker build failed (attempt $n), retrying" >&2
+    sleep $((n * 5))
+  done
+  return 1
+}
+
 # webrtc_prebuilt <rust-target>: dir of the libwebrtc archive gg-cast links (for LK_CUSTOM_WEBRTC), fetched once into
 # a shared cache. webrtc-sys would download it itself, but with a timeout slow links to GitHub hit, and per build dir.
 webrtc_prebuilt() {
@@ -54,7 +66,7 @@ source_tar() { (cd "$ROOT" && git ls-files -z --cached --others --exclude-standa
 # to /out are copied to <out-dir>. The cargo registry and target dir persist in named volumes between runs.
 builder() {
   local out="$1" script="$2" id rc=0
-  docker build -q -t "$BUILDER" "$ROOT/scripts/release" >/dev/null
+  docker_build -q -t "$BUILDER" "$ROOT/scripts/release" >/dev/null
   id=$(docker create -v gonggong-cargo-registry:/usr/local/cargo/registry -v gonggong-target:/target "$BUILDER" \
     bash -eo pipefail -c "mkdir -p /out; $script")
   source_tar | docker cp - "$id:/src" >/dev/null && docker start -a "$id" || rc=$?
@@ -72,7 +84,7 @@ cast_image() {
   local platform="${1:-}" arch
   arch="${platform#linux/}"
   arch="${arch:-native}"
-  docker build -q ${platform:+--platform "$platform"} -t "gonggong-cast-build:1.98-bullseye-$arch" \
+  docker_build -q ${platform:+--platform "$platform"} -t "gonggong-cast-build:1.98-bullseye-$arch" \
     -f "$ROOT/scripts/release/cast.Dockerfile" "$ROOT/scripts/release" >/dev/null || return
   echo "gonggong-cast-build:1.98-bullseye-$arch"
 }
