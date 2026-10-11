@@ -8,6 +8,11 @@ export default {
   清除已读失败: "Couldn't clear read notifications",
   删除通知失败: "Couldn't delete the notification",
   通知: 'Notifications',
+  浏览器通知: 'Browser notifications',
+  飞书通知: 'Feishu notifications',
+  '需要你处理的通知同时以卡片发到飞书，由「共工」应用私聊你':
+    'Notifications that need you also arrive as cards in your Feishu chat with the Gonggong app',
+  绑定飞书账号后可开启: 'Link your Feishu account to turn this on',
   全部标为已读: 'Mark all as read',
   清除已读: 'Clear read',
   加载失败: 'Failed to load',

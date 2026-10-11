@@ -35,6 +35,7 @@ import {
 } from '../../ui'
 import { ChangePasswordDialog } from '../auth/ChangePasswordPage'
 import { FeishuIdentityRow } from '../feishu/FeishuIdentityRow'
+import { NotificationSettings } from '../notifications/NotificationSettings'
 import '../groups/groups.css'
 import { accountLabel, gitAccountsApi, useGitAccounts } from './api'
 import { type SettingsPage, useSettings } from './store'
@@ -42,6 +43,7 @@ import './settings.css'
 
 const PAGES: { value: SettingsPage; label: string; icon: IconName }[] = [
   { value: 'appearance', label: t('外观'), icon: 'appearance' },
+  { value: 'notifications', label: t('通知'), icon: 'bell' },
   { value: 'git', label: t('Git 与仓库'), icon: 'git-branch' },
   { value: 'account', label: t('账户'), icon: 'person' },
 ]
@@ -99,7 +101,15 @@ function SettingsDialog({ page: initial, onClose }: { page: SettingsPage; onClos
           ))}
         </nav>
         <div className="gs-settings__body">
-          {page === 'appearance' ? <AppearancePage /> : page === 'git' ? <GitPage /> : <AccountPage />}
+          {page === 'appearance' ? (
+            <AppearancePage />
+          ) : page === 'notifications' ? (
+            <NotificationSettings />
+          ) : page === 'git' ? (
+            <GitPage />
+          ) : (
+            <AccountPage />
+          )}
         </div>
       </div>
     </Dialog>

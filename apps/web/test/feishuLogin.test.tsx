@@ -180,7 +180,13 @@ describe('设置 · 账户 · 飞书', () => {
 
   it('shows the linked identity and unlinks it', async () => {
     let view: FeishuIdentityView = {
-      identity: { name: '王磊', avatar: null, email: 'wanglei@corp.com', boundAt: '2026-10-01T00:00:00Z' },
+      identity: {
+        name: '王磊',
+        avatar: null,
+        email: 'wanglei@corp.com',
+        boundAt: '2026-10-01T00:00:00Z',
+        notify: false,
+      },
     }
     const calls = mockApi({
       ...workspace,

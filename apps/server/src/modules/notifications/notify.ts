@@ -4,6 +4,7 @@ import type { Ctx } from '../../context.js'
 import { notifications } from '../../db/schema.js'
 import { groupTitles } from '../groups/title.js'
 import { teamOfBot, teamOfGroup } from '../teams/service.js'
+import { sendFeishuNotice } from './feishu.js'
 import { sendPush } from './push.js'
 
 type Row = typeof notifications.$inferSelect
@@ -33,7 +34,7 @@ export async function withGroupTitles(ctx: Ctx, payloads: NotificationDto['paylo
   })
 }
 
-/** Stores an in-app notification for one user, pushes it live and, for actionable types, to their browsers. */
+/** Stores an in-app notification for one user, pushes it live and, for actionable types, to their browsers and Feishu. */
 export async function notify(
   ctx: Ctx,
   userId: string,
@@ -53,8 +54,9 @@ export async function notify(
   const dto = notificationDto(row)
   ctx.bus.publish([userId], { t: 'notification.new', notification: dto })
   // Push delivery can be slow; it must not hold up the flow that raised the notification.
-  if (PUSHED_NOTIFICATION_TYPES.includes(type))
-    void sendPush(ctx, userId, dto).catch((e) => console.warn('web push failed:', e))
+  if (!PUSHED_NOTIFICATION_TYPES.includes(type)) return
+  void sendPush(ctx, userId, dto).catch((e) => console.warn('web push failed:', e))
+  void sendFeishuNotice(ctx, userId, dto).catch((e) => console.warn('feishu notice failed:', e))
 }
 
 /**

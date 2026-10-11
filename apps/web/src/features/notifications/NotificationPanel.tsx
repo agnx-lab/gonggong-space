@@ -17,11 +17,10 @@ import {
   type PresenceState,
   Spinner,
   Tag,
-  toast,
   useEscape,
   usePresence,
 } from '../../ui'
-import { enablePush, type PushState, pushState } from './push'
+import { PushAction } from './NotificationSettings'
 import './notifications.css'
 import { t } from '../../i18n'
 
@@ -71,26 +70,6 @@ function ApprovalActions({ n }: { n: NotificationDto }) {
         </Button>
       ) : null}
     </div>
-  )
-}
-
-function PushAction() {
-  const [state, setState] = useState<PushState>(pushState)
-  if (state === 'unsupported') return null
-  if (state === 'granted') return <span>{t('浏览器通知已开启')}</span>
-  if (state === 'denied') return <span>{t('浏览器通知已被禁止，请在浏览器设置中允许')}</span>
-  return (
-    <Button
-      size="small"
-      variant="plain"
-      onClick={() =>
-        enablePush().then(setState, (e: Error) =>
-          toast({ type: 'error', title: t('开启浏览器通知失败'), message: e.message }),
-        )
-      }
-    >
-      {t('开启浏览器通知')}
-    </Button>
   )
 }
 

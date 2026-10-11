@@ -253,6 +253,16 @@ function settledNote(status: string, by: string | null) {
   return zt('已由 {name} 处理', { name: by ?? '' })
 }
 
+/** 飞书通知: one notification in the user's DM, with 打开共工 when 对外地址 is set. */
+export function notificationCard(o: { label: string; group: string; text: string; url: string | null }) {
+  return card(
+    o.label,
+    'blue',
+    [markdown(o.text), ...(o.url ? [linkButton(zt('打开共工'), o.url, true)] : [])],
+    o.group || undefined,
+  )
+}
+
 /** Why a Feishu @ did not start anything, with the way out when there is one. */
 export function noticeCard(message: string, action?: { label: string; url: string }) {
   return card(zt('共工'), 'blue', [

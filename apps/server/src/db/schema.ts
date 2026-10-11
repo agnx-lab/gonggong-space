@@ -1037,6 +1037,8 @@ export const feishuIdentities = pgTable('feishu_identities', {
   refreshToken: text('refresh_token'),
   expiresAt: ts('expires_at'),
   refreshExpiresAt: ts('refresh_expires_at'),
+  /** 飞书通知: pushed notifications also go to the user's DM with the main app. */
+  notify: boolean('notify').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   createdAt: createdAt(),
 })

@@ -132,12 +132,15 @@ export class FeishuError extends Error {
 export interface FeishuApi {
   /** Fetches a tenant token: proves the App ID / Secret pair. */
   verify(app: FeishuCreds): Promise<void>
-  /** Sends to a chat as the app, or as the user when `userToken` is given; `replyTo` replies to that message. */
+  /**
+   * Sends to a chat (or, with `receiveIdType: 'open_id'`, to a user's DM with the app) as the app, or as the user
+   * when `userToken` is given; `replyTo` replies to that message.
+   */
   send(
     app: FeishuCreds,
-    chatId: string,
+    receiveId: string,
     body: FeishuBody,
-    opts?: { replyTo?: string; userToken?: string },
+    opts?: { replyTo?: string; userToken?: string; receiveIdType?: 'chat_id' | 'open_id' },
   ): Promise<{ messageId: string }>
   /** Replaces the content of a card message the app sent. */
   updateCard(app: FeishuCreds, messageId: string, card: string): Promise<void>
@@ -248,7 +251,7 @@ export function larkApi(): FeishuApi {
       )
     },
 
-    async send(app, chatId, body, opts = {}) {
+    async send(app, receiveId, body, opts = {}) {
       const data = { msg_type: body.msgType, content: body.content }
       const sent = opts.replyTo
         ? await call(
@@ -256,7 +259,10 @@ export function larkApi(): FeishuApi {
           )
         : await call(
             client(app).im.v1.message.create(
-              { params: { receive_id_type: 'chat_id' }, data: { ...data, receive_id: chatId } },
+              {
+                params: { receive_id_type: opts.receiveIdType ?? 'chat_id' },
+                data: { ...data, receive_id: receiveId },
+              },
               as(opts.userToken),
             ),
           )

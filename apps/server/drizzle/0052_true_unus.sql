@@ -1,0 +1,1 @@
+ALTER TABLE "feishu_identities" ADD COLUMN "notify" boolean DEFAULT false NOT NULL;

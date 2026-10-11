@@ -1,4 +1,9 @@
-import { FeishuBindReq, type FeishuIdentityView, type FeishuTicketDto } from '@gonggong/protocol'
+import {
+  FeishuBindReq,
+  type FeishuIdentityView,
+  FeishuNotifyReq,
+  type FeishuTicketDto,
+} from '@gonggong/protocol'
 import { verify } from '@node-rs/argon2'
 import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -314,9 +319,27 @@ export function feishuAuthRoutes(ctx: Ctx) {
       const [row] = await ctx.db.select().from(feishuIdentities).where(eq(feishuIdentities.userId, user.id))
       return {
         identity: row
-          ? { name: row.name, avatar: row.avatar, email: row.email, boundAt: row.createdAt.toISOString() }
+          ? {
+              name: row.name,
+              avatar: row.avatar,
+              email: row.email,
+              boundAt: row.createdAt.toISOString(),
+              notify: row.notify,
+            }
           : null,
       }
+    })
+
+    app.put('/api/me/feishu/notify', async (req, reply) => {
+      const user = await requireUser(ctx, req)
+      const { notify } = FeishuNotifyReq.parse(req.body)
+      const [row] = await ctx.db
+        .update(feishuIdentities)
+        .set({ notify })
+        .where(eq(feishuIdentities.userId, user.id))
+        .returning({ id: feishuIdentities.id })
+      if (!row) fail('invalid', '请先绑定飞书')
+      return reply.status(204).send()
     })
 
     app.delete('/api/me/feishu', async (req, reply) => {

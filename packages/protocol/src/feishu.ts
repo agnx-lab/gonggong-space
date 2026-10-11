@@ -43,6 +43,8 @@ export const FeishuIdentityDto = z.object({
   avatar: z.string().nullable(),
   email: z.string().nullable(),
   boundAt: z.string(),
+  /** 飞书通知: pushed notifications also arrive as a card in the main app's DM. */
+  notify: z.boolean(),
 })
 export type FeishuIdentityDto = z.infer<typeof FeishuIdentityDto>
 
@@ -64,6 +66,8 @@ export const FeishuBindReq = z.object({ account: z.string(), password: z.string(
 /** GET /api/me/feishu — the caller's linked Feishu identity, if any. */
 export const FeishuIdentityView = z.object({ identity: FeishuIdentityDto.nullable() })
 export type FeishuIdentityView = z.infer<typeof FeishuIdentityView>
+/** PUT /api/me/feishu/notify */
+export const FeishuNotifyReq = z.object({ notify: z.boolean() })
 
 /** A group bot as seen from the bound chat: whether its own app is set up and is in the chat. */
 export const GroupFeishuBotDto = z.object({

@@ -140,6 +140,8 @@ export const en = {
     'Feishu auto sign-up is off; link an existing account or contact the system admin',
   '账号未设置密码，解绑后将无法登录':
     'This account has no password; after unlinking you could no longer sign in',
+  请先绑定飞书: 'Link your Feishu account first',
+  打开共工: 'Open Gonggong',
   '对外地址改为 {url}': 'Public URL set to {url}',
   '飞书登录新建账号 {account}': 'Created account {account} via Feishu sign-in',
   '绑定飞书身份 {name}': 'Linked Feishu identity {name}',

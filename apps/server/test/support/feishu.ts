@@ -26,6 +26,8 @@ export interface SentMessage {
   replyTo?: string
   /** Sent as this user (token) instead of as the app. */
   userToken?: string
+  /** `chatId` is a user's open_id: a DM with the app. */
+  receiveIdType?: 'open_id'
 }
 
 /** A Feishu user of the fake tenant; `fake.user()` fills the ids. */
@@ -315,6 +317,7 @@ export class FakeFeishu {
         content: JSON.parse(body.content),
         ...(opts.replyTo && { replyTo: opts.replyTo }),
         ...(opts.userToken && { userToken: opts.userToken }),
+        ...(opts.receiveIdType === 'open_id' && { receiveIdType: 'open_id' as const }),
       })
       return { messageId }
     },
