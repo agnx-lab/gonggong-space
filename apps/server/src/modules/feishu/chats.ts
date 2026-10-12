@@ -10,7 +10,7 @@ import { activeBots, publishGroup, requireAdmin } from '../groups/service.js'
 import { botApp, mainApp } from './apps.js'
 import { FeishuError } from './client.js'
 import { credsOf } from './gateway.js'
-import { joinFromFeishu } from './members.js'
+import { joinFromFeishu, syncFromFeishu } from './members.js'
 import { boundChat, markBound, unbindChat } from './mirror.js'
 
 type Params = { Params: { id: string } }
@@ -140,6 +140,13 @@ export function feishuChatRoutes(ctx: Ctx) {
         await publishGroup(ctx, group.id)
       }
       return reply.status(204).send()
+    })
+
+    app.post<Params>('/api/groups/:id/feishu/sync-members', async (req) => {
+      const { group } = await admin(req, req.params.id)
+      const chat = (await boundChat(ctx.db, group.id)) ?? fail('invalid', '该群尚未绑定飞书群')
+      const main = (await mainApp(ctx)) ?? fail('invalid', '系统管理员尚未配置飞书主应用')
+      return syncFromFeishu(ctx, group, await feishu(ctx.feishu.api.chatMembers(credsOf(main), chat.chatId)))
     })
 
     app.post<{ Params: { id: string; botId: string } }>('/api/groups/:id/feishu/bots/:botId', async (req) => {

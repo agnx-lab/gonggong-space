@@ -2,6 +2,7 @@ import type { GroupDto, GroupFeishuView } from '@gonggong/protocol'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { GroupFeishuTab } from '../src/features/feishu/GroupFeishuTab'
+import { useToasts } from '../src/ui/toast'
 import { mockApi } from './mockApi'
 
 const group = { id: 'g1', name: '研发群', kind: 'group' } as GroupDto
@@ -58,6 +59,26 @@ describe('群设置 · 飞书', () => {
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: '飞书研发群' }))
     rerender(<GroupFeishuTab group={{ ...group, name: '飞书研发群' }} />)
     expect(screen.queryByRole('button', { name: '改为飞书群名' })).toBeNull()
+  })
+
+  it('syncs the Feishu chat members and reports who was left out', async () => {
+    const bound: GroupFeishuView = {
+      ...unbound,
+      chats: [],
+      chat: { groupId: 'g1', chatId: 'oc_1', name: '研发群', boundAt: '2026-10-01T00:00:00Z' },
+    }
+    const calls = mockApi({
+      'GET /groups/g1/feishu': bound,
+      'POST /groups/g1/feishu/sync-members': { added: 2, skippedUnlinked: 3, skippedNotInTeam: 1 },
+    })
+    render(<GroupFeishuTab group={group} />)
+    fireEvent.click(await screen.findByRole('button', { name: '同步飞书群成员' }))
+    await waitFor(() =>
+      expect(useToasts.getState().items.map((i) => i.message)).toContain(
+        '新加入 2 人；3 人未注册共工，1 人不在本团队',
+      ),
+    )
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/groups/g1/feishu/sync-members')).toBe(true)
   })
 
   it('explains that the main app must be configured first', async () => {

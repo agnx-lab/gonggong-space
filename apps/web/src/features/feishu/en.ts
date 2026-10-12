@@ -109,4 +109,10 @@ export default {
     'Differs from the Feishu chat name “{name}”; matching it makes the two easy to pair',
   改为飞书群名: 'Use Feishu chat name',
   已改为飞书群名称: 'Renamed after the Feishu chat',
+  同步飞书群成员: 'Sync Feishu chat members',
+  '把飞书群里已注册共工的本团队成员补进本群，用于补上后来才注册或入团队的人':
+    'Adds team members in the Feishu chat who have Gonggong accounts, catching up on people who signed up or joined the team later',
+  '新加入 {n} 人': '{n} joined',
+  '新加入 {n} 人；{unlinked} 人未注册共工，{outside} 人不在本团队':
+    '{n} joined; {unlinked} have no Gonggong account, {outside} are not in this team',
 } satisfies Record<string, string>

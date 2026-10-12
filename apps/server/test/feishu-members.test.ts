@@ -1,4 +1,4 @@
-import type { GroupDto, GroupFeishuView } from '@gonggong/protocol'
+import type { FeishuMemberSyncDto, GroupDto, GroupFeishuView } from '@gonggong/protocol'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { feishuIdentities, groupMembers, messages, systemParams } from '../src/db/schema.js'
@@ -62,6 +62,40 @@ const events = async (groupId: string) =>
   ).map((m) => m.body)
 
 describe('飞书群 → 共工群 members', () => {
+  it('an admin syncs the chat users on demand: linked team members join, the rest are counted', async () => {
+    const { owner, group, ownerHttp, bind } = await setup()
+    await bind()
+    const late = await t.seed.user({ name: '李娜' })
+    const outsider = await t.seed.user({ name: '外人', teamId: null })
+    const lateFs = await link(late.id)
+    const outsiderFs = await link(outsider.id)
+    t.feishu.members.set(CHAT, [
+      ...(t.feishu.members.get(CHAT) ?? []),
+      lateFs.unionId,
+      outsiderFs.unionId,
+      'on_x',
+      'on_y',
+    ])
+
+    const res = await ownerHttp.post<FeishuMemberSyncDto>(`/api/groups/${group.id}/feishu/sync-members`)
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ added: 1, skippedUnlinked: 2, skippedNotInTeam: 1 })
+    expect(await memberIds(group.id)).toEqual([owner.id, late.id].sort())
+    expect(await events(group.id)).toContain('李娜 随飞书群加入群')
+    const again = await ownerHttp.post<FeishuMemberSyncDto>(`/api/groups/${group.id}/feishu/sync-members`)
+    expect(again.body.added).toBe(0)
+  })
+
+  it('refuses syncing an unbound group or for a plain member', async () => {
+    const { group, ownerHttp, bind } = await setup()
+    expect((await ownerHttp.post(`/api/groups/${group.id}/feishu/sync-members`)).status).toBe(400)
+    await bind()
+    const mate = await t.seed.user()
+    await t.db.insert(groupMembers).values({ groupId: group.id, userId: mate.id })
+    const mateHttp = client(t, await t.seed.cookie(mate.id))
+    expect((await mateHttp.post(`/api/groups/${group.id}/feishu/sync-members`)).status).toBe(403)
+  })
+
   it('binding pulls in linked team members of the chat; strangers and unlinked users are skipped', async () => {
     const { owner, group, bind } = await setup()
     const mate = await t.seed.user({ name: '李娜' })

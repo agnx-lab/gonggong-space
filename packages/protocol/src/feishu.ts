@@ -89,6 +89,16 @@ export const GroupFeishuView = z.object({
 })
 export type GroupFeishuView = z.infer<typeof GroupFeishuView>
 
+/** POST /api/groups/:id/feishu/sync-members: chat users pulled into the group and those left out. */
+export const FeishuMemberSyncDto = z.object({
+  added: z.number().int(),
+  /** Not linked to any 共工 account. */
+  skippedUnlinked: z.number().int(),
+  /** Linked, but not a member of the group's team. */
+  skippedNotInTeam: z.number().int(),
+})
+export type FeishuMemberSyncDto = z.infer<typeof FeishuMemberSyncDto>
+
 /** PUT /api/groups/:id/feishu: bind the group to one of the main app's chats (one to one). */
 export const BindFeishuChatReq = z.object({ chatId: z.string().trim().min(1) })
 

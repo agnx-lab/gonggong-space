@@ -1,4 +1,4 @@
-import type { GroupDto, GroupFeishuView } from '@gonggong/protocol'
+import type { FeishuMemberSyncDto, GroupDto, GroupFeishuView } from '@gonggong/protocol'
 import { useState } from 'react'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
@@ -27,6 +27,28 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
     }
   }
 
+  const syncMembers = async () => {
+    setBusy(true)
+    try {
+      const r = await api.post<FeishuMemberSyncDto>(`${path}/sync-members`, {})
+      toast({
+        type: 'success',
+        message:
+          r.skippedUnlinked || r.skippedNotInTeam
+            ? t('新加入 {n} 人；{unlinked} 人未注册共工，{outside} 人不在本团队', {
+                n: r.added,
+                unlinked: r.skippedUnlinked,
+                outside: r.skippedNotInTeam,
+              })
+            : t('新加入 {n} 人', { n: r.added }),
+      })
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!data) return <Spinner />
   if (!data.available)
     return <div className="gs-note">{t('系统管理员尚未配置飞书主应用，暂不能绑定飞书群。')}</div>
@@ -48,6 +70,14 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
               <span className="gs-value">{data.chat.name}</span>
               <Button disabled={busy} onClick={() => setUnbinding(true)}>
                 {t('解绑#feishu')}
+              </Button>
+            </GroupRow>
+            <GroupRow
+              label={t('群成员')}
+              description={t('把飞书群里已注册共工的本团队成员补进本群，用于补上后来才注册或入团队的人')}
+            >
+              <Button disabled={busy} onClick={() => void syncMembers()}>
+                {t('同步飞书群成员')}
               </Button>
             </GroupRow>
             {group.name !== data.chat.name ? (

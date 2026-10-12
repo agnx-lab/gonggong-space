@@ -1,3 +1,4 @@
+import type { FeishuMemberSyncDto } from '@gonggong/protocol'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import { feishuChats, feishuIdentities, groupMembers, groups, teamMembers, users } from '../../db/schema.js'
@@ -34,7 +35,7 @@ async function boundGroupOf(ctx: Ctx, chatId: string) {
   return row
 }
 
-/** Adds the chat users behind `unionIds` who are not in the group yet. */
+/** Adds the chat users behind `unionIds` who are not in the group yet; returns how many joined. */
 export async function joinFromFeishu(ctx: Ctx, group: { id: string; teamId: string }, unionIds: string[]) {
   const current = new Set(
     (
@@ -45,7 +46,7 @@ export async function joinFromFeishu(ctx: Ctx, group: { id: string; teamId: stri
     ).map((m) => m.userId),
   )
   const joining = (await linkedUsers(ctx, group.teamId, unionIds)).filter((u) => !current.has(u.id))
-  if (!joining.length) return
+  if (!joining.length) return 0
   await ctx.db
     .insert(groupMembers)
     .values(joining.map((u) => ({ groupId: group.id, userId: u.id })))
@@ -53,6 +54,30 @@ export async function joinFromFeishu(ctx: Ctx, group: { id: string; teamId: stri
   forgetMembers(group.id)
   for (const u of joining) await postEvent(ctx, group.id, '{member} 随飞书群加入群', { member: u.name })
   await publishGroup(ctx, group.id)
+  return joining.length
+}
+
+/** 同步飞书群成员: catches up on joins the events missed (users who linked or joined the team later). */
+export async function syncFromFeishu(
+  ctx: Ctx,
+  group: { id: string; teamId: string },
+  unionIds: string[],
+): Promise<FeishuMemberSyncDto> {
+  const linked = unionIds.length
+    ? await ctx.db
+        .select({ userId: feishuIdentities.userId, teamId: teamMembers.teamId })
+        .from(feishuIdentities)
+        .leftJoin(
+          teamMembers,
+          and(eq(teamMembers.userId, feishuIdentities.userId), eq(teamMembers.teamId, group.teamId)),
+        )
+        .where(inArray(feishuIdentities.unionId, unionIds))
+    : []
+  return {
+    added: await joinFromFeishu(ctx, group, unionIds),
+    skippedUnlinked: unionIds.length - linked.length,
+    skippedNotInTeam: linked.filter((l) => !l.teamId).length,
+  }
 }
 
 /** Takes the users behind `unionIds` out of the group, except its only admin. */
@@ -122,7 +147,10 @@ const unionIdsOf = (ev: MemberEvent) => (ev.users ?? []).flatMap((u) => u.user_i
 
 /** Member events reach the main app only: bot apps do not subscribe to them. */
 export function startFeishuMembers(ctx: Ctx) {
-  const on = async (ev: MemberEvent, apply: typeof joinFromFeishu) => {
+  const on = async (
+    ev: MemberEvent,
+    apply: (ctx: Ctx, group: { id: string; teamId: string }, unionIds: string[]) => Promise<unknown>,
+  ) => {
     const group = ev.chat_id && (await boundGroupOf(ctx, ev.chat_id))
     if (group) await apply(ctx, group, unionIdsOf(ev))
   }
