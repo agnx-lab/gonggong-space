@@ -222,18 +222,16 @@ export function ChatStrip({ group }: { group: GroupDto }) {
   )
 }
 
-/** Connection, bots online and machines online, in place of a window status bar. */
-function Footer({ machines }: { machines: MachineDto[] }) {
+/** Connection, my bots online and my machines online, in place of a window status bar. */
+function Footer({ bots, machines }: { bots: BotDto[]; machines: MachineDto[] }) {
   const conn = CONN[useRealtimeStatus()]
-  const bots = useWorkspace(
-    (s) => s.bots.filter((b) => b.presence === 'online' || b.presence === 'running').length,
-  )
+  const live = bots.filter((b) => b.presence === 'online' || b.presence === 'running').length
   const online = machines.filter((m) => m.online).length
   return (
     <footer className="sidebar__foot">
       <span className="sidebar__dot" style={{ background: conn.color }} />
       <span>{conn.label}</span>
-      <span>{t('{n} 个 Bot 在线', { n: bots })}</span>
+      <span>{t('{n} 个 Bot 在线', { n: live })}</span>
       {machines.length ? <span>{t('{n} 台机器在线', { n: online })}</span> : null}
     </footer>
   )
@@ -391,7 +389,7 @@ export function Sidebar({
           </div>
         </section>
       </div>
-      <Footer machines={machines} />
+      <Footer bots={bots} machines={machines} />
     </div>
   )
 }

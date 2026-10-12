@@ -1,4 +1,4 @@
-import type { GroupDto, MachineDto, UserDto } from '@gonggong/protocol'
+import type { BotDto, GroupDto, MachineDto, UserDto } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -84,9 +84,9 @@ const renderAt = (path: string) =>
 
 const setWidth = (w: number) => Object.defineProperty(window, 'innerWidth', { configurable: true, value: w })
 
-const routes = (groups: unknown, machines: MachineDto[] = []) => ({
+const routes = (groups: unknown, machines: MachineDto[] = [], bots: BotDto[] = []) => ({
   'GET /groups': groups,
-  'GET /bots': [],
+  'GET /bots': bots,
   'GET /machines': machines,
   'GET /notifications': [],
 })
@@ -139,6 +139,35 @@ describe('connection status', () => {
     const nav = screen.getByRole('navigation', { name: '会话列表' })
     expect(await within(nav).findByText('2 台机器在线')).toBeTruthy()
     expect(within(nav).queryByText(/本机 daemon/)).toBeNull()
+  })
+
+  it('counts only my own bots as online in the sidebar footer, like the machines', async () => {
+    const bot = (id: string, ownerId: string, presence: BotDto['presence']) =>
+      ({
+        id,
+        teamId: 't1',
+        name: id,
+        ownerId,
+        ownerName: ownerId,
+        agentKind: 'claude',
+        avatar: 'role-no',
+        machineId: 'mbp',
+        binding: 'bound',
+        presence,
+        triggerScope: 'all',
+        triggerList: [],
+        sharedWith: [],
+      }) as unknown as BotDto
+    mockApi(
+      routes(
+        [],
+        [machine('mbp', true)],
+        [bot('mine', 'u1', 'online'), bot('mine-off', 'u1', 'offline'), bot('theirs', 'u2', 'running')],
+      ),
+    )
+    renderAt('/')
+    const nav = screen.getByRole('navigation', { name: '会话列表' })
+    expect(await within(nav).findByText('1 个 Bot 在线')).toBeTruthy()
   })
 
   it('shows a reconnect banner on mobile only after the realtime connection drops', async () => {
