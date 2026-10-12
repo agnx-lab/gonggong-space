@@ -3,15 +3,27 @@ import { useEffect, useState } from 'react'
 import { useSession } from '../../app/session'
 import { t } from '../../i18n'
 import { cx } from '../../lib/cx'
-import { toastError } from '../../lib/errors'
-import { Button, Dialog, GroupBox, GroupRow, Icon, type IconName, Spinner, Stepper, toast } from '../../ui'
+import { attempt, toastError } from '../../lib/errors'
+import {
+  Button,
+  Dialog,
+  GroupBox,
+  GroupRow,
+  Icon,
+  type IconName,
+  Spinner,
+  Stepper,
+  Switch,
+  TextField,
+  toast,
+} from '../../ui'
 import { McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
 import { SkillLayerList } from '../config/SkillLayer'
 import { GroupFeishuTab } from '../feishu/GroupFeishuTab'
 import { RepoWorkspaceView } from '../repos/RepoWorkspaceView'
 import { SyncModeTab } from '../sync/SyncModeTab'
 import { groupsApi } from './api'
-import { BotsView, type SettingsTab } from './GroupInfo'
+import { BotsView, MembersView, type SettingsTab } from './GroupInfo'
 
 /** Only the P1 params are adjustable (spec §10). */
 const PARAMS: { key: keyof GroupParams; label: string }[] = [
@@ -35,6 +47,8 @@ export function GroupSettingsDialog({
   onClose: () => void
 }) {
   const [tab, setTab] = useState(initial)
+  // Reopened on another tab while still closing, the dialog is reused rather than remounted.
+  useEffect(() => setTab(initial), [initial])
   const [params, setParams] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
   const dm = group.kind === 'dm'
@@ -113,7 +127,7 @@ export function GroupSettingsDialog({
           {tab === 'basic' ? (
             <BasicTab group={group} />
           ) : tab === 'bots' ? (
-            <BotsView group={group} isAdmin member />
+            <MembersTab group={group} />
           ) : tab === 'repo' ? (
             <RepoWorkspaceView group={group} isAdmin />
           ) : tab === 'mcp' ? (
@@ -152,26 +166,71 @@ export function GroupSettingsDialog({
 function BasicTab({ group }: { group: GroupDto }) {
   const me = useSession((s) => s.user)
   const dm = group.kind === 'dm'
-  const rows = [
-    { k: dm ? t('私聊名称') : t('群名'), v: group.name },
-    dm
-      ? { k: t('类型'), v: t('私聊 · 仅你和你的 Bot，不能邀请他人') }
-      : {
-          k: t('群管理员'),
-          v: group.members
-            .filter((m) => m.isAdmin)
-            .map((m) => (m.userId === me?.id ? t('{name}（我）', { name: m.name }) : m.name))
-            .join(t('、')),
-        },
-  ]
+  const [name, setName] = useState(group.name)
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    setSaving(true)
+    if (await attempt(() => groupsApi.update(group.id, { name: name.trim() })))
+      toast({ type: 'success', message: t('名称已保存') })
+    setSaving(false)
+  }
   return (
     <GroupBox>
-      {rows.map((r) => (
-        <GroupRow key={r.k} label={r.k}>
-          <span className="gs-value">{r.v}</span>
+      <GroupRow label={dm ? t('私聊名称') : t('群名称')}>
+        <span className="gs-value-line">
+          <TextField
+            aria-label={dm ? t('私聊名称') : t('群名称')}
+            value={name}
+            maxLength={60}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Button
+            size="small"
+            disabled={!name.trim() || name.trim() === group.name || saving}
+            onClick={() => void save()}
+          >
+            {t('保存')}
+          </Button>
+        </span>
+      </GroupRow>
+      {dm ? (
+        <GroupRow label={t('类型')}>
+          <span className="gs-value">{t('私聊 · 仅你和你的 Bot，不能邀请他人')}</span>
         </GroupRow>
-      ))}
+      ) : (
+        <GroupRow label={t('群管理员')}>
+          <span className="gs-value">
+            {group.members
+              .filter((m) => m.isAdmin)
+              .map((m) => (m.userId === me?.id ? t('{name}（我）', { name: m.name }) : m.name))
+              .join(t('、'))}
+          </span>
+        </GroupRow>
+      )}
     </GroupBox>
+  )
+}
+
+/** 成员与 Bot: who may invite, the members, then the Bots (a DM has only its Bots). */
+function MembersTab({ group }: { group: GroupDto }) {
+  if (group.kind === 'dm') return <BotsView group={group} isAdmin member />
+  return (
+    <>
+      <GroupBox>
+        <GroupRow
+          label={t('仅群管理员可拉人')}
+          description={t('关闭时所有成员都能拉人；成员始终可拉入自己的 Bot')}
+        >
+          <Switch
+            aria-label={t('仅群管理员可拉人')}
+            checked={group.adminOnlyInvite}
+            onChange={(v) => void attempt(() => groupsApi.update(group.id, { adminOnlyInvite: v }))}
+          />
+        </GroupRow>
+      </GroupBox>
+      <MembersView group={group} isAdmin canInvite initialAdding={false} />
+      <BotsView group={group} isAdmin member />
+    </>
   )
 }
 

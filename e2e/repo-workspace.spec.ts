@@ -78,7 +78,7 @@ test('picks a recent repo and moves my bot to a local checkout', async ({ page }
     await main.getByRole('button', { name: '群设置' }).click()
     const drawer = page.getByRole('complementary', { name: '群设置' })
     await drawer.getByRole('button', { name: /仓库与工作区/ }).click()
-    const row = drawer.getByTestId(`rw-bot-${bot.id}`)
+    const row = page.getByRole('dialog', { name: /^仓库与工作区/ }).getByTestId(`rw-bot-${bot.id}`)
     await expect(row).toContainText('托管克隆 · 就绪')
     await row.getByRole('button', { name: '更改…' }).click()
     const picker = page.getByRole('dialog', { name: `为 ${botName} 选择工作区` })

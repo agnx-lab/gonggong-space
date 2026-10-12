@@ -140,7 +140,7 @@ export function GroupInfo({
     members: t('群成员 · {n}', { n: group.members.length }),
     bots: `Bot · ${group.botIds.length}`,
     repo: t('仓库与工作区'),
-    info: dm ? t('私聊名称') : t('群名称与公告'),
+    info: t('编辑群公告'),
     notices: t('群公告'),
     previews: t('预览与服务'),
     schedules: t('定时任务'),
@@ -178,7 +178,7 @@ export function GroupInfo({
       ) : view === 'schedules' ? (
         <SchedulesView groupId={group.id} />
       ) : (
-        <InfoForm group={group} onSaved={() => setView('main')} />
+        <NoticeForm group={group} onSaved={() => setView('main')} />
       )}
     </InspectorPanel>
   )
@@ -257,11 +257,12 @@ function MainView({
     void gone(() => groupsApi.dissolve(group.id), dm ? t('已删除私聊') : t('群已解散'))
   }
 
-  const manage = (name: string, value: ReactNode, onClick: () => void): ChatInfoRow => ({
+  /** Admins jump to the settings dialog; members may only read what has a read-only view here. */
+  const manage = (name: string, value: ReactNode, tab: SettingsTab, readView?: InfoView): ChatInfoRow => ({
     label: name,
     value,
-    onClick,
-    disabled: !isAdmin,
+    onClick: () => (isAdmin ? onSettings(tab) : readView && setView(readView)),
+    disabled: !isAdmin && !readView,
   })
   const danger: ChatInfoDanger[] = [
     ...(canLeave
@@ -345,11 +346,6 @@ function MainView({
               value: t('{n} 个', { n: group.botIds.length }),
               onClick: () => setView('bots'),
             },
-            {
-              label: t('仓库与工作区'),
-              value: group.repo ? repoPath(group.repo.url) : t('未绑定'),
-              onClick: () => setView('repo'),
-            },
             ...(group.mode === 'force'
               ? [
                   {
@@ -398,36 +394,37 @@ function MainView({
               ? t('你是群管理员')
               : t('仅群管理员 · {names}', { names: admins.map((m) => m.name).join(t('、')) }),
           rows: [
-            manage(dm ? t('私聊名称') : t('群名称与公告'), group.name, () => setView('info')),
+            manage(dm ? t('私聊名称') : t('基本信息'), group.name, 'basic'),
+            ...(dm
+              ? []
+              : [
+                  manage(
+                    t('成员与 Bot'),
+                    group.adminOnlyInvite ? t('仅群管理员可拉人') : t('所有成员可拉人'),
+                    'bots',
+                  ),
+                ]),
             manage(
-              t('仓库与基准分支'),
-              <span className={group.repo ? 'gs-mono' : undefined}>{group.repo?.url ?? t('未绑定')}</span>,
-              () => onSettings('repo'),
+              t('仓库与工作区'),
+              <span className={group.repo ? 'gs-mono' : undefined}>
+                {group.repo ? repoPath(group.repo.url) : t('未绑定')}
+              </span>,
+              'repo',
+              'repo',
             ),
-            manage(t('同步模式'), GROUP_MODE_LABEL[group.mode], () => onSettings('mode')),
+            manage(t('同步模式'), GROUP_MODE_LABEL[group.mode], 'mode'),
             paramsFailed
               ? {
                   label: t('群级参数'),
                   value: <LoadError text={t('群级参数加载失败')} onRetry={loadParams} />,
                 }
-              : manage(t('群级参数'), params ? paramsSummary(params) : '', () => onSettings('params')),
+              : manage(t('群级参数'), params ? paramsSummary(params) : '', 'params'),
             ...(dm
               ? []
               : [
-                  {
-                    label: t('仅群管理员可拉人'),
-                    description: t('关闭时所有成员都能拉人；成员始终可拉入自己的 Bot'),
-                    control: (
-                      <Switch
-                        aria-label={t('仅群管理员可拉人')}
-                        checked={group.adminOnlyInvite}
-                        disabled={!isAdmin}
-                        onChange={(v) =>
-                          void attempt(() => groupsApi.update(group.id, { adminOnlyInvite: v }))
-                        }
-                      />
-                    ),
-                  },
+                  manage('MCP', undefined, 'mcp'),
+                  manage('Skill', undefined, 'skill'),
+                  manage(t('飞书'), undefined, 'feishu'),
                 ]),
           ],
         },
@@ -437,7 +434,7 @@ function MainView({
   )
 }
 
-function MembersView({
+export function MembersView({
   group,
   isAdmin,
   canInvite,
@@ -731,37 +728,27 @@ function GroupTierPicker({ groupId, bot, tier }: { groupId: string; bot: BotDto;
   )
 }
 
-function InfoForm({ group, onSaved }: { group: GroupDto; onSaved: () => void }) {
-  const [name, setName] = useState(group.name)
+function NoticeForm({ group, onSaved }: { group: GroupDto; onSaved: () => void }) {
   const [notice, setNotice] = useState(group.notice)
   const [saving, setSaving] = useState(false)
-  const dm = group.kind === 'dm'
   const save = async () => {
     setSaving(true)
-    if (await attempt(() => groupsApi.update(group.id, dm ? { name } : { name, notice }))) onSaved()
+    if (await attempt(() => groupsApi.update(group.id, { notice }))) onSaved()
     setSaving(false)
   }
   return (
     <div className="gs-form">
       <TextField
-        label={dm ? t('私聊名称') : t('群名称')}
-        value={name}
-        maxLength={60}
-        onChange={(e) => setName(e.target.value)}
+        multiline
+        label={t('群公告 · 置顶展示在对话顶部')}
+        rows={4}
+        value={notice}
+        maxLength={500}
+        placeholder={t('如：每个 Bot 独立分支，走 PR；退款 v1 下周一下线')}
+        onChange={(e) => setNotice(e.target.value)}
       />
-      {dm ? null : (
-        <TextField
-          multiline
-          label={t('群公告 · 置顶展示在对话顶部')}
-          rows={4}
-          value={notice}
-          maxLength={500}
-          placeholder={t('如：每个 Bot 独立分支，走 PR；退款 v1 下周一下线')}
-          onChange={(e) => setNotice(e.target.value)}
-        />
-      )}
       <div className="gs-form__foot">
-        <Button variant="primary" disabled={!name.trim() || saving} onClick={() => void save()}>
+        <Button variant="primary" disabled={saving} onClick={() => void save()}>
           {t('保存')}
         </Button>
       </div>

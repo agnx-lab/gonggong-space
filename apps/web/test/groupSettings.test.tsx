@@ -223,8 +223,13 @@ describe('group settings inspector', () => {
     renderAt('/g/g1')
     const d = await openDrawer()
     expect(within(d).getByText('仅群管理员 · 李建国')).toBeTruthy()
-    for (const name of [/群名称与公告/, /仓库与基准分支/, /同步模式/, /群级参数/])
+    for (const name of [/基本信息/, /成员与 Bot/, /同步模式/, /群级参数/, /^MCP/, /^Skill/, /^飞书/])
       expect(within(d).getByRole('button', { name }).hasAttribute('disabled')).toBe(true)
+    expect(
+      within(d)
+        .getByRole('button', { name: /仓库与工作区/ })
+        .hasAttribute('disabled'),
+    ).toBe(false)
     expect(within(d).queryByRole('button', { name: '解散群' })).toBeNull()
   })
 
@@ -239,7 +244,7 @@ describe('group settings inspector', () => {
     mockApi(routes([group(plain)], { 'GET /bots': bots }))
     renderAt('/g/g1')
     const d = await openDrawer()
-    expect(within(d).getByRole('switch', { name: '仅群管理员可拉人' }).hasAttribute('disabled')).toBe(true)
+    expect(within(d).queryByRole('switch', { name: '仅群管理员可拉人' })).toBeNull()
     fireEvent.click(within(d).getByRole('button', { name: '查看全部' }))
     expect(within(d).getByRole('button', { name: '添加成员' })).toBeTruthy()
     fireEvent.click(within(d).getByRole('button', { name: '返回' }))
@@ -274,13 +279,17 @@ describe('group settings inspector', () => {
     )
     renderAt('/g/g1')
     const admin = await openDrawer()
-    fireEvent.click(within(admin).getByRole('switch', { name: '仅群管理员可拉人' }))
+    expect(within(admin).queryByRole('switch', { name: '仅群管理员可拉人' })).toBeNull()
+    fireEvent.click(within(admin).getByRole('button', { name: /成员与 Bot\s*所有成员可拉人/ }))
+    const dlg = await screen.findByRole('dialog', { name: '成员与 Bot · 支付服务重构' })
+    expect(within(dlg).getByTestId('member-u2')).toBeTruthy()
+    fireEvent.click(within(dlg).getByRole('switch', { name: '仅群管理员可拉人' }))
     await waitFor(() =>
       expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ adminOnlyInvite: true }),
     )
   })
 
-  it('edits the name and notice, then shows the notice bar', async () => {
+  it('edits the notice in the inspector, then shows the notice bar', async () => {
     const calls = mockApi(
       routes([group()], {
         'PATCH /groups/g1': (b: unknown) => group(b as Partial<GroupDto>),
@@ -288,18 +297,29 @@ describe('group settings inspector', () => {
     )
     renderAt('/g/g1')
     const d = await openDrawer()
-    fireEvent.click(within(d).getByRole('button', { name: /群名称与公告/ }))
-    const info = await screen.findByRole('complementary', { name: '群设置' })
-    fireEvent.change(within(info).getByLabelText('群名称'), { target: { value: '设置后' } })
-    fireEvent.change(within(info).getByLabelText(/群公告/), { target: { value: '每个 Bot 独立分支，走 PR' } })
-    fireEvent.click(within(info).getByRole('button', { name: '保存' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({
-      name: '设置后',
-      notice: '每个 Bot 独立分支，走 PR',
-    })
+    fireEvent.click(within(d).getByRole('button', { name: '公告' }))
+    expect(within(d).queryByLabelText('群名称')).toBeNull()
+    fireEvent.change(within(d).getByLabelText(/群公告/), { target: { value: '每个 Bot 独立分支，走 PR' } })
+    fireEvent.click(within(d).getByRole('button', { name: '保存' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ notice: '每个 Bot 独立分支，走 PR' }),
+    )
     expect((await screen.findByTestId('group-notice')).textContent).toContain('每个 Bot 独立分支，走 PR')
-    expect(screen.getByRole('heading', { name: '设置后' })).toBeTruthy()
+  })
+
+  it('renames the group from 基本信息 in the settings dialog', async () => {
+    const calls = mockApi(
+      routes([group()], {
+        'PATCH /groups/g1': (b: unknown) => group(b as Partial<GroupDto>),
+      }),
+    )
+    renderAt('/g/g1')
+    fireEvent.click(within(await openDrawer()).getByRole('button', { name: /基本信息/ }))
+    const dlg = await screen.findByRole('dialog', { name: '基本信息 · 支付服务重构' })
+    fireEvent.change(within(dlg).getByLabelText('群名称'), { target: { value: '设置后' } })
+    fireEvent.click(within(dlg).getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: '设置后' }))
+    expect(await within(screen.getByRole('main')).findByRole('heading', { name: '设置后' })).toBeTruthy()
   })
 
   it('lets an admin remove the notice for everyone after confirming', async () => {
@@ -414,9 +434,10 @@ describe('group settings inspector', () => {
     fireEvent.click(await within(screen.getByRole('main')).findByRole('button', { name: '群设置' }))
     const d = await screen.findByRole('complementary', { name: '私聊设置' })
     fireEvent.click(within(d).getByRole('button', { name: /私聊名称/ }))
-    expect(within(d).queryByLabelText(/群公告/)).toBeNull()
-    fireEvent.change(within(d).getByLabelText('私聊名称'), { target: { value: '重构登录' } })
-    fireEvent.click(within(d).getByRole('button', { name: '保存' }))
+    const dlg = await screen.findByRole('dialog', { name: /^基本信息/ })
+    expect(within(dlg).queryByLabelText(/群公告/)).toBeNull()
+    fireEvent.change(within(dlg).getByLabelText('私聊名称'), { target: { value: '重构登录' } })
+    fireEvent.click(within(dlg).getByRole('button', { name: '保存' }))
     await waitFor(() =>
       expect(calls).toContainEqual(
         expect.objectContaining({ method: 'PATCH', path: '/groups/g1', body: { name: '重构登录' } }),

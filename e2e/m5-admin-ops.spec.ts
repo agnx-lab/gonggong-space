@@ -78,15 +78,19 @@ test('group settings: name + notice, group params, mute/pin, leaving and dissolv
   const group = await api.call<{ id: string }>('post', '/api/groups', { name: '设置前', kind: 'group' })
   await page.goto(`/g/${group.id}`)
   await page.getByRole('button', { name: '群设置' }).click()
-  await page.getByRole('button', { name: /群名称与公告/ }).click()
-  await page.getByLabel('群名称').fill('设置后')
-  await page.getByLabel(/群公告/).fill('每个 Bot 独立分支，走 PR')
-  await page.getByRole('button', { name: '保存' }).click()
-  await expect(page.getByTestId('group-notice')).toContainText('每个 Bot 独立分支，走 PR')
-  await expect(page.getByRole('heading', { name: '设置后' })).toBeVisible()
-
-  // Saving returns the inspector to its root view; it stays open.
   const settings = page.getByRole('complementary', { name: '群设置' })
+  await settings.getByRole('button', { name: /基本信息/ }).click()
+  const basic = page.getByRole('dialog', { name: /^基本信息/ })
+  await basic.getByLabel('群名称').fill('设置后')
+  await basic.getByRole('button', { name: '保存' }).click()
+  await expect(page.getByRole('main').getByRole('heading', { name: '设置后' })).toBeVisible()
+  await basic.getByRole('button', { name: '关闭' }).click()
+
+  // The notice is edited in the inspector; saving returns it to its root view and it stays open.
+  await settings.getByRole('button', { name: '公告', exact: true }).click()
+  await settings.getByLabel(/群公告/).fill('每个 Bot 独立分支，走 PR')
+  await settings.getByRole('button', { name: '保存' }).click()
+  await expect(page.getByTestId('group-notice')).toContainText('每个 Bot 独立分支，走 PR')
   await settings.getByRole('button', { name: /群级参数/ }).click()
   await page.getByLabel('接力链长上限（跳）').fill('1')
   await page.getByRole('button', { name: '保存' }).click()

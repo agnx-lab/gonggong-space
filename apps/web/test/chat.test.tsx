@@ -1165,7 +1165,7 @@ describe('repo and workspaces', () => {
     const main = screen.getByRole('main')
     fireEvent.click(await within(main).findByRole('button', { name: '群设置' }))
     const drawer = await screen.findByRole('complementary', { name: '群设置' })
-    fireEvent.click(within(drawer).getByRole('button', { name: /仓库与基准分支/ }))
+    fireEvent.click(within(drawer).getByRole('button', { name: /仓库与工作区/ }))
     const dialog = await screen.findByRole('dialog', { name: '仓库与工作区 · 退款 v2 迁移' })
     expect(within(dialog).getByText('pay/refund')).toBeTruthy()
 
@@ -1225,21 +1225,20 @@ describe('repo and workspaces', () => {
     fireEvent.click(await within(main).findByRole('button', { name: '群设置' }))
     const drawer = await screen.findByRole('complementary', { name: '群设置' })
     fireEvent.click(within(drawer).getByRole('button', { name: /仓库与工作区/ }))
-    const theirs = await within(drawer).findByTestId('rw-bot-b2')
+    const dialog = await screen.findByRole('dialog', { name: '仓库与工作区 · 退款 v2 迁移' })
+    const theirs = await within(dialog).findByTestId('rw-bot-b2')
     fireEvent.click(within(theirs).getByRole('button', { name: '重新检查' }))
     await waitFor(() => expect(calls.some((c) => c.path === '/groups/g1/bots/b2/recheck')).toBe(true))
   })
 
-  it('locks repo binding for non-admins', async () => {
+  it('locks repo binding for non-admins: they only read it in the inspector', async () => {
     mockApi(baseRoutes([group({ members: [{ userId: 'u1', name: '王磊', avatar: null, isAdmin: false }] })]))
     renderAt('/g/g1')
     const main = screen.getByRole('main')
     fireEvent.click(await within(main).findByRole('button', { name: '群设置' }))
     const drawer = await screen.findByRole('complementary', { name: '群设置' })
-    expect(
-      within(drawer)
-        .getByRole('button', { name: /仓库与基准分支/ })
-        .hasAttribute('disabled'),
-    ).toBe(true)
+    fireEvent.click(within(drawer).getByRole('button', { name: /仓库与工作区/ }))
+    expect(screen.queryByRole('dialog', { name: /仓库与工作区/ })).toBeNull()
+    expect(within(drawer).queryByRole('button', { name: '更换…' })).toBeNull()
   })
 })
