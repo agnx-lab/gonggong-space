@@ -330,6 +330,15 @@ describe('account menu', () => {
     })
   })
 
+  it('shows my account name on the account page', async () => {
+    mockApi({ 'GET /me': me })
+    renderAt('/')
+    const settings = await openSettings()
+    fireEvent.click(within(settings).getByRole('button', { name: /账户/ }))
+    expect(within(settings).getByText('账号')).toBeTruthy()
+    expect(within(settings).getByText('wanglei')).toBeTruthy()
+  })
+
   it('changes my own display name from settings and shows it at once', async () => {
     const calls = mockApi({ 'GET /me': me, 'PATCH /me': { ...me, name: '王小磊' } })
     renderAt('/')

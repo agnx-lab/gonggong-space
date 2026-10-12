@@ -411,6 +411,7 @@ function AccountPage() {
     <>
       <GroupBox>
         <AvatarRow />
+        <GroupRow label={t('账号')}>{user?.account}</GroupRow>
         <GroupRow label={t('显示名')}>
           <span className="gs-value-line">
             {user?.name}
