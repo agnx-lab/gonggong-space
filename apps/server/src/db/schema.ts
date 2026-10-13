@@ -419,6 +419,8 @@ export const messages = pgTable(
   (t) => [
     index('messages_group_seq').on(t.groupId, t.seq),
     index('messages_run').on(t.runId).where(sql`${t.runId} is not null`),
+    // 会话统计 windows.
+    index('messages_created').on(t.createdAt),
     // Send idempotency lookup (messages/routes.ts); not unique, the advisory lock serializes retries.
     index('messages_client_id')
       .on(t.groupId, t.authorUserId, sql`(${t.meta}->>'clientId')`)
@@ -521,6 +523,7 @@ export const runs = pgTable(
     index('runs_group_bot_ended').on(t.groupId, t.botId, t.endedAt),
     index('runs_trigger').on(t.triggerMessageId),
     index('runs_started').on(t.startedAt),
+    index('runs_queued').on(t.queuedAt),
     index('runs_waiting').on(t.queuedAt).where(sql`${t.status} = 'offline_wait'`),
     index('runs_finalizing').on(t.botId).where(sql`${t.finalizing}`),
     index('runs_unpurged_ended').on(t.endedAt).where(sql`${t.purgedAt} is null`),

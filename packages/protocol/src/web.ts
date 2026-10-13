@@ -1459,6 +1459,79 @@ export const UsageDailyQuery = UsageQuery.omit({ by: true }).extend({
 export const UsageDayDto = UsageRowDto.omit({ key: true, name: true }).extend({ day: z.string() })
 export type UsageDayDto = z.infer<typeof UsageDayDto>
 
+/**
+ * 会话统计: /api/admin/conversation-stats (every team, or `teamId`) and /api/teams/:id/conversation-stats (its admins).
+ * Counts only, never message content. Messages are kind user/bot; runs are counted by when they were queued.
+ */
+export const ConversationStatsQuery = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+  tz: z.string().refine(isTimeZone).default('UTC'),
+  teamId: z.string().optional(),
+})
+export const ConversationMetricsDto = z.object({
+  /** Conversations with a user or bot message in the window. */
+  activeConversations: z.number().int(),
+  newConversations: z.number().int(),
+  userMessages: z.number().int(),
+  botMessages: z.number().int(),
+  /** People who sent a message. */
+  activeUsers: z.number().int(),
+  runs: z.number().int(),
+  /** Runs in a terminal state; 成功率 = completedRuns / endedRuns. */
+  endedRuns: z.number().int(),
+  completedRuns: z.number().int(),
+  /** Mean started→ended of completed runs. */
+  avgRunMs: z.number().nullable(),
+})
+export type ConversationMetricsDto = z.infer<typeof ConversationMetricsDto>
+export const ConversationDayDto = ConversationMetricsDto.pick({
+  activeConversations: true,
+  userMessages: true,
+  botMessages: true,
+  activeUsers: true,
+  runs: true,
+}).extend({ day: z.string() })
+export type ConversationDayDto = z.infer<typeof ConversationDayDto>
+export const ConversationOverviewDto = z.object({
+  /** Unarchived conversations now. */
+  groups: z.number().int(),
+  dms: z.number().int(),
+  /** The last `days` days, and the `days` before them. */
+  current: ConversationMetricsDto,
+  previous: ConversationMetricsDto,
+  /** One per calendar day in `tz`, oldest first, zero-filled. */
+  daily: z.array(ConversationDayDto),
+  statuses: z.array(z.object({ status: RunStatus, count: z.number().int() })),
+})
+export type ConversationOverviewDto = z.infer<typeof ConversationOverviewDto>
+export const ConversationStatsBy = z.enum(['conversation', 'user', 'bot', 'team'])
+export type ConversationStatsBy = z.infer<typeof ConversationStatsBy>
+export const ConversationStatsRowsQuery = ConversationStatsQuery.omit({ tz: true }).extend({
+  by: ConversationStatsBy,
+})
+/** One conversation / person / bot / team active in the window. */
+export const ConversationStatsRowDto = z.object({
+  key: z.string(),
+  name: z.string(),
+  /** Conversations only. */
+  kind: z.enum(['group', 'dm']).nullable(),
+  /** Conversations and bots. */
+  teamName: z.string().nullable(),
+  /** A conversation's creator, a bot's owner. */
+  ownerName: z.string().nullable(),
+  /** Conversations they posted in. */
+  conversations: z.number().int(),
+  userMessages: z.number().int(),
+  botMessages: z.number().int(),
+  /** People who posted; for a bot, people whose turns it ran. */
+  activeUsers: z.number().int(),
+  runs: z.number().int(),
+  endedRuns: z.number().int(),
+  completedRuns: z.number().int(),
+  lastActiveAt: z.string().nullable(),
+})
+export type ConversationStatsRowDto = z.infer<typeof ConversationStatsRowDto>
+
 // ── Realtime: WS /ws/web (server → browser only) ────────────────────────────
 /** Per-bot workspace state in a group: drives the partition-mode git status bar (spec §5.3, §8.4). */
 export const GroupBotStateDto = z.object({

@@ -6,6 +6,7 @@ import auth from '../features/auth/en'
 import bots from '../features/bots/en'
 import chat from '../features/chat/en'
 import config from '../features/config/en'
+import conversationStats from '../features/conversation-stats/en'
 import diff from '../features/diff/en'
 import feishu from '../features/feishu/en'
 import files from '../features/files/en'
@@ -39,6 +40,7 @@ export const en = {
   ...bots,
   ...chat,
   ...config,
+  ...conversationStats,
   ...diff,
   ...feishu,
   ...files,

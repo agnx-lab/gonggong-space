@@ -22,6 +22,7 @@ import { botRoutes } from './modules/bots/routes.js'
 import { Mirrors } from './modules/candidates/mirror.js'
 import { candidateRoutes } from './modules/candidates/routes.js'
 import { startCandidates } from './modules/candidates/service.js'
+import { conversationStatsRoutes } from './modules/conversation-stats/routes.js'
 import { feishuChatRoutes } from './modules/feishu/chats.js'
 import { startFeishuConfigRetry } from './modules/feishu/config.js'
 import { startFeishu } from './modules/feishu/gateway.js'
@@ -151,6 +152,7 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   await app.register(gitAccountRoutes(ctx))
   await backfillRepos(ctx)
   await app.register(usageRoutes(ctx))
+  await app.register(conversationStatsRoutes(ctx))
   await app.register(releaseRoutes(ctx))
   await app.register(adminRoutes(ctx))
   await app.register(adminTeamRoutes(ctx))

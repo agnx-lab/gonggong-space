@@ -3,6 +3,7 @@ import { t } from '../../i18n'
 import type { IconName } from '../../ui'
 import { BotsAdminPage } from '../bots/BotsAdminPage'
 import { ConfigPage } from '../config/ConfigPage'
+import { ConversationStatsPage } from '../conversation-stats/ConversationStatsPage'
 import { FeishuAdminPage } from '../feishu/FeishuAdminPage'
 import { SharesPage } from '../previews/SharesPage'
 import { UsagePage } from '../usage/UsagePage'
@@ -125,6 +126,14 @@ export const ADMIN_NAV: { head: string; items: AdminItem[] }[] = [
         color: 'var(--system-indigo)',
         desc: t('所有机器的系统、硬件、daemon 版本、在线状态与网络质量记录。'),
         element: <MachinesPage />,
+      },
+      {
+        path: 'conversations',
+        label: t('会话统计'),
+        icon: 'bubble',
+        color: 'var(--system-green)',
+        desc: t('全站会话、消息与运行概览，可按会话、成员、Bot、团队查看明细。'),
+        element: <ConversationStatsPage />,
       },
       {
         path: 'usage',

@@ -15,6 +15,7 @@ import { Avatar, Button, Dialog, GroupBox, GroupRow, Presence, Spinner, Stepper,
 import { AuditPanel } from '../admin/AuditPage'
 import { McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
 import { SkillLayerList } from '../config/SkillLayer'
+import { ConversationStatsPanel } from '../conversation-stats/ConversationStatsPanel'
 import { UsagePanel } from '../usage/UsagePage'
 import { teamsApi } from './store'
 import { TakeoverDialog } from './TakeoverDialog'
@@ -197,6 +198,11 @@ export function TeamGroupsTab({ team, onClose }: { team: TeamDto; onClose: () =>
       </Presence>
     </>
   )
+}
+
+/** 团队设置 · 会话统计: the team's conversations, messages and runs. */
+export function TeamConversationStatsTab({ team }: { team: TeamDto }) {
+  return <ConversationStatsPanel base={`/teams/${team.id}/conversation-stats`} />
 }
 
 /** 团队设置 · 用量: every bot of the team, last 30 days. */

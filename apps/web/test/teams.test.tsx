@@ -214,7 +214,7 @@ describe('team settings', () => {
 })
 
 describe('team management tabs', () => {
-  const TABS = ['群', 'MCP', '参数', '用量', '审计']
+  const TABS = ['群', 'MCP', '参数', '会话统计', '用量', '审计']
 
   it('are only for admins', () => {
     mockApi({ 'GET /teams/t1/members': members })
@@ -224,6 +224,18 @@ describe('team management tabs', () => {
     unmount()
     render(<TeamSettingsDialog team={team({ role: 'admin' })} onClose={() => {}} />)
     for (const name of TABS) expect(screen.getByRole('button', { name })).toBeTruthy()
+  })
+
+  it('shows the team its own conversation stats', async () => {
+    const calls = mockApi({ 'GET /teams/t1/conversation-stats?by=conversation&days=30': [] })
+    signIn({ teams: [team({ role: 'admin' })], singleTeamMode: false, canCreateTeam: false })
+    render(<TeamSettingsDialog team={team({ role: 'admin' })} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: '会话统计' }))
+    expect(await screen.findByText('近 30 天没有会话')).toBeTruthy()
+    expect(calls.some((c) => c.path.startsWith('/teams/t1/conversation-stats/overview?days=30&tz='))).toBe(
+      true,
+    )
+    expect(screen.queryByRole('tab', { name: '按团队' })).toBeNull()
   })
 
   it('overrides params with the platform value as placeholder, and can inherit again', async () => {

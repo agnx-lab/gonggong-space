@@ -27,6 +27,7 @@ import {
 import { inviteLink, ROLE_LABEL, teamsApi } from './store'
 import {
   TeamAuditTab,
+  TeamConversationStatsTab,
   TeamGroupsTab,
   TeamMcpTab,
   TeamParamsTab,
@@ -36,7 +37,17 @@ import {
 import '../groups/groups.css'
 import './teams.css'
 
-type Tab = 'overview' | 'members' | 'invites' | 'mcp' | 'skill' | 'params' | 'groups' | 'usage' | 'audit'
+type Tab =
+  | 'overview'
+  | 'members'
+  | 'invites'
+  | 'mcp'
+  | 'skill'
+  | 'params'
+  | 'groups'
+  | 'conversations'
+  | 'usage'
+  | 'audit'
 
 /** 团队设置 (plan §5): everyone reads the overview and members; admins edit, owners archive and transfer. */
 export function TeamSettingsDialog({ team, onClose }: { team: TeamDto; onClose: () => void }) {
@@ -66,6 +77,12 @@ export function TeamSettingsDialog({ team, onClose }: { team: TeamDto; onClose: 
             label: t('参数#settings'),
             icon: 'slider-horizontal',
             body: <TeamParamsTab team={team} />,
+          },
+          {
+            value: 'conversations',
+            label: t('会话统计'),
+            icon: 'bubble',
+            body: <TeamConversationStatsTab team={team} />,
           },
           { value: 'usage', label: t('用量'), icon: 'chart-bar', body: <TeamUsageTab team={team} /> },
           { value: 'audit', label: t('审计'), icon: 'doc-text', body: <TeamAuditTab team={team} /> },

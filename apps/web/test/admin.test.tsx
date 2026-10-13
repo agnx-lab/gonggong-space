@@ -62,6 +62,7 @@ describe('admin console', () => {
       '配置中心',
       '系统参数',
       '机器',
+      '会话统计',
       '用量',
       '审计记录',
     ])
@@ -190,6 +191,97 @@ describe('admin console', () => {
     expect(screen.queryByRole('navigation', { name: '管理后台' })).toBeNull()
     expect(screen.queryByRole('link', { name: '管理后台' })).toBeNull()
     expect(screen.queryByRole('button', { name: '管理后台' })).toBeNull()
+  })
+
+  it('shows conversation stats across teams with breakdowns', async () => {
+    useSession.setState({ user: admin, status: 'ready' })
+    const zero = { activeConversations: 0, userMessages: 0, botMessages: 0, activeUsers: 0, runs: 0 }
+    const metrics = {
+      activeConversations: 12,
+      newConversations: 3,
+      userMessages: 240,
+      botMessages: 180,
+      activeUsers: 9,
+      runs: 200,
+      endedRuns: 190,
+      completedRuns: 171,
+      avgRunMs: 95_000,
+    }
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    const overview = (days: number) => ({
+      groups: 20,
+      dms: 6,
+      current: metrics,
+      previous: { ...metrics, userMessages: 200 },
+      daily: [
+        { day: '2026-10-12', ...zero },
+        { day: '2026-10-13', ...zero, userMessages: 30, botMessages: 20, runs: days },
+      ],
+      statuses: [
+        { status: 'completed', count: 171 },
+        { status: 'interrupted', count: 19 },
+      ],
+    })
+    const conv = {
+      kind: 'group',
+      teamName: '默认团队',
+      ownerName: '王磊',
+      conversations: 1,
+      userMessages: 50,
+      botMessages: 40,
+      activeUsers: 4,
+      runs: 40,
+      endedRuns: 40,
+      completedRuns: 30,
+      lastActiveAt: '2026-10-13T08:00:00.000Z',
+    }
+    const calls = mockApi({
+      [`GET /admin/conversation-stats/overview?days=30&tz=${tz}`]: overview(30),
+      [`GET /admin/conversation-stats/overview?days=7&tz=${tz}`]: overview(7),
+      'GET /admin/conversation-stats?by=conversation&days=30': [
+        { ...conv, key: 'g1', name: '支付服务重构' },
+        {
+          ...conv,
+          key: 'd1',
+          name: '小王的 Claude',
+          kind: 'dm',
+          userMessages: 5,
+          endedRuns: 0,
+          completedRuns: 0,
+        },
+      ],
+      'GET /admin/conversation-stats?by=conversation&days=7': [],
+      'GET /admin/conversation-stats?by=team&days=7': [
+        { ...conv, key: 't1', name: '风控组', kind: null, ownerName: null, teamName: null, conversations: 8 },
+      ],
+      'GET /admin/teams': [],
+    })
+    renderAt('/admin/conversations')
+    expect(await screen.findByRole('heading', { name: '会话统计' })).toBeTruthy()
+    const tile = (label: string) => screen.getByText(label, { selector: '.usage-stat__label' }).parentElement!
+    await waitFor(() => expect(tile('会话总数').textContent).toContain('26'))
+    expect(tile('会话总数').textContent).toContain('群 20 · 私聊 6')
+    expect(tile('用户消息').textContent).toContain('↑ 20%')
+    expect(tile('成功率').textContent).toContain('90%')
+    expect(tile('平均耗时').textContent).toContain('1 分 35 秒')
+    expect(screen.getByRole('img', { name: '运行状态：已完成 90%，已中断 10%' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: /^近 30 天每日用户消息：合计 30/ })).toBeTruthy()
+
+    const table = await screen.findByRole('grid', { name: '会话明细' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringMatching(/^支付服务重构默认团队王磊5040440/),
+      expect.stringMatching(/^小王的 Claude私聊默认团队王磊540440—/),
+    ])
+    expect(within(rows[1]!).getByText('—')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('radio', { name: '近 7 天' }))
+    fireEvent.click(screen.getByRole('tab', { name: '按团队' }))
+    await waitFor(() =>
+      expect(within(screen.getByRole('grid', { name: '会话明细' })).getByText('风控组')).toBeTruthy(),
+    )
+    expect(calls.some((c) => c.path.startsWith('/admin/conversation-stats/overview?days=7'))).toBe(true)
+    for (const name of ['按会话', '按成员', '按 Bot']) expect(screen.getByRole('tab', { name })).toBeTruthy()
   })
 
   it('shows usage by bot, trigger user and group', async () => {
