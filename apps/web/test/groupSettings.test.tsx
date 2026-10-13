@@ -26,6 +26,7 @@ const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   kind: 'group',
   mode: 'partition',
   adminOnlyInvite: false,
+  protectBase: false,
   notice: '',
   noticeHidden: false,
   repo: { url: 'git@git.corp:pay/pay-server.git', branch: 'main' },
@@ -712,6 +713,19 @@ describe('group settings dialog', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: '保存' }))
     expect(await screen.findByText('参数超出允许范围')).toBeTruthy()
     expect(screen.getByRole('dialog', { name: '群级参数 · 支付服务重构' })).toBeTruthy()
+  })
+
+  it('lets an admin switch 禁止直推基准分支 in the repo tab', async () => {
+    const calls = mockApi(
+      routes([group()], { 'PATCH /groups/g1': (b: unknown) => group(b as Partial<GroupDto>) }),
+    )
+    renderAt('/g/g1')
+    fireEvent.click(within(await openDrawer()).getByRole('button', { name: /仓库与工作区/ }))
+    const dlg = await screen.findByRole('dialog', { name: '仓库与工作区 · 支付服务重构' })
+    const toggle = within(dlg).getByRole('switch', { name: '禁止直推基准分支' }) as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    fireEvent.click(toggle)
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ protectBase: true }))
   })
 
   it('shows the sync mode as partition with the switch to force sync', async () => {

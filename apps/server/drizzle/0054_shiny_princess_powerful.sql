@@ -1,0 +1,1 @@
+ALTER TABLE "groups" ADD COLUMN "protect_base" boolean DEFAULT false NOT NULL;

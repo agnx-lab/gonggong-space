@@ -237,6 +237,8 @@ export const WorkspaceSpec = z.object({
   repo: RepoSpec.nullable(),
   /** Absolute local path when the owner used /cd; null → managed path. */
   cdPath: z.string().nullable(),
+  /** 禁止直推基准分支 (run.start only): pushing to `repo.branch` always asks the owner. */
+  protectBase: z.boolean().optional(),
 })
 
 export const RunStart = z.object({

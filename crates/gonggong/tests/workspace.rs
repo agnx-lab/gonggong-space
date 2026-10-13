@@ -380,6 +380,7 @@ async fn runs_use_the_managed_clone_recreating_it_if_deleted_or_the_cd_directory
         workspace: WorkspaceSpec {
             repo: Some(remote.spec("rp")),
             cd_path: cd.map(|p| p.to_string_lossy().into_owned()),
+            protect_base: false,
         },
         resume_session_id: None,
         new_session_reason: Some("requested".into()),
@@ -453,7 +454,7 @@ fn run_start(run_id: &str, group: &str, cd: &Path) -> RunStart {
             always_allow: vec![],
             git: None,
         },
-        workspace: WorkspaceSpec { repo: None, cd_path: Some(cd.to_string_lossy().into_owned()) },
+        workspace: WorkspaceSpec { repo: None, cd_path: Some(cd.to_string_lossy().into_owned()), protect_base: false },
         resume_session_id: None,
         new_session_reason: None,
         prompt: RunPrompt {

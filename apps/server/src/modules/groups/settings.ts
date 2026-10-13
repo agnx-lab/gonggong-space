@@ -49,7 +49,7 @@ export function groupSettingsRoutes(ctx: Ctx) {
     app.patch<P>('/api/groups/:id', async (req) => {
       const me = await requireUser(ctx, req)
       const { group } = await requireAdmin(ctx, req.params.id, me.id)
-      const { notice, adminOnlyInvite, ...body } = UpdateGroupReq.parse(req.body)
+      const { notice, adminOnlyInvite, protectBase, ...body } = UpdateGroupReq.parse(req.body)
       if (body.name)
         await ctx.db
           .update(groups)
@@ -58,16 +58,24 @@ export function groupSettingsRoutes(ctx: Ctx) {
       if (notice !== undefined && notice !== group.notice) await setNotice(ctx, group.id, notice, me.id)
       const inviteChanged = adminOnlyInvite !== undefined && adminOnlyInvite !== group.adminOnlyInvite
       if (inviteChanged) await ctx.db.update(groups).set({ adminOnlyInvite }).where(eq(groups.id, group.id))
+      const protectChanged = protectBase !== undefined && protectBase !== group.protectBase
+      if (protectChanged) await ctx.db.update(groups).set({ protectBase }).where(eq(groups.id, group.id))
       await audit(ctx, {
         category: 'admin',
         actorUserId: me.id,
         action: 'group.update',
         groupId: group.id,
         detail: {
-          before: { name: group.name, notice: group.notice, adminOnlyInvite: group.adminOnlyInvite },
+          before: {
+            name: group.name,
+            notice: group.notice,
+            adminOnlyInvite: group.adminOnlyInvite,
+            protectBase: group.protectBase,
+          },
           ...body,
           notice,
           adminOnlyInvite,
+          protectBase,
         },
       })
       if (body.name !== undefined || notice !== undefined)
@@ -84,6 +92,13 @@ export function groupSettingsRoutes(ctx: Ctx) {
           ctx,
           group.id,
           adminOnlyInvite ? '{user} 开启了「仅群管理员可拉人」' : '{user} 关闭了「仅群管理员可拉人」',
+          { user: me.name },
+        )
+      if (protectChanged)
+        await postEvent(
+          ctx,
+          group.id,
+          protectBase ? '{user} 开启了「禁止直推基准分支」' : '{user} 关闭了「禁止直推基准分支」',
           { user: me.name },
         )
       await publishGroup(ctx, group.id)

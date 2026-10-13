@@ -379,6 +379,13 @@
       "when": 1791879661986,
       "tag": "0053_first_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791890663112,
+      "tag": "0054_shiny_princess_powerful",
+      "breakpoints": true
     }
   ]
 }

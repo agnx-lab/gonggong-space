@@ -97,6 +97,9 @@ export default {
   群名称: 'Group name',
   编辑群公告: 'Edit notice',
   所有成员可拉人: 'Anyone can invite',
+  禁止直推基准分支: 'No direct pushes to the base branch',
+  'Bot 在功能分支上提交，推送到基准分支需要 Bot 主人审批':
+    'Bots commit on feature branches; pushing to the base branch needs the Bot owner’s approval',
   名称已保存: 'Name saved',
   '群公告 · 置顶展示在对话顶部': 'Group notice · pinned atop the chat',
   '如：每个 Bot 独立分支，走 PR；退款 v1 下周一下线':

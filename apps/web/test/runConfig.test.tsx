@@ -45,6 +45,7 @@ const group: GroupDto = {
   kind: 'group',
   mode: 'partition',
   adminOnlyInvite: false,
+  protectBase: false,
   notice: '',
   noticeHidden: false,
   repo: null,

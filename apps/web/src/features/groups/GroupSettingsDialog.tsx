@@ -129,7 +129,21 @@ export function GroupSettingsDialog({
           ) : tab === 'bots' ? (
             <MembersTab group={group} />
           ) : tab === 'repo' ? (
-            <RepoWorkspaceView group={group} isAdmin />
+            <>
+              <GroupBox>
+                <GroupRow
+                  label={t('禁止直推基准分支')}
+                  description={t('Bot 在功能分支上提交，推送到基准分支需要 Bot 主人审批')}
+                >
+                  <Switch
+                    aria-label={t('禁止直推基准分支')}
+                    checked={group.protectBase}
+                    onChange={(v) => void attempt(() => groupsApi.update(group.id, { protectBase: v }))}
+                  />
+                </GroupRow>
+              </GroupBox>
+              <RepoWorkspaceView group={group} isAdmin />
+            </>
           ) : tab === 'mcp' ? (
             <GroupMcpTab group={group} />
           ) : tab === 'skill' ? (

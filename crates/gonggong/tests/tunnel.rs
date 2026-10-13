@@ -282,7 +282,7 @@ fn files(path: &str, headers: Vec<(String, String)>) -> TunnelOpen {
             files: WorkspaceFiles {
                 group_id: "g1".into(),
                 bot_id: "b1".into(),
-                workspace: WorkspaceSpec { repo: None, cd_path: None },
+                workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false },
             },
         },
         method: "GET".into(),

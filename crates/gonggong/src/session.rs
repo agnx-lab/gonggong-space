@@ -5,7 +5,7 @@ use crate::engine::Inner;
 use crate::git;
 use crate::hosted::Scope;
 use crate::inject;
-use crate::local::{self, Decision, LocalSettings, Rules};
+use crate::local::{Decision, LocalSettings, Rules};
 use crate::protocol::{
     AgentCatalog, AgentCommand, AgentKind, Answer, ApprovalRequest, Attachment, Choice, DaemonToServer, McpServer,
     ModelChoice, Question, RunDone, RunEvent, RunOutcome, RunStart, RunStatus, Tier, Usage, WorkspaceKind,
@@ -417,7 +417,7 @@ impl Shared {
             cwd: req.cwd.clone(),
             key: (req.start.group_id.clone(), req.start.bot.id.clone()),
             tier: req.start.bot.tier,
-            rules: Rules::from(&req.start.bot),
+            rules: Rules::from(&req.start),
             out: req.out.clone(),
             turn: Turn::default(),
             streaming: false,
@@ -627,7 +627,7 @@ impl Shared {
             RunEvent::Status { status: RunStatus::AwaitingApproval, step: t!("等待审批：{title}", title = title) };
         out.send(DaemonToServer::RunEvent { run_id: run_id.clone(), event });
         let request_id = format!("{run_id}/{n}");
-        let remember = local::remember(command.as_deref(), &title, &a.cwd);
+        let remember = a.rules.remember(command.as_deref(), &title, &a.cwd);
         out.send(DaemonToServer::ApprovalRequest(ApprovalRequest {
             run_id,
             request_id: request_id.clone(),

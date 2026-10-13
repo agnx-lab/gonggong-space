@@ -554,6 +554,8 @@ export const GroupDto = z.object({
   mode: z.enum(['partition', 'force']),
   /** Only group admins may invite people; members always may pull in their own bots. */
   adminOnlyInvite: z.boolean(),
+  /** 禁止直推基准分支: agents commit on feature branches; pushing to the base branch asks the bot owner. */
+  protectBase: z.boolean(),
   notice: z.string(),
   /** The caller closed the current notice for themselves; a newer notice shows again. */
   noticeHidden: z.boolean(),
@@ -1185,6 +1187,7 @@ export const UpdateGroupReq = z.object({
   name: z.string().trim().min(1, '填写群名称').max(60).optional(),
   notice: z.string().trim().max(500).optional(),
   adminOnlyInvite: z.boolean().optional(),
+  protectBase: z.boolean().optional(),
 })
 export type UpdateGroupReq = z.infer<typeof UpdateGroupReq>
 /** PUT /api/groups/:id/prefs — only for the caller. */

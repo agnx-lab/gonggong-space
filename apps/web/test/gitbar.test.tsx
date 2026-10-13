@@ -12,6 +12,7 @@ const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   kind: 'group',
   mode: 'partition',
   adminOnlyInvite: false,
+  protectBase: false,
   notice: '',
   noticeHidden: false,
   repo: { url: 'git@git.corp:pay/refund.git', branch: 'main' },

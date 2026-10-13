@@ -164,6 +164,10 @@ export async function schedule(ctx: Ctx, botId: string) {
   await sendDueInits(ctx, botId)
 }
 
+/** 禁止直推基准分支, for the agent (the daemon also asks the owner before any push to it). */
+const branchHint = (base: string) =>
+  `本群开启了「禁止直推基准分支」：不要直接提交或推送到基准分支 ${base}。开始改代码前先用 \`git switch -c feat/<你的名字>-<任务>\` 新建分支，在该分支提交并 push 该分支；需要合并时告诉触发人发起合并请求。推送到 ${base} 需要 Bot 主人审批。`
+
 async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
   const [trigger] = await tx
     .select({
@@ -178,7 +182,10 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
     .leftJoin(users, eq(users.id, messages.authorUserId))
     .leftJoin(bots, eq(bots.id, messages.authorBotId))
     .where(eq(messages.id, run.triggerMessageId))
-  const [group] = await tx.select({ name: groups.name }).from(groups).where(eq(groups.id, run.groupId))
+  const [group] = await tx
+    .select({ name: groups.name, protectBase: groups.protectBase })
+    .from(groups)
+    .where(eq(groups.id, run.groupId))
   const [gb] = await tx
     .select()
     .from(groupBots)
@@ -228,6 +235,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
     ...(run.parentRunId ? await relayNote(tx, run.parentRunId, trigger.at.toISOString()) : []),
     ...(meta.scheduleOf ? [await scheduleNote(tx, meta.scheduleOf, trigger.at.toISOString())] : []),
   ]
+  const protectBase = group.protectBase && !!repo
   const msg: RunStart = {
     t: 'run.start',
     runId: run.id,
@@ -237,9 +245,13 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
       id: bot.id,
       name: bot.name,
       agentKind: bot.agentKind as AgentKind,
-      systemPrompt: feishu
-        ? [FEISHU_HINT, bot.systemPrompt].filter((s) => s.trim()).join('\n\n')
-        : bot.systemPrompt,
+      systemPrompt: [
+        ...(feishu ? [FEISHU_HINT] : []),
+        ...(protectBase && repo ? [branchHint(repo.baseBranch)] : []),
+        bot.systemPrompt,
+      ]
+        .filter((s) => s.trim())
+        .join('\n\n'),
       tier: await runTier(tx, (gb.tier ?? bot.tier) as Tier),
       approval: bot.approval as Approval,
       allowlist: bot.allowlist,
@@ -257,6 +269,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
           }
         : null,
       cdPath: gb.cdPath,
+      protectBase,
     },
     resumeSessionId,
     newSessionReason: gb.newSessionReason,

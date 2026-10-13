@@ -107,7 +107,7 @@ fn start(run_id: &str, cwd: &Path, attachments: Vec<Attachment>, context: Vec<At
             always_allow: vec![],
             git: None,
         },
-        workspace: WorkspaceSpec { repo: None, cd_path: Some(cwd.to_string_lossy().into_owned()) },
+        workspace: WorkspaceSpec { repo: None, cd_path: Some(cwd.to_string_lossy().into_owned()), protect_base: false },
         resume_session_id: None,
         new_session_reason: None,
         mcp_servers: vec![],

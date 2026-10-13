@@ -473,6 +473,9 @@ pub struct RepoProbeResult {
 pub struct WorkspaceSpec {
     pub repo: Option<RepoSpec>,
     pub cd_path: Option<String>,
+    /// 禁止直推基准分支: pushing to `repo.branch` always asks the owner.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub protect_base: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

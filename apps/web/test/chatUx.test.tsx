@@ -35,6 +35,7 @@ const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   kind: 'group',
   mode: 'force',
   adminOnlyInvite: false,
+  protectBase: false,
   notice: '',
   noticeHidden: false,
   repo: null,

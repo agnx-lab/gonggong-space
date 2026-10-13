@@ -140,7 +140,10 @@ export function groupRoutes(ctx: Ctx) {
 
       const group = { id: randomUUID() }
       await ctx.db.transaction(async (tx) => {
-        await tx.insert(groups).values({ id: group.id, teamId, name, kind: body.kind, createdBy: me.id })
+        // New groups protect their base branch; groups from before the policy keep pushing as they did.
+        await tx
+          .insert(groups)
+          .values({ id: group.id, teamId, name, kind: body.kind, createdBy: me.id, protectBase: true })
         await tx
           .insert(groupMembers)
           .values([

@@ -18,7 +18,8 @@
   },
   "workspace": {
     "repo": { "id": "r_pay", "url": "git@git.corp:pay/pay-server.git", "branch": "main", "protocol": "auto" },
-    "cdPath": null
+    "cdPath": null,
+    "protectBase": true
   },
   "resumeSessionId": "sess-0",
   "prompt": {

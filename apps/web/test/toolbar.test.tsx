@@ -85,6 +85,7 @@ const group = (id: string, name: string, kind: GroupDto['kind'] = 'group'): Grou
   kind,
   mode: 'partition',
   adminOnlyInvite: false,
+  protectBase: false,
   notice: '',
   noticeHidden: false,
   repo: null,

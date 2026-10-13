@@ -52,7 +52,7 @@ fn start(run_id: &str, text: &str) -> RunStart {
             always_allow: vec![],
             git: None,
         },
-        workspace: WorkspaceSpec { repo: None, cd_path: None },
+        workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false },
         resume_session_id: None,
         new_session_reason: None,
         mcp_servers: vec![],
@@ -456,7 +456,7 @@ async fn reports_the_live_turns_diff_and_the_workspaces_uncommitted_changes() {
             request_id: format!("{scope:?}"),
             group_id: "g1".into(),
             bot_id: "b1".into(),
-            workspace: WorkspaceSpec { repo: None, cd_path: None },
+            workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false },
             scope,
             run_id: run_id.map(String::from),
         })
@@ -732,7 +732,7 @@ async fn lists_files_of_the_bot_workspace() {
             request_id: request_id.into(),
             group_id: "g1".into(),
             bot_id: "b1".into(),
-            workspace: WorkspaceSpec { repo: None, cd_path },
+            workspace: WorkspaceSpec { repo: None, cd_path, protect_base: false },
             query: "".into(),
             limit: 10,
         })
@@ -761,7 +761,7 @@ async fn browses_and_reads_the_bot_workspace_read_only() {
     let mut r = rig(Duration::from_secs(60));
     let _remote = repo_workspace(&r);
     std::fs::write(r.workspace().join("notes.md"), "# 笔记\n").unwrap();
-    let workspace = WorkspaceSpec { repo: None, cd_path: None };
+    let workspace = WorkspaceSpec { repo: None, cd_path: None, protect_base: false };
     r.send(ServerToDaemon::FilesTree(FilesTree {
         request_id: "t1".into(),
         group_id: "g1".into(),

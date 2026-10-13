@@ -2,7 +2,7 @@
 //! path per agent. Model, effort and the bot's 命令审批 are set on the server (plan J8): `Rules` applies the latter to
 //! permission requests here. Also the catalog probed from each adapter (`<home>/models.json`), reported to the server
 //! for its pickers.
-use crate::protocol::{AgentCatalog, AgentKind, Approval, RunBot, Tier};
+use crate::protocol::{AgentCatalog, AgentKind, Approval, RunBot, RunStart, Tier};
 use crate::t;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -33,11 +33,25 @@ pub struct Rules {
     pub allowlist: Vec<String>,
     /// Rules the owner chose 始终允许 for, applied in `ask` and `allowlist` mode (plan A4).
     pub always_allow: Vec<String>,
+    /// The group's base branch when its 禁止直推基准分支 policy is on: pushing to it always asks.
+    pub protect: Option<String>,
 }
 
 impl From<&RunBot> for Rules {
     fn from(bot: &RunBot) -> Self {
-        Self { approval: bot.approval, allowlist: bot.allowlist.clone(), always_allow: bot.always_allow.clone() }
+        Self {
+            approval: bot.approval,
+            allowlist: bot.allowlist.clone(),
+            always_allow: bot.always_allow.clone(),
+            protect: None,
+        }
+    }
+}
+
+impl From<&RunStart> for Rules {
+    fn from(start: &RunStart) -> Self {
+        let protect = start.workspace.repo.as_ref().filter(|_| start.workspace.protect_base).map(|r| r.branch.clone());
+        Self { protect, ..Self::from(&start.bot) }
     }
 }
 
@@ -105,7 +119,7 @@ impl Rules {
         if tier == Tier::Full {
             return Decision::Full;
         }
-        if command.is_some_and(floor_hit) {
+        if command.is_some_and(|c| floor_hit(c) || self.pushes_base(c, cwd)) {
             return Decision::Ask;
         }
         let trusted = self.always_allow.iter().chain(always);
@@ -116,6 +130,57 @@ impl Rules {
         };
         if local { Decision::Local } else { Decision::Ask }
     }
+}
+
+impl Rules {
+    /// `remember` that also never trusts a push to the protected base branch.
+    pub fn remember(&self, command: Option<&str>, title: &str, cwd: &Path) -> Vec<String> {
+        if command.is_some_and(|c| self.pushes_base(c, cwd)) { vec![] } else { remember(command, title, cwd) }
+    }
+
+    /// A `git push` that may update the protected base branch: named as a destination, `--all`/`--mirror`, or a
+    /// bare / `HEAD` push while the workspace is on it. Lines too complex to parse count if they push at all.
+    fn pushes_base(&self, command: &str, cwd: &Path) -> bool {
+        let Some(base) = self.protect.as_deref() else { return false };
+        let Some(all) = commands(command) else { return normalize(command).contains("git push") };
+        let current = || current_branch(cwd);
+        all.iter().any(|words| {
+            let Some(("git", args)) = program(words) else { return false };
+            let args: Vec<&str> = args.iter().map(|a| unquote(a)).collect();
+            let Some(("push", rest)) = git_subcommand(&args) else { return false };
+            if rest.iter().any(|a| matches!(*a, "--all" | "--mirror")) {
+                return true;
+            }
+            let mut positional = vec![];
+            let mut words = rest.iter();
+            while let Some(a) = words.next() {
+                match *a {
+                    "-o" | "--push-option" | "--repo" | "--receive-pack" | "--exec" => {
+                        words.next();
+                    }
+                    _ if a.starts_with('-') => {}
+                    _ => positional.push(*a),
+                }
+            }
+            let is_base = |dst: &str| match dst {
+                "HEAD" => current().is_none_or(|c| c == base),
+                _ => dst.strip_prefix("refs/heads/").unwrap_or(dst) == base,
+            };
+            match positional.get(1..).filter(|specs| !specs.is_empty()) {
+                None => is_base("HEAD"),
+                Some(specs) => specs.iter().any(|spec| {
+                    let spec = spec.trim_start_matches('+');
+                    is_base(spec.split_once(':').map_or(spec, |(_, dst)| dst))
+                }),
+            }
+        })
+    }
+}
+
+/// The branch checked out in `cwd`, from `.git/HEAD` (cheap enough to read on every request).
+fn current_branch(cwd: &Path) -> Option<String> {
+    let head = std::fs::read_to_string(cwd.join(".git/HEAD")).ok()?;
+    head.trim().strip_prefix("ref: refs/heads/").map(String::from)
 }
 
 fn allowed<'a>(rules: impl Iterator<Item = &'a String>, command: Option<&str>, title: &str, cwd: &Path) -> bool {
@@ -480,7 +545,7 @@ mod tests {
     }
 
     fn bot(approval: Approval, allowlist: &[&str]) -> Rules {
-        Rules { approval, allowlist: strings(allowlist), always_allow: vec![] }
+        Rules { approval, allowlist: strings(allowlist), always_allow: vec![], protect: None }
     }
 
     #[test]
@@ -610,6 +675,42 @@ mod tests {
         assert_eq!(bot(Approval::Allowlist, &[]).decide(Tier::Workspace, Some("go build"), "t", cwd, &[]), Ask);
         let node = bot(Approval::Allowlist, &["node -e"]);
         assert_eq!(node.decide(Tier::Workspace, Some("node -e \"console.log(1 + 1)\""), "t", cwd, &[]), Local);
+    }
+
+    #[test]
+    fn pushing_to_a_protected_base_branch_always_asks() {
+        use Decision::*;
+        let on = |branch: &str| {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+            std::fs::write(dir.path().join(".git/HEAD"), format!("ref: refs/heads/{branch}\n")).unwrap();
+            dir
+        };
+        let rules = Rules { protect: Some("main".into()), ..bot(Approval::All, &[]) };
+        let (main, feat) = (on("main"), on("feat/x"));
+        let cases: &[(&Path, &str, Decision)] = &[
+            (feat.path(), "git push -u origin feat/x", Local),
+            (feat.path(), "git push", Local),
+            (feat.path(), "git push origin HEAD", Local),
+            (feat.path(), "git push origin main", Ask),
+            (feat.path(), "git push origin HEAD:main", Ask),
+            (feat.path(), "git push origin feat/x:refs/heads/main", Ask),
+            (feat.path(), "git push --all origin", Ask),
+            (feat.path(), "git add . && git commit -m x && git push origin main", Ask),
+            (main.path(), "git push", Ask),
+            (main.path(), "git push origin HEAD", Ask),
+            (main.path(), "git push -u origin feat/y", Local),
+        ];
+        for (cwd, command, want) in cases {
+            assert_eq!(rules.decide(Tier::Workspace, Some(command), "t", cwd, &[]), *want, "{command}");
+            if *want == Ask {
+                assert!(rules.remember(Some(command), "t", cwd).is_empty(), "{command}");
+            }
+        }
+        // Without the policy pushing anywhere follows the bot's rules; `full` is never asked.
+        let open = bot(Approval::All, &[]);
+        assert_eq!(open.decide(Tier::Workspace, Some("git push origin main"), "t", main.path(), &[]), Local);
+        assert_eq!(rules.decide(Tier::Full, Some("git push origin main"), "t", main.path(), &[]), Full);
     }
 
     #[test]
