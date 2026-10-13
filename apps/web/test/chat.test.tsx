@@ -752,6 +752,8 @@ describe('chat view', () => {
         .getAllByRole('option')
         .map((o) => o.textContent),
     ).toEqual(['/compactCompact the conversation', '/小王的Claude:new与系统命令重名'])
+    // Long names may still be cut on narrow screens: the full name stays available on hover.
+    expect(within(agent).getByText('/compact').getAttribute('title')).toBe('/compact')
     expect(calls.map((c) => c.path)).toContain('/groups/g1/candidates/commands?botId=b1')
     fireEvent.change(box, { target: { value: '@小王的 Claude /com', selectionStart: 17 } })
     expect(

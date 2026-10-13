@@ -249,7 +249,9 @@ export function CandidatePopover({
               onClick={() => onPick(c)}
             >
               <Lead c={c} />
-              <span className={cx('pn-mentionpicker__name', c.mono && 'mention-pop__mono')}>{c.label}</span>
+              <span className={cx('pn-mentionpicker__name', c.mono && 'mention-pop__mono')} title={c.label}>
+                {c.label}
+              </span>
               {c.status ? (
                 <span className="pn-mentionpicker__sub mention-pop__status">
                   <span className="mention-pop__dot" style={{ background: c.status.color }} />

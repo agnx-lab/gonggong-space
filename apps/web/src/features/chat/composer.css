@@ -81,8 +81,10 @@
   background: transparent;
   color: var(--on-accent);
 }
+/* Commands are told apart by name: the hint shrinks first, a name is cut only when very long. */
 .pn-mentionpicker__name.mention-pop__mono {
-  flex: 0 1 auto;
+  flex: none;
+  max-width: 60%;
   font-family: var(--font-mono);
   font-size: var(--text-callout-size);
 }
