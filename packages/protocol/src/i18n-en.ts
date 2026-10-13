@@ -86,6 +86,8 @@ export const protocolEn = {
   '{bot} · daemon 离线，上线后克隆托管工作区':
     '{bot} · daemon offline, the managed workspace will be cloned once it is back',
   '{bot} · 等待 {owner} 绑定工作区': '{bot} · waiting for {owner} to bind a workspace',
+  '群解绑仓库 · 各 Bot 改用默认工作区或本机目录，托管克隆保留在本机':
+    'The group repo was unbound · Bots switch to their default or local directories; managed clones stay on their machines',
   '{bot} · 等待 {owner} 确认工作区：托管克隆或使用本机已有目录':
     '{bot} · waiting for {owner} to choose a workspace: a managed clone or an existing local one',
   '{bot} 等待 {owner} 确认工作区，本次未执行；确认后重新发起即可':

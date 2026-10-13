@@ -57,4 +57,14 @@ export default {
   '{n} 个离线': '{n} offline',
   待主人确认: 'Waiting for the owner',
   '确认…': 'Choose…',
+  '解绑…': 'Unbind…',
+  'Bot 改用本机目录时，目录的 remote 须与群仓库一致；想完全不受仓库约束，请解绑仓库。':
+    'A Bot moved to a local directory needs its remote to match the group repo; unbind the repo to drop that rule.',
+  解绑仓库: 'Unbind repo',
+  '确定解绑仓库 {repo}？': 'Unbind the repo {repo}?',
+  '使用托管克隆的 Bot 改用默认工作区；没有默认工作区的需主人重新选择':
+    'Bots on a managed clone switch to their default workspace; without one their owner picks a new one',
+  '已绑定本机目录的 Bot 不变': 'Bots bound to a local directory are unchanged',
+  '托管克隆保留在各自机器上，不会删除': 'Managed clones stay on their machines and are not deleted',
+  已解绑仓库: 'Repo unbound',
 } satisfies Record<string, string>

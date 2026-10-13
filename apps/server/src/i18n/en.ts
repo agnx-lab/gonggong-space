@@ -142,6 +142,8 @@ export const en = {
     'This account has no password; after unlinking you could no longer sign in',
   请先绑定飞书: 'Link your Feishu account first',
   该群未绑定仓库: 'This group has no repo',
+  '强制同步群不能解绑仓库，请先切回分区模式':
+    'A force-sync group cannot unbind its repo; switch back to partition mode first',
   打开共工: 'Open Gonggong',
   '对外地址改为 {url}': 'Public URL set to {url}',
   '飞书登录新建账号 {account}': 'Created account {account} via Feishu sign-in',

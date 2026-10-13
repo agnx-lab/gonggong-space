@@ -10,7 +10,7 @@ import {
 } from '@gonggong/protocol'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { bots, groupBots, groupRepos, messages, runs } from '../src/db/schema.js'
+import { bots, groupBots, groupRepos, groups, messages, runs } from '../src/db/schema.js'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
 import { requestCd } from '../src/modules/workspaces/cd.js'
 import { ensureWorkspace } from '../src/modules/workspaces/provision.js'
@@ -357,17 +357,53 @@ describe('provisioning', () => {
 })
 
 describe('rebinding the repo', () => {
-  it('only admins may change it; unbinding is not allowed', async () => {
+  it('only admins may change it', async () => {
     const w = await world()
     const g = await w.createGroup()
     await w.asAlice.post(`/api/groups/${g.id}/members`, { userIds: [w.bob.id] })
     expect((await w.asBob.patch(`/api/groups/${g.id}/repo`, { url: w.repo.url, branch: 'dev' })).status).toBe(
       403,
     )
-    expect((await w.asAlice.patch(`/api/groups/${g.id}/repo`, { url: '', branch: 'main' })).status).toBe(400)
+    expect((await w.asBob.patch(`/api/groups/${g.id}/repo`, { url: '', branch: '' })).status).toBe(403)
     expect(
       (await w.asAlice.patch(`/api/groups/${g.id}/repo`, { url: 'ftp://x', branch: 'main' })).status,
     ).toBe(400)
+  })
+
+  it('unbinds the repo: managed bots fall back to their default workspace, /cd bots keep their directory', async () => {
+    const w = await world()
+    await t.db.update(bots).set({ defaultWorkspace: '/src/default' }).where(eq(bots.id, w.bobBot.id))
+    const g = await w.createGroup({ botIds: [w.bot.id, w.bobBot.id] })
+    const a = await daemon(w.a.token)
+    a.send(reply(await joinEnsure(a, g.id)))
+    await until(async () => (await w.stateOf(g.id)).state === 'ready')
+    expect(
+      (await w.asAlice.put(`/api/groups/${g.id}/bots/${w.bot.id}/workspace`, { path: '/src/pay' })).status,
+    ).toBe(204)
+    const cd = await a.next()
+    a.send(reply(cd, { path: '/src/pay', git: { ...git, workspace: 'cd' } }))
+    await until(async () => (await w.stateOf(g.id)).workspace === 'cd')
+
+    const res = await w.asAlice.patch<GroupDto>(`/api/groups/${g.id}/repo`, { url: '', branch: '' })
+    expect(res.status).toBe(200)
+    expect(res.body.repo).toBeNull()
+    expect(await t.db.select().from(groupRepos).where(eq(groupRepos.groupId, g.id))).toEqual([])
+    expect(await w.stateOf(g.id)).toMatchObject({ workspace: 'cd', state: 'ready', path: '/src/pay' })
+    // Bob's machine is offline: his bot moves to its default directory, checked once it is back.
+    expect(await w.stateOf(g.id, w.bobBot.id)).toMatchObject({ workspace: 'cd', state: 'pending' })
+    expect(await w.bodies(g.id)).toContain('群解绑仓库 · 各 Bot 改用默认工作区或本机目录，托管克隆保留在本机')
+    expect((await w.asAlice.patch(`/api/groups/${g.id}/repo`, { url: '', branch: '' })).status).toBe(200)
+  })
+
+  it('refuses unbinding a force-sync group', async () => {
+    const w = await world()
+    const g = await w.createGroup()
+    await t.db.update(groups).set({ mode: 'force' }).where(eq(groups.id, g.id))
+    const res = await w.asAlice.patch<{ message: string }>(`/api/groups/${g.id}/repo`, {
+      url: '',
+      branch: '',
+    })
+    expect([res.status, res.body.message]).toEqual([409, '强制同步群不能解绑仓库，请先切回分区模式'])
   })
 
   it('replaces the repo and re-clones every bot, dropping stale replies', async () => {

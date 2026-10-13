@@ -5,7 +5,7 @@ import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
 import { toastError } from '../../lib/errors'
-import { Button, GroupBox, GroupRow, Icon, Presence, toast } from '../../ui'
+import { Button, ConfirmActionDialog, GroupBox, GroupRow, Icon, Presence, toast } from '../../ui'
 import { BotAvatar } from '../bots/avatars'
 import { groupsApi } from '../groups/api'
 import { WorkspacePicker } from '../workspaces/WorkspacePicker'
@@ -45,6 +45,7 @@ export function RepoWorkspaceView({ group, isAdmin }: { group: GroupDto; isAdmin
   const [draft, setDraft] = useState<RepoDraft | null>(null)
   const [saving, setSaving] = useState(false)
   const [picking, setPicking] = useState<BotDto | null>(null)
+  const [unbinding, setUnbinding] = useState(false)
   const bots = group.botIds.flatMap((id) => allBots.filter((b) => b.id === id))
   const results = new Map<string, BotProbeDto>(
     draft?.check && draft.check !== 'checking' ? draft.check.results.map((r) => [r.botId, r]) : [],
@@ -100,12 +101,22 @@ export function RepoWorkspaceView({ group, isAdmin }: { group: GroupDto; isAdmin
                       {group.repo ? t('更换…') : t('绑定仓库…')}
                     </Button>
                   ) : null}
+                  {isAdmin && group.repo && group.mode === 'partition' ? (
+                    <Button size="small" onClick={() => setUnbinding(true)}>
+                      {t('解绑…')}
+                    </Button>
+                  ) : null}
                 </span>
               </GroupRow>
               {group.repo ? <GroupRow label={t('基准分支')} value={group.repo.branch} /> : null}
             </>
           )}
         </GroupBox>
+        {group.repo && !draft ? (
+          <div className="rw-note">
+            {t('Bot 改用本机目录时，目录的 remote 须与群仓库一致；想完全不受仓库约束，请解绑仓库。')}
+          </div>
+        ) : null}
         {draft ? (
           <div className="rw-actions">
             {group.repo ? <span className="rw-note">{t('各 Bot 的托管工作区将重建')}</span> : null}
@@ -170,6 +181,23 @@ export function RepoWorkspaceView({ group, isAdmin }: { group: GroupDto; isAdmin
           {bots.length ? null : <GroupRow label={<span className="gs-value">{t('本群还没有 Bot')}</span>} />}
         </GroupBox>
       </section>
+      <Presence>
+        {unbinding && group.repo ? (
+          <ConfirmActionDialog
+            title={t('解绑仓库')}
+            message={t('确定解绑仓库 {repo}？', { repo: repoPath(group.repo.url) })}
+            consequences={[
+              t('使用托管克隆的 Bot 改用默认工作区；没有默认工作区的需主人重新选择'),
+              t('已绑定本机目录的 Bot 不变'),
+              t('托管克隆保留在各自机器上，不会删除'),
+            ]}
+            label={t('解绑仓库')}
+            done={t('已解绑仓库')}
+            run={() => groupsApi.setRepo(group.id, { url: '', branch: '' })}
+            onClose={() => setUnbinding(false)}
+          />
+        ) : null}
+      </Presence>
       <Presence>
         {picking?.machineId ? (
           <WorkspacePicker

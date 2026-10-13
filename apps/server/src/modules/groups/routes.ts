@@ -7,7 +7,7 @@ import {
   publicRepoUrl,
   RepoReq,
 } from '@gonggong/protocol'
-import { and, eq, inArray, isNull, max, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, max, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { Ctx } from '../../context.js'
 import {
@@ -300,9 +300,37 @@ export function groupRoutes(ctx: Ctx) {
       const body = RepoReq.parse(req.body)
       const url = body.url.trim()
       const branch = body.branch.trim()
-      if (!url) return fail('invalid', '一期不支持解绑仓库')
-      assertBindable(url, branch)
       const [old] = await ctx.db.select().from(groupRepos).where(eq(groupRepos.groupId, group.id))
+      if (!url) {
+        if (!old) return groupDto(ctx, me.id, group.id)
+        if (group.mode === 'force') return fail('conflict', '强制同步群不能解绑仓库，请先切回分区模式')
+        // /cd directories stay; managed clones stay on disk, their bots move to a default directory or wait.
+        const moved = await ctx.db.transaction(async (tx) => {
+          await tx.delete(groupRepos).where(eq(groupRepos.groupId, group.id))
+          return tx
+            .update(groupBots)
+            .set({
+              workspaceState: 'pending',
+              workspacePath: null,
+              workspaceError: null,
+              workspaceReason: null,
+              gitStatus: null,
+              sessionId: null,
+            })
+            .where(and(eq(groupBots.groupId, group.id), ne(groupBots.workspaceKind, 'cd')))
+            .returning({ botId: groupBots.botId })
+        })
+        await postEvent(ctx, group.id, '群解绑仓库 · 各 Bot 改用默认工作区或本机目录，托管克隆保留在本机')
+        await auditAdmin(me.id, group.id, 'group.repo.unbind', {
+          previous: { url: publicRepoUrl(old.url), branch: old.baseBranch },
+        })
+        const ids = new Set(moved.map((m) => m.botId))
+        for (const bot of await activeBots(ctx, group.id))
+          if (ids.has(bot.id)) await joinWorkspace(ctx, group.id, bot, { joined: false })
+        await publishGroup(ctx, group.id)
+        return groupDto(ctx, me.id, group.id)
+      }
+      assertBindable(url, branch)
       if (old?.url === url && old.baseBranch === branch) return groupDto(ctx, me.id, group.id)
       if (group.mode === 'force') return fail('conflict', '强制同步群不能更换仓库，请先切回分区模式')
 

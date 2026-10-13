@@ -1148,6 +1148,33 @@ describe('repo and workspaces', () => {
     ...s,
   }))
 
+  it('lets a group admin unbind the repo after confirming', async () => {
+    const calls = mockApi({
+      ...baseRoutes([group()]),
+      'GET /groups/g1/bot-states': () => states,
+      'PATCH /groups/g1/repo': () => group({ repo: null }),
+    })
+    renderAt('/g/g1')
+    fireEvent.click(await within(screen.getByRole('main')).findByRole('button', { name: '群设置' }))
+    const drawer = await screen.findByRole('complementary', { name: '群设置' })
+    fireEvent.click(within(drawer).getByRole('button', { name: /仓库与工作区/ }))
+    const dialog = await screen.findByRole('dialog', { name: '仓库与工作区 · 退款 v2 迁移' })
+    expect(
+      within(dialog).getByText(
+        'Bot 改用本机目录时，目录的 remote 须与群仓库一致；想完全不受仓库约束，请解绑仓库。',
+      ),
+    ).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: '解绑…' }))
+    const confirm = await screen.findByRole('alertdialog', { name: '解绑仓库' })
+    fireEvent.click(within(confirm).getByRole('button', { name: '解绑仓库' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')).toMatchObject({
+        path: '/groups/g1/repo',
+        body: { url: '', branch: '' },
+      }),
+    )
+  })
+
   it('lets a group admin change the repo, checking it against the group bots', async () => {
     const calls = mockApi({
       ...baseRoutes([group()]),
