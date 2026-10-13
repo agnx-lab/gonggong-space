@@ -28,7 +28,7 @@ export function AccountMenu({
   const user = useSession((s) => s.user)
   // Single-team mode has no team switcher, so 团队设置 lives here (plan D11).
   const soleTeam = useSession((s) => (s.tenancy?.singleTeamMode ? s.tenancy.teams[0] : undefined))
-  const [dialog, setDialog] = useState<'bind' | 'usage' | 'team' | null>(null)
+  const [dialog, setDialog] = useState<'bind' | 'usage' | 'team' | 'invite' | null>(null)
   const openSettings = useSettings((s) => s.open)
 
   if (!user) return null
@@ -45,6 +45,7 @@ export function AccountMenu({
     { label: t('绑定新机器'), value: 'bind' },
     { label: t('我的用量'), value: 'usage' },
     ...(soleTeam ? [{ label: t('团队设置'), value: 'team' }] : []),
+    ...(soleTeam && soleTeam.role !== 'member' ? [{ label: t('邀请成员'), value: 'invite' }] : []),
     { separator: true },
     { label: t('设置…'), value: 'settings' },
     { separator: true },
@@ -54,7 +55,7 @@ export function AccountMenu({
   const select = (value: string) => {
     if (value === 'logout') void logout()
     else if (value === 'settings') openSettings()
-    else setDialog(value as 'bind' | 'usage' | 'team')
+    else setDialog(value as 'bind' | 'usage' | 'team' | 'invite')
   }
 
   return (
@@ -74,8 +75,12 @@ export function AccountMenu({
       <Presence>
         {dialog === 'usage' ? (
           <UsageDialog onClose={() => setDialog(null)} />
-        ) : dialog === 'team' && soleTeam ? (
-          <TeamSettingsDialog team={soleTeam} onClose={() => setDialog(null)} />
+        ) : (dialog === 'team' || dialog === 'invite') && soleTeam ? (
+          <TeamSettingsDialog
+            team={soleTeam}
+            tab={dialog === 'invite' ? 'invites' : 'overview'}
+            onClose={() => setDialog(null)}
+          />
         ) : null}
       </Presence>
     </>

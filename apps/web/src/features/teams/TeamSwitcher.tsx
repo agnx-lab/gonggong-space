@@ -4,7 +4,7 @@ import { useSession } from '../../app/session'
 import { t } from '../../i18n'
 import { errorText } from '../../lib/api'
 import { storedTeam } from '../../lib/team'
-import { Alert, Badge, Icon, MenuButton, type MenuItem, Presence, Sheet, TextField } from '../../ui'
+import { Alert, Badge, Dialog, Icon, MenuButton, type MenuItem, Presence, TextField } from '../../ui'
 import { switchTeam, teamsApi, tokenOf } from './store'
 import { TeamAvatar, TeamSettingsDialog } from './TeamSettingsDialog'
 import './teams.css'
@@ -14,7 +14,7 @@ export const useMultiTeam = () => useSession((s) => !!s.tenancy && !s.tenancy.si
 
 export function TeamSwitcher() {
   const tenancy = useSession((s) => s.tenancy)
-  const [open, setOpen] = useState<'settings' | 'new' | 'join' | null>(null)
+  const [open, setOpen] = useState<'settings' | 'invite' | 'new' | 'join' | null>(null)
   if (!tenancy || tenancy.singleTeamMode) return null
   const { teams } = tenancy
   const current = teams.find((x) => x.id === storedTeam()) ?? teams[0]
@@ -34,6 +34,7 @@ export function TeamSwitcher() {
     })),
     { separator: true },
     { label: t('团队设置'), value: 'settings', icon: 'gear' },
+    ...(current.role !== 'member' ? [{ label: t('邀请成员'), value: 'invite', icon: 'link' as const }] : []),
     ...(tenancy.canCreateTeam ? [{ label: t('新建团队'), value: 'new', icon: 'plus' as const }] : []),
     { label: t('加入团队'), value: 'join', icon: 'person-add' },
   ]
@@ -41,7 +42,7 @@ export function TeamSwitcher() {
     if (value.startsWith('team:')) {
       const id = value.slice(5)
       if (id !== current.id) switchTeam(id)
-    } else setOpen(value as 'settings' | 'new' | 'join')
+    } else setOpen(value as 'settings' | 'invite' | 'new' | 'join')
   }
   return (
     <>
@@ -57,8 +58,12 @@ export function TeamSwitcher() {
         <Icon name="chevron-updown" size={12} />
       </MenuButton>
       <Presence>
-        {open === 'settings' ? (
-          <TeamSettingsDialog team={current} onClose={() => setOpen(null)} />
+        {open === 'settings' || open === 'invite' ? (
+          <TeamSettingsDialog
+            team={current}
+            tab={open === 'invite' ? 'invites' : 'overview'}
+            onClose={() => setOpen(null)}
+          />
         ) : open === 'new' ? (
           <NewTeamSheet onClose={() => setOpen(null)} />
         ) : open === 'join' ? (
@@ -69,6 +74,7 @@ export function TeamSwitcher() {
   )
 }
 
+/** Page dialogs, not Sheets: a Sheet drops from the nearest positioned ancestor, here the sidebar toolbar. */
 export function NewTeamSheet({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -85,8 +91,9 @@ export function NewTeamSheet({ onClose }: { onClose: () => void }) {
     }
   }
   return (
-    <Sheet
+    <Dialog
       open
+      closeOnBackdrop={false}
       onClose={onClose}
       title={t('新建团队')}
       message={t('你将成为团队所有者，可邀请成员加入。')}
@@ -112,7 +119,7 @@ export function NewTeamSheet({ onClose }: { onClose: () => void }) {
         />
         {error ? <Alert variant="error" description={error} /> : null}
       </form>
-    </Sheet>
+    </Dialog>
   )
 }
 
@@ -121,8 +128,9 @@ export function JoinTeamSheet({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState('')
   const token = tokenOf(text)
   return (
-    <Sheet
+    <Dialog
       open
+      closeOnBackdrop={false}
       onClose={onClose}
       title={t('加入团队')}
       message={t('粘贴团队管理员发给你的邀请链接。')}
@@ -148,6 +156,6 @@ export function JoinTeamSheet({ onClose }: { onClose: () => void }) {
           onChange={(e) => setText(e.target.value)}
         />
       </form>
-    </Sheet>
+    </Dialog>
   )
 }

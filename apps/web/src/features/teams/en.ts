@@ -4,6 +4,7 @@ export default {
   '切换团队，当前：{name}': 'Switch team, current: {name}',
   其他团队有未读: 'Unread in other teams',
   团队设置: 'Team settings',
+  邀请成员: 'Invite members',
   新建团队: 'New team',
   加入团队: 'Join team',
   '你将成为团队所有者，可邀请成员加入。': "You'll own the team and can invite members.",

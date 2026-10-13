@@ -50,8 +50,18 @@ type Tab =
   | 'audit'
 
 /** 团队设置 (plan §5): everyone reads the overview and members; admins edit, owners archive and transfer. */
-export function TeamSettingsDialog({ team, onClose }: { team: TeamDto; onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('overview')
+export function TeamSettingsDialog({
+  team,
+  tab: initial = 'overview',
+  onClose,
+}: {
+  team: TeamDto
+  tab?: Tab
+  onClose: () => void
+}) {
+  const [tab, setTab] = useState<Tab>(initial)
+  // Reopened on another tab while still closing, the dialog is reused rather than remounted.
+  useEffect(() => setTab(initial), [initial])
   const admin = team.role !== 'member'
   const tabs: { value: Tab; label: string; icon: IconName; body: ReactNode }[] = [
     {

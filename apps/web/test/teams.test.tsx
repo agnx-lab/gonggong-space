@@ -143,6 +143,33 @@ describe('team switcher', () => {
     expect(assign).toHaveBeenCalledWith('/')
   })
 
+  it('offers admins 邀请成员 straight to the invite tab; members do not see it', async () => {
+    mockApi({ ...chatRoutes, 'GET /teams/t1/invites': [] })
+    signIn({ teams: [team({ role: 'admin' })], singleTeamMode: false, canCreateTeam: false })
+    const view = renderAt('/')
+    fireEvent.click(await screen.findByRole('button', { name: '切换团队，当前：支付组' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByText('邀请成员'))
+    const dialog = await screen.findByRole('dialog', { name: '邀请 · 支付组' })
+    expect(within(dialog).getByRole('button', { name: '生成邀请链接' })).toBeTruthy()
+    view.unmount()
+
+    signIn({ teams: [team({ role: 'member' })], singleTeamMode: false, canCreateTeam: false })
+    renderAt('/')
+    fireEvent.click(await screen.findByRole('button', { name: '切换团队，当前：支付组' }))
+    expect(within(screen.getByRole('menu')).queryByText('邀请成员')).toBeNull()
+  })
+
+  it('opens 加入团队 as a page dialog over the app, not inside the sidebar toolbar', async () => {
+    mockApi(chatRoutes)
+    signIn({ teams: [team()], singleTeamMode: false, canCreateTeam: false })
+    renderAt('/')
+    fireEvent.click(await screen.findByRole('button', { name: '切换团队，当前：支付组' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByText('加入团队'))
+    const dialog = await screen.findByRole('dialog', { name: '加入团队' })
+    expect(dialog.closest('.ui-toolbar')).toBeNull()
+    expect(within(dialog).getByLabelText('邀请链接')).toBeTruthy()
+  })
+
   it('sends someone in no team to /welcome, offering to create a team or join by invite', async () => {
     mockApi(chatRoutes)
     signIn({ teams: [], singleTeamMode: false, canCreateTeam: true })
@@ -344,6 +371,15 @@ describe('single-team mode', () => {
     const dialog = await screen.findByRole('dialog', { name: '概览 · 支付组' })
     expect(within(dialog).getByRole('button', { name: 'MCP' })).toBeTruthy()
     expect(within(dialog).queryByText('新建团队')).toBeNull()
+  })
+
+  it('offers admins 邀请成员 in the account menu', async () => {
+    mockApi({ ...chatRoutes, 'GET /teams/t1/invites': [] })
+    signIn({ teams: [team({ role: 'owner' })], singleTeamMode: true, canCreateTeam: false })
+    renderAt('/')
+    fireEvent.click((await screen.findAllByRole('button', { name: '账户菜单' }))[0] as HTMLElement)
+    fireEvent.click(within(screen.getByRole('menu')).getByText('邀请成员'))
+    expect(await screen.findByRole('dialog', { name: '邀请 · 支付组' })).toBeTruthy()
   })
 
   it('has no 团队设置 entry outside single-team mode (the switcher has it)', async () => {
