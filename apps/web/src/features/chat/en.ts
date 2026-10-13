@@ -169,4 +169,8 @@ export default {
   '{n} 个子仓库': '{n} {n:sub-repo|sub-repos}',
   '{name} 的子仓库': "{name}'s sub-repos",
   游离: 'Detached',
+  '为 {name} 确认工作区后才能开始工作：托管克隆或使用本机已有目录':
+    'Choose a workspace for {name} before it can work: a managed clone or an existing local one',
+  '等待 {owner} 为 {name} 确认工作区': 'Waiting for {owner} to choose a workspace for {name}',
+  确认工作区: 'Choose workspace',
 } satisfies Record<string, string>

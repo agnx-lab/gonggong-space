@@ -554,6 +554,17 @@ export const FilesResult = z.object({
   error: z.string().nullable(),
 })
 
+/** Answer to repo.find. */
+export const RepoFound = z.object({
+  t: z.literal('repo.found'),
+  requestId: z.string(),
+  /** Where a managed clone for this (group, bot) would go. */
+  managedPath: z.string(),
+  /** Local work trees whose origin is the group repo. */
+  paths: z.array(z.string()),
+})
+export type RepoFound = z.infer<typeof RepoFound>
+
 /** Answer to dir.list. */
 export const DirResult = z.object({
   t: z.literal('dir.result'),
@@ -814,6 +825,7 @@ export const DaemonToServer = z.discriminatedUnion('t', [
   AgentsUpdate,
   CommandsUpdate,
   DirResult,
+  RepoFound,
   FilesResult,
   FilesTreeResult,
   FilesReadResult,
@@ -971,6 +983,15 @@ export const FilesRead = z.object({
   maxBytes: z.number().int(),
 })
 
+/** Look for local clones of the group repo under the home dir, for confirming a joining bot's workspace. */
+export const RepoFind = z.object({
+  t: z.literal('repo.find'),
+  requestId: z.string(),
+  groupId: z.string(),
+  botId: z.string(),
+  repo: RepoSpec,
+})
+
 /** Browse the machine's directories for the workspace picker; `path` null → the home dir. */
 export const DirList = z.object({
   t: z.literal('dir.list'),
@@ -1085,6 +1106,7 @@ export const CcSwitchApply = z.object({
 
 export const ServerToDaemon = z.discriminatedUnion('t', [
   DirList,
+  RepoFind,
   FilesList,
   FilesTree,
   FilesRead,

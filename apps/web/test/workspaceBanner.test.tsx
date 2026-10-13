@@ -50,6 +50,50 @@ beforeEach(() => useSession.setState({ user: { id: 'u1' } as UserDto, status: 'r
 afterEach(() => vi.unstubAllGlobals())
 
 describe('workspace banner', () => {
+  it('asks the owner to confirm a joining bot’s workspace, offering local clones the machine found', async () => {
+    const state = unbound().g1.b1
+    useWorkspace.setState({ bots: [bot()], botStates: { g1: { b1: { ...state, state: 'confirm' } } } })
+    const calls = mockApi({
+      'GET /machines/m1/dirs': listing('/Users/w'),
+      'GET /groups/g1/local-paths': [{ machineId: 'm1', path: '/Users/w/old/pay' }],
+      'GET /groups/g1/bots/b1/repo-candidates': {
+        managedPath: '/Users/w/.gonggong/workspaces/g1/b1/r1',
+        paths: ['/Users/w/code/pay', '/Users/w/old/pay'],
+      },
+      'PUT /groups/g1/bots/b1/workspace': undefined,
+    })
+    const repo = { url: 'git@git.corp:pay/pay.git', branch: 'main' }
+    render(<WorkspaceBanner group={group({ repo })} />)
+    expect(screen.getByTestId('ws-banner-b1').textContent).toContain(
+      '为 小王的 Claude 确认工作区后才能开始工作：托管克隆或使用本机已有目录',
+    )
+    fireEvent.click(screen.getByText('确认工作区'))
+    expect(await screen.findByText('/Users/w/code/pay')).toBeTruthy()
+    expect(screen.getAllByText('/Users/w/old/pay')).toHaveLength(1)
+    expect(
+      await screen.findByText('克隆 git@git.corp:pay/pay.git 到 /Users/w/.gonggong/workspaces/g1/b1/r1'),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByText('/Users/w/code/pay'))
+    await waitFor(() =>
+      expect(calls.at(-1)).toEqual({
+        method: 'PUT',
+        path: '/groups/g1/bots/b1/workspace',
+        body: { path: '/Users/w/code/pay' },
+      }),
+    )
+  })
+
+  it('tells others the owner has to confirm', () => {
+    const state = unbound().g1.b1
+    useWorkspace.setState({
+      bots: [bot({ ownerId: 'u2' })],
+      botStates: { g1: { b1: { ...state, state: 'confirm' } } },
+    })
+    render(<WorkspaceBanner group={group({ repo: { url: 'git@git.corp:pay/pay.git', branch: 'main' } })} />)
+    expect(screen.getByTestId('ws-banner-b1').textContent).toContain('等待 王磊 为 小王的 Claude 确认工作区')
+    expect(screen.queryByText('确认工作区')).toBeNull()
+  })
+
   it('lets the owner browse the machine and bind a directory', async () => {
     useWorkspace.setState({ bots: [bot()], botStates: unbound() })
     const calls = mockApi({

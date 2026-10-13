@@ -206,7 +206,7 @@ describe('repo history', () => {
     const w = await world()
     const d = await daemon(w.a.token)
     const g = (await w.createGroup({ botIds: [w.claude.id] })).body
-    expect(await d.next()).toMatchObject({ t: 'workspace.ensure' })
+    // Joined online: the owner's choice of directory is the confirmation.
     await w.asAlice.put(`/api/groups/${g.id}/bots/${w.claude.id}/workspace`, { path: '/Users/w/code/pay' })
     const req = await d.next()
     expect(req).toMatchObject({ t: 'workspace.cd', path: '/Users/w/code/pay', repo: { protocol: 'auto' } })
@@ -232,8 +232,9 @@ describe('repo history', () => {
 
 async function pausedWorld() {
   const w = await world()
-  const d = await daemon(w.a.token)
+  // Joined while offline, so the managed clone starts as soon as the daemon connects.
   const g = (await w.createGroup({ botIds: [w.claude.id] })).body
+  const d = await daemon(w.a.token)
   const req = await d.next()
   expect(req).toMatchObject({ t: 'workspace.ensure' })
   d.send({

@@ -87,6 +87,16 @@ async function createRuns(ctx: Ctx, t: Trigger) {
             owner: bot.ownerName,
           },
         ))
+      if (!refused && bot.workspaceState === 'confirm')
+        return void (await postEvent(
+          ctx,
+          t.groupId,
+          '{bot} 等待 {owner} 确认工作区，本次未执行；确认后重新发起即可',
+          {
+            bot: bot.name,
+            owner: bot.ownerName,
+          },
+        ))
       const reason = bot.workspaceReason as RepoAccessReason | null
       if (!refused && bot.workspaceState === 'failed' && reason && PAUSING.includes(reason))
         return void (await postEvent(

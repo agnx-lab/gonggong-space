@@ -1537,8 +1537,11 @@ export type ConversationStatsRowDto = z.infer<typeof ConversationStatsRowDto>
 export const GroupBotStateDto = z.object({
   botId: z.string(),
   workspace: z.enum(['managed', 'cd']),
-  /** unbound = waiting for the owner to pick a workspace; the bot is not run meanwhile (plan W5). */
-  state: z.enum(['pending', 'cloning', 'ready', 'failed', 'unbound']),
+  /**
+   * unbound = waiting for the owner to pick a workspace; confirm = joined a repo group while its owner was online,
+   * waiting for them to choose a managed clone or a local one. The bot is not run meanwhile (plan W5).
+   */
+  state: z.enum(['pending', 'cloning', 'ready', 'failed', 'unbound', 'confirm']),
   path: z.string().nullable(),
   git: GitStatus.nullable(),
   error: z.string().nullable(),
@@ -1553,6 +1556,10 @@ export const GroupBotStateDto = z.object({
   context: ContextUsage.nullable(),
 })
 export type GroupBotStateDto = z.infer<typeof GroupBotStateDto>
+
+/** GET /api/groups/:id/bots/:botId/repo-candidates: the owner's local clones of the group repo (repo.found). */
+export const RepoCandidatesDto = z.object({ managedPath: z.string(), paths: z.array(z.string()) })
+export type RepoCandidatesDto = z.infer<typeof RepoCandidatesDto>
 
 export const WebEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('group.botState'), groupId: z.string(), state: GroupBotStateDto }),

@@ -24,6 +24,7 @@ export const middle = (path: string, max = 40) =>
 
 function workspaceText(s: GroupBotStateDto | undefined, online: boolean) {
   if (!s || s.state === 'unbound') return t('未选择工作区')
+  if (s.state === 'confirm') return t('待主人确认')
   const paused = s.state === 'failed' && s.reason ? PAUSING[s.reason] : undefined
   if (paused) return t('已暂停 · {reason}', { reason: paused })
   if (s.workspace === 'cd' && s.path) return <span className="rw-path">{middle(s.path)}</span>
@@ -158,7 +159,7 @@ export function RepoWorkspaceView({ group, isAdmin }: { group: GroupDto; isAdmin
                         title={online ? undefined : t('离线，上线后可更改')}
                         onClick={() => setPicking(b)}
                       >
-                        {t('更改…')}
+                        {s?.state === 'confirm' ? t('确认…') : t('更改…')}
                       </Button>
                     ) : null}
                   </>

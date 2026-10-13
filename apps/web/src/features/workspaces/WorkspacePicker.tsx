@@ -1,4 +1,10 @@
-import { type BotDto, type DirListingDto, type GroupDto, repoKey } from '@gonggong/protocol'
+import {
+  type BotDto,
+  type DirListingDto,
+  type GroupDto,
+  type RepoCandidatesDto,
+  repoKey,
+} from '@gonggong/protocol'
 import { useEffect, useState } from 'react'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
@@ -17,6 +23,16 @@ function useLocalPaths(group: GroupDto) {
   return paths
 }
 
+/** Clones of the group repo the bot's machine finds under the home dir, and where a managed clone would go. */
+function useCandidates(group: GroupDto, botId: string) {
+  const [found, setFound] = useState<RepoCandidatesDto | null>(null)
+  useEffect(() => {
+    if (!group.repo) return
+    api.get<RepoCandidatesDto>(`/groups/${group.id}/bots/${botId}/repo-candidates`).then(setFound, () => {})
+  }, [group.id, group.repo, botId])
+  return found
+}
+
 /**
  * Picks where one of my bots works in this group: a local clone of the repo, a managed clone (`path = null`), the
  * bot's default workspace, or any directory on its machine. Shared by the workspace banner and the repo settings.
@@ -32,7 +48,11 @@ export function WorkspacePicker({
   onDone?: () => void
   onClose: () => void
 }) {
-  const local = useLocalPaths(group).filter((p) => p.machineId === bot.machineId)
+  const found = useCandidates(group, bot.id)
+  const remembered = useLocalPaths(group)
+    .filter((p) => p.machineId === bot.machineId)
+    .map((p) => p.path)
+  const local = [...new Set([...(found?.paths ?? []), ...remembered])]
   const [foreign, setForeign] = useState<{ path: string; remote: string } | null>(null)
   const bind = (path: string | null, force?: boolean) =>
     api
@@ -70,19 +90,14 @@ export function WorkspacePicker({
           bot.defaultWorkspace || group.repo ? (
             <div className="dirpick__choices">
               {local.map((p) => (
-                <button
-                  key={p.path}
-                  type="button"
-                  className="dirpick__choice"
-                  onClick={() => void bind(p.path)}
-                >
+                <button key={p} type="button" className="dirpick__choice" onClick={() => void bind(p)}>
                   <Icon name="folder-check" size={16} className="dirpick__choice-icon" />
                   <span className="dirpick__choice-text">
                     <span className="dirpick__choice-title">
                       {t('使用本机已有的仓库目录')}
                       <span className="dirpick__badge">{t('免 clone')}</span>
                     </span>
-                    <span className="dirpick__choice-desc">{p.path}</span>
+                    <span className="dirpick__choice-desc">{p}</span>
                   </span>
                 </button>
               ))}
@@ -94,7 +109,11 @@ export function WorkspacePicker({
                       {t('托管克隆群仓库')}
                       <span className="dirpick__badge">{t('推荐')}</span>
                     </span>
-                    <span className="dirpick__choice-desc">{t('在机器上自动克隆到独立目录，互不干扰')}</span>
+                    <span className="dirpick__choice-desc">
+                      {found
+                        ? t('克隆 {url} 到 {path}', { url: group.repo.url, path: found.managedPath })
+                        : t('在机器上自动克隆到独立目录，互不干扰')}
+                    </span>
                   </span>
                 </button>
               ) : null}

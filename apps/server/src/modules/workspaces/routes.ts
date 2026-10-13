@@ -4,6 +4,7 @@ import {
   DefaultWorkspaceReq,
   type DirListingDto,
   type RepoAccessReason,
+  type RepoCandidatesDto,
 } from '@gonggong/protocol'
 import { and, eq, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -20,10 +21,12 @@ import { ABSOLUTE, announceCd, requestCd } from './cd.js'
 import { daemonWorkspaceRoutes } from './daemon.js'
 import { workspaceDiffRoutes } from './diff.js'
 import { workspaceFileRoutes } from './files.js'
-import { ensureWorkspace, onlineMachine, PAUSING } from './provision.js'
+import { currentRepo, ensureWorkspace, onlineMachine, PAUSING } from './provision.js'
 import { listBotStates } from './state.js'
 
 const DIR_TIMEOUT_MS = 10_000
+/** repo.find walks the home dir: allow it longer than one directory listing. */
+const FIND_TIMEOUT_MS = 20_000
 
 /** A live bot the caller owns: its machine's directories are only ever shown to or bound by its owner (plan W7). */
 async function ownBot(ctx: Ctx, userId: string, rawId: string) {
@@ -131,6 +134,30 @@ export function workspaceRoutes(ctx: Ctx) {
           return fail('conflict', '{bot} 离线，上线后会自动重新检查', { bot: bot.name })
         await ensureWorkspace(ctx, group.id, bot)
         return reply.status(204).send()
+      },
+    )
+
+    /** Local clones of the group repo the bot's machine finds, and where a managed clone would go (owner only). */
+    app.get<{ Params: { id: string; botId: string } }>(
+      '/api/groups/:id/bots/:botId/repo-candidates',
+      async (req): Promise<RepoCandidatesDto> => {
+        const me = await requireUser(ctx, req)
+        const { group } = await requireMember(ctx, req.params.id, me.id)
+        const bot = await ownBot(ctx, me.id, req.params.botId)
+        const repo = (await currentRepo(ctx, group.id, bot.id)) ?? fail('invalid', '该群未绑定仓库')
+        const machineId = onlineMachine(ctx, bot.machineId)
+        if (!machineId) return fail('conflict', '{bot} 离线，无法绑定工作区', { bot: bot.name })
+        const ask = {
+          t: 'repo.find',
+          requestId: randomUUID(),
+          groupId: group.id,
+          botId: bot.id,
+          repo,
+        } as const
+        const res =
+          (await ctx.hub.request(machineId, ask, 'repo.found', FIND_TIMEOUT_MS)) ??
+          fail('conflict', '{name} 未响应，请稍后重试', { name: bot.name })
+        return { managedPath: res.managedPath, paths: res.paths }
       },
     )
 

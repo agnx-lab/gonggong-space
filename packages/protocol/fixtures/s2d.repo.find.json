@@ -1,0 +1,7 @@
+{
+  "t": "repo.find",
+  "requestId": "f1",
+  "groupId": "g1",
+  "botId": "b1",
+  "repo": { "id": "r1", "url": "git@git.corp:pay/pay-server.git", "branch": "main", "protocol": "auto" }
+}

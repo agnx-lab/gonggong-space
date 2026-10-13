@@ -379,7 +379,10 @@ export const groupBots = pgTable(
     newSessionReason: text('new_session_reason'),
     /** Last git status reported after a turn (partition mode status bar). */
     gitStatus: jsonb('git_status'),
-    /** 'pending' | 'cloning' | 'ready' | 'failed' as last reported by the owner's daemon; 'unbound' until the owner picks one. */
+    /**
+     * 'pending' | 'cloning' | 'ready' | 'failed' as last reported by the owner's daemon; 'unbound' until the owner
+     * picks one; 'confirm' until the owner chooses a managed or local clone for a bot that joined a repo group.
+     */
     workspaceState: text('workspace_state').notNull().default('pending'),
     workspacePath: text('workspace_path'),
     workspaceError: text('workspace_error'),

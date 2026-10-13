@@ -24,7 +24,7 @@ export function WorkspaceBanner({ group }: { group: GroupDto }) {
   const bots = useWorkspace((s) => s.bots)
   const [picking, setPicking] = useState<BotDto | null>(null)
   const inGroup = bots.filter((b) => group.botIds.includes(b.id))
-  const waiting = inGroup.filter((b) => states?.[b.id]?.state === 'unbound')
+  const waiting = inGroup.filter((b) => ['unbound', 'confirm'].includes(states?.[b.id]?.state ?? ''))
   const paused = inGroup.filter((b) => {
     const s = states?.[b.id]
     return s?.state === 'failed' && !!s.reason && !!PAUSING[s.reason]
@@ -96,20 +96,24 @@ export function WorkspaceBanner({ group }: { group: GroupDto }) {
         if (mineReady.length > 1 && mineReady.includes(b)) return null
         const mine = b.ownerId === me?.id
         const error = states?.[b.id]?.error
+        const confirm = states?.[b.id]?.state === 'confirm'
+        const text = confirm
+          ? mine
+            ? t('为 {name} 确认工作区后才能开始工作：托管克隆或使用本机已有目录', { name: b.name })
+            : t('等待 {owner} 为 {name} 确认工作区', { owner: b.ownerName, name: b.name })
+          : mine
+            ? t('为 {name} 选择工作区后才能开始工作，此前 @ 它不会执行', { name: b.name })
+            : t('等待 {owner} 为 {name} 绑定工作区', { owner: b.ownerName, name: b.name })
         return (
           <div key={b.id} data-testid={`ws-banner-${b.id}`}>
             <PinnedBanner
               icon="folder-open"
               title={null}
-              text={`${
-                mine
-                  ? t('为 {name} 选择工作区后才能开始工作，此前 @ 它不会执行', { name: b.name })
-                  : t('等待 {owner} 为 {name} 绑定工作区', { owner: b.ownerName, name: b.name })
-              }${error ? ` · ${error}` : ''}`}
+              text={`${text}${error ? ` · ${error}` : ''}`}
               action={
                 mine && b.machineId ? (
                   <Button size="small" variant="primary" onClick={() => setPicking(b)}>
-                    {t('绑定工作区')}
+                    {confirm ? t('确认工作区') : t('绑定工作区')}
                   </Button>
                 ) : null
               }

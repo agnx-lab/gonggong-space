@@ -98,7 +98,10 @@ async function pick(
   const usable = candidates.filter((b) => {
     const st = state.find((x) => x.id === b.id)
     return (
-      st?.binding === 'bound' && st.workspace !== 'unbound' && !!b.machineId && ctx.hub.isOnline(b.machineId)
+      st?.binding === 'bound' &&
+      !['unbound', 'confirm'].includes(st.workspace) &&
+      !!b.machineId &&
+      ctx.hub.isOnline(b.machineId)
     )
   })
   return usable.find((b) => !busy.some((x) => x.botId === b.id)) ?? usable[0] ?? null

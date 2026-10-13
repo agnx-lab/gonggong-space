@@ -3,8 +3,9 @@
 use crate::config::{Config, user_home};
 use crate::git::{self, git};
 use crate::protocol::{
-    Answer, DaemonToServer, DirEntry, DirGit, DirResult, GitStatus, Question, QuestionType, RepoAccessReason, RepoSpec,
-    RunStart, WorkspaceCd, WorkspaceEnsure, WorkspaceKind, WorkspaceSpec, WorkspaceState, WorkspaceStateKind,
+    Answer, DaemonToServer, DirEntry, DirGit, DirResult, GitStatus, Question, QuestionType, RepoAccessReason, RepoFind,
+    RepoFound, RepoSpec, RunStart, WorkspaceCd, WorkspaceEnsure, WorkspaceKind, WorkspaceSpec, WorkspaceState,
+    WorkspaceStateKind,
 };
 use crate::repo::{self, normalize_remote};
 use crate::service::Outbox;
@@ -192,6 +193,18 @@ impl Workspaces {
         reply(Some(outcome));
     }
 
+    /// repo.find: the owner's local clones of the group repo, and where a managed clone would go instead.
+    pub async fn find(&self, req: RepoFind) -> RepoFound {
+        let managed = managed_path(&self.home, &req.group_id, &req.bot_id, Some(&req.repo.id));
+        let want = normalize_remote(&req.repo.url);
+        let paths = tokio::task::spawn_blocking(move || find_clones(&user_home(), &want)).await.unwrap_or_default();
+        RepoFound {
+            request_id: req.request_id,
+            managed_path: managed.to_string_lossy().into_owned(),
+            paths: paths.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+        }
+    }
+
     /// The directory a (group, bot) works in: the /cd directory, else the managed path.
     pub fn dir(&self, group: &str, bot: &str, spec: &WorkspaceSpec) -> PathBuf {
         workspace_dir(&self.home, group, bot, spec)
@@ -365,6 +378,64 @@ async fn remotes(dir: &Path) -> Vec<String> {
 }
 
 const DIR_LIST_MAX: usize = 500;
+
+/// Bounds of the repo.find walk: deep enough for `~/Documents/code/<repo>`, cheap enough to answer in a moment.
+const FIND_DEPTH: usize = 4;
+const FIND_MAX_DIRS: usize = 20_000;
+const FIND_SKIP: [&str; 9] =
+    ["node_modules", "target", "dist", "build", "vendor", "Library", "Applications", "Pictures", "Movies"];
+
+/// Work trees under `root` whose origin is `want` (a normalized remote); hidden dirs (the managed clones under
+/// `~/.gonggong` among them) and other work trees are not descended into.
+fn find_clones(root: &Path, want: &str) -> Vec<PathBuf> {
+    let mut found = vec![];
+    let mut queue = std::collections::VecDeque::from([(root.to_path_buf(), 0)]);
+    let mut seen = 0;
+    while let Some((dir, depth)) = queue.pop_front() {
+        seen += 1;
+        if seen > FIND_MAX_DIRS {
+            break;
+        }
+        if dir.join(".git").is_dir() {
+            if origin_of(&dir).is_some_and(|url| normalize_remote(&url) == want) {
+                found.push(dir);
+            }
+            continue;
+        }
+        if depth == FIND_DEPTH {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.') || FIND_SKIP.contains(&&*name) {
+                continue;
+            }
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                queue.push_back((e.path(), depth + 1));
+            }
+        }
+    }
+    found
+}
+
+/// `remote.origin.url` read from `.git/config` directly: spawning git for every repo would make the walk slow.
+fn origin_of(dir: &Path) -> Option<String> {
+    let config = std::fs::read_to_string(dir.join(".git/config")).ok()?;
+    let mut in_origin = false;
+    for line in config.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_origin = line == r#"[remote "origin"]"#;
+        } else if in_origin
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "url"
+        {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
 
 /// A bare drive like `D:` means the drive's current directory to Windows, not its root.
 fn drive_root(mut path: String) -> String {
@@ -710,6 +781,32 @@ pub fn human_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn clone_at(dir: &Path, origin: &str) {
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(
+            dir.join(".git/config"),
+            format!("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = {origin}\n\tfetch = +refs/heads/*\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn finds_local_clones_of_the_repo_by_origin() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        clone_at(&h.join("code/pay-server"), "git@git.corp:pay/pay-server.git");
+        clone_at(&h.join("Documents/work/pay"), "https://git.corp/pay/pay-server");
+        clone_at(&h.join("code/other"), "git@git.corp:pay/other.git");
+        clone_at(&h.join("code/node_modules/pay-server"), "git@git.corp:pay/pay-server.git");
+        clone_at(&h.join(".gonggong/workspaces/g/b/r"), "git@git.corp:pay/pay-server.git");
+        clone_at(&h.join("a/b/c/d/e/too-deep"), "git@git.corp:pay/pay-server.git");
+        // Not descended into: a clone nested in another work tree is that tree's business.
+        clone_at(&h.join("code/other/vendor/pay"), "git@git.corp:pay/pay-server.git");
+        let mut found = find_clones(h, &normalize_remote("git@git.corp:pay/pay-server.git"));
+        found.sort();
+        assert_eq!(found, vec![h.join("Documents/work/pay"), h.join("code/pay-server")]);
+    }
 
     fn pair(group: &str, kind: WorkspaceKind, repo: Option<&str>) -> Pair {
         Pair {

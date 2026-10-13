@@ -87,8 +87,12 @@ test('bots whose machine cannot read the group repo are shown, paused and not ru
     await expect(page).toHaveURL(/\/g\//)
     const groupId = page.url().split('/g/')[1]!.split(/[?#]/)[0]!
 
-    // Repo groups start every bot on a managed clone: Alice's is ready, Bob's clone fails on access and pauses the bot.
+    // Each owner confirms a managed clone: Alice's is ready, Bob's clone fails on access and pauses the bot.
     await bindManaged(page.request, groupId, [aliceBot.id])
+    const confirmed = await bobSession.put(`/api/groups/${groupId}/bots/${bobBot.id}/workspace`, {
+      data: { path: null },
+    })
+    expect(confirmed.status()).toBe(204)
     const bobState = async () => {
       const states: { botId: string; state: string; reason: string | null }[] = await (
         await page.request.get(`/api/groups/${groupId}/bot-states`)

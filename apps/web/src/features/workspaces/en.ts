@@ -27,4 +27,5 @@ export default {
     "The group's base branch and managed clone no longer apply to {bot}",
   '仅影响 {bot}，群内其他 Bot 不变': 'Only affects {bot}; other Bots in the group are unchanged',
   仍然使用: 'Use anyway',
+  '克隆 {url} 到 {path}': 'Clone {url} into {path}',
 } satisfies Record<string, string>

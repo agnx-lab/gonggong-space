@@ -85,6 +85,8 @@ function Item({
   const hint =
     s.state === 'unbound' ? (
       <span className="git-bar__hint">{t('待绑定')}</span>
+    ) : s.state === 'confirm' ? (
+      <span className="git-bar__hint">{t('待主人确认')}</span>
     ) : s.state === 'pending' && !git ? (
       <span className="git-bar__hint">{t('待创建')}</span>
     ) : s.state === 'cloning' ? (

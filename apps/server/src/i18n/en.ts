@@ -141,6 +141,7 @@ export const en = {
   '账号未设置密码，解绑后将无法登录':
     'This account has no password; after unlinking you could no longer sign in',
   请先绑定飞书: 'Link your Feishu account first',
+  该群未绑定仓库: 'This group has no repo',
   打开共工: 'Open Gonggong',
   '对外地址改为 {url}': 'Public URL set to {url}',
   '飞书登录新建账号 {account}': 'Created account {account} via Feishu sign-in',

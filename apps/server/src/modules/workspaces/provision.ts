@@ -130,14 +130,28 @@ async function sendDefault(ctx: Ctx, groupId: string, bot: BotRef, path: string,
 }
 
 /**
- * Picks a joining bot's workspace (plan W2–W5). Repo groups always start on a managed clone: a local directory,
- * even the default one, is the owner's explicit choice (/cd or the picker), never shared implicitly. Repo-less
+ * Picks a joining bot's workspace (plan W2–W5). In a partition repo group a bot joining while its owner is online
+ * waits in `confirm` for the owner to choose a managed clone or a local one; otherwise (owner offline, force sync,
+ * a shared DM, a repo change) it starts on a managed clone. A local directory, even the default one, is the
+ * owner's explicit choice (/cd or the picker), never shared implicitly. Repo-less
  * groups use the bot's default directory, validated by the owner's daemon; without one the bot stays `unbound`
  * until the owner binds it. Also used after a repo change.
  */
 export async function joinWorkspace(ctx: Ctx, groupId: string, bot: BotRef, o: { joined: boolean }) {
   const lead = joinedName(bot.name, o.joined)
   if (await currentRepo(ctx, groupId)) {
+    if (o.joined && onlineMachine(ctx, bot.machineId) && (await confirmable(ctx, groupId, bot.id))) {
+      await updateBotState(ctx, groupId, bot.id, { ...MANAGED, workspaceState: 'confirm' })
+      return void (await postEvent(
+        ctx,
+        groupId,
+        '{bot} · 等待 {owner} 确认工作区：托管克隆或使用本机已有目录',
+        {
+          bot: lead,
+          owner: await ownerName(ctx, bot.id),
+        },
+      ))
+    }
     await updateBotState(ctx, groupId, bot.id, MANAGED)
     await postEvent(
       ctx,
@@ -172,6 +186,12 @@ export async function joinWorkspace(ctx: Ctx, groupId: string, bot: BotRef, o: {
   })
   if (!(await sendDefault(ctx, groupId, bot, path, o.joined)))
     await postEvent(ctx, groupId, '{bot} · daemon 离线，上线后使用默认工作区', { bot: lead })
+}
+
+/** Only partition groups may use a local directory, and a shared bot never touches its owner's directories. */
+async function confirmable(ctx: Ctx, groupId: string, botId: string) {
+  const [g] = await ctx.db.select({ mode: groups.mode }).from(groups).where(eq(groups.id, groupId))
+  return g?.mode === 'partition' && !(await inSharedDm(ctx, groupId, botId))
 }
 
 async function onDefault(ctx: Ctx, req: Pending, msg: WorkspaceState, name: string) {
@@ -329,7 +349,7 @@ async function notifyPaused(ctx: Ctx, msg: WorkspaceState, bot: { name: string; 
 
 /**
  * Workspaces not ready yet are (re)ensured whenever the owner's machine connects: managed clones, and default
- * directories that could not be checked while it was offline. Unbound ones wait for their owner.
+ * directories that could not be checked while it was offline. Unbound and unconfirmed ones wait for their owner.
  */
 async function onOnline(ctx: Ctx, machineId: string) {
   const rows = await ctx.db
@@ -349,7 +369,7 @@ async function onOnline(ctx: Ctx, machineId: string) {
         isNull(bots.deletedAt),
         isNull(groupBots.removedAt),
         isNull(groups.archivedAt),
-        notInArray(groupBots.workspaceState, ['ready', 'unbound']),
+        notInArray(groupBots.workspaceState, ['ready', 'unbound', 'confirm']),
       ),
     )
   for (const { groupId, cdPath, ...bot } of rows)

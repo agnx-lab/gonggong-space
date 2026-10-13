@@ -261,6 +261,10 @@ impl Handler for Engine {
                     async move { out.send(DaemonToServer::DirResult(workspace::browse(request_id, path).await)) },
                 );
             }
+            ServerToDaemon::RepoFind(req) => {
+                let (shared, out) = (self.0.clone(), out.clone());
+                tokio::spawn(async move { out.send(DaemonToServer::RepoFound(shared.workspaces.find(req).await)) });
+            }
             ServerToDaemon::FilesList(req) => {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let out = out.clone();

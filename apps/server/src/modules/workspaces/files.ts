@@ -59,7 +59,8 @@ export function workspaceFileRoutes(ctx: Ctx) {
         .select({ cdPath: groupBots.cdPath, state: groupBots.workspaceState })
         .from(groupBots)
         .where(and(eq(groupBots.groupId, group.id), eq(groupBots.botId, bot.id)))
-      if (gb?.state === 'unbound') return fail('conflict', '{bot} 尚未设置工作区', { bot: bot.name })
+      if (gb?.state === 'unbound' || gb?.state === 'confirm')
+        return fail('conflict', '{bot} 尚未设置工作区', { bot: bot.name })
       const workspace = { repo: await currentRepo(ctx, group.id), cdPath: gb?.cdPath ?? null }
       return { groupId: group.id, bot, workspace, query }
     }

@@ -55,4 +55,6 @@ export default {
   '{n} 个 Bot 可访问': '{n} {n:Bot|Bots} can access',
   '{n} 个进群后暂停': '{n} paused after joining',
   '{n} 个离线': '{n} offline',
+  待主人确认: 'Waiting for the owner',
+  '确认…': 'Choose…',
 } satisfies Record<string, string>

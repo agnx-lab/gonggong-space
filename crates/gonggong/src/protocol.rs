@@ -356,6 +356,23 @@ pub struct DirGit {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RepoFind {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub repo: RepoSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoFound {
+    pub request_id: String,
+    pub managed_path: String,
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DirResult {
     pub request_id: String,
     pub path: String,
@@ -1273,6 +1290,8 @@ pub enum DaemonToServer {
     CommandsUpdate { group_id: String, bot_id: String, commands: Vec<AgentCommand> },
     #[serde(rename = "dir.result")]
     DirResult(DirResult),
+    #[serde(rename = "repo.found")]
+    RepoFound(RepoFound),
     #[serde(rename = "files.result", rename_all = "camelCase")]
     FilesResult { request_id: String, entries: Vec<FileEntry>, error: Option<String> },
     #[serde(rename = "files.tree.result", rename_all = "camelCase")]
@@ -1421,6 +1440,8 @@ pub enum ServerToDaemon {
     WorkspaceDiff(WorkspaceDiff),
     #[serde(rename = "dir.list", rename_all = "camelCase")]
     DirList { request_id: String, path: Option<String> },
+    #[serde(rename = "repo.find")]
+    RepoFind(RepoFind),
     #[serde(rename = "question.answer", rename_all = "camelCase")]
     QuestionAnswer {
         run_id: String,
