@@ -29,22 +29,42 @@ interface Section {
 
 const DEBOUNCE_MS = 150
 
+/** Where a command goes: after leading whitespace and mentions (`@bot /…`). */
+function headOf(text: string, names: string[]) {
+  let i = text.length - text.trimStart().length
+  for (
+    let n = names.find((x) => text.startsWith(`@${x}`, i));
+    n;
+    n = names.find((x) => text.startsWith(`@${x}`, i))
+  )
+    i +=
+      n.length + 1 + (text.slice(i + n.length + 1).length - text.slice(i + n.length + 1).trimStart().length)
+  return i
+}
+
 /**
- * The token being completed right before the caret: `@query` anywhere; `/query` as the first word, or right after
- * leading mentions (`@bot /…`).
+ * The token being completed right before the caret: `@query` anywhere; `/query` at the head (first word, or right
+ * after leading mentions), or `mid` sentence after a space while the message has no command yet. A `/` inside a word
+ * (paths, URLs, `1/2`) never triggers.
  */
-function trigger(before: string, names: string[]) {
+export function trigger(before: string, names: string[]) {
   const at = /(?:^|\s)@([^\s@]*)$/.exec(before)
   if (at) return { char: '@', query: at[1] ?? '' } as const
-  let rest = before.trimStart()
-  for (
-    let n = names.find((x) => rest.startsWith(`@${x}`));
-    n;
-    n = names.find((x) => rest.startsWith(`@${x}`))
-  )
-    rest = rest.slice(n.length + 1).trimStart()
-  const slash = /^\/(\S*)$/.exec(rest)
-  return slash ? ({ char: '/', query: slash[1] ?? '' } as const) : null
+  const head = before.slice(headOf(before, names))
+  const first = /^\/(\S*)$/.exec(head)
+  if (first) return { char: '/', query: first[1] ?? '', mid: false } as const
+  const mid = /\s\/([^\s/]*)$/.exec(head)
+  return mid && !head.startsWith('/') ? ({ char: '/', query: mid[1] ?? '', mid: true } as const) : null
+}
+
+/** A command picked mid-sentence moves to the head (the server and agents only read it there); the rest stays its text. */
+export function placeCommand(draft: string, caret: number, command: string, names: string[]) {
+  const start = draft.slice(0, caret).lastIndexOf('/')
+  let rest = draft.slice(0, start) + draft.slice(caret)
+  if (rest[start - 1] === ' ' && rest[start] === ' ') rest = rest.slice(0, start) + rest.slice(start + 1)
+  const head = headOf(rest, names)
+  const insert = `${command} `
+  return { next: rest.slice(0, head) + insert + rest.slice(head), pos: start + insert.length }
 }
 
 /** Latest answer (debounced); the previous one stays while the next loads, flagged not `fresh`. */

@@ -665,7 +665,16 @@ describe('chat view', () => {
     fireEvent.keyDown(box, { key: 'Tab' })
     expect(box.value).toBe('  /new ')
 
+    // Mid-sentence after a space it opens too, and the picked command moves to the start.
     fireEvent.change(box, { target: { value: '看下 /', selectionStart: 4 } })
+    expect(await screen.findByRole('listbox')).toBeTruthy()
+    fireEvent.change(box, { target: { value: '看下 /n', selectionStart: 5 } })
+    await waitFor(() =>
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['/new开新会话']),
+    )
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(box.value).toBe('/new 看下 ')
+    fireEvent.change(box, { target: { value: 'src/a', selectionStart: 5 } })
     expect(screen.queryByRole('listbox')).toBeNull()
     fireEvent.change(box, { target: { value: '/', selectionStart: 1 } })
     fireEvent.keyDown(box, { key: 'Escape' })

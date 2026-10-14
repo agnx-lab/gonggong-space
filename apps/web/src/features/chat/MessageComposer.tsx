@@ -18,7 +18,7 @@ import { AttachmentChips, FilePickers, QuoteChip, useUploads } from '../attachme
 import { useQuote } from '../attachments/quote'
 import { AppendBanner } from '../runs/AppendBanner'
 import { useAppend } from '../runs/append'
-import { type Candidate, CandidatePopover, useCandidates } from './ComposerCandidates'
+import { type Candidate, CandidatePopover, placeCommand, useCandidates } from './ComposerCandidates'
 import { useCite } from './cite'
 import { mentionedBots, type Picks, RunConfigChips } from './RunConfigChips'
 import './composer.css'
@@ -160,6 +160,13 @@ export const MessageComposer = memo(function MessageComposer({
 
   const pick = (c: Candidate) => {
     if (!token) return
+    if (token.char === '/' && token.mid) {
+      const { next, pos } = placeCommand(draft, caret, c.insert, names)
+      pendingCaret.current = pos
+      setDraft(next)
+      setCaret(pos)
+      return
+    }
     const start = draft.slice(0, caret).lastIndexOf(token.char)
     const insert = `${c.insert} `
     const next = draft.slice(0, start) + insert + draft.slice(caret)
