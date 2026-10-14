@@ -193,6 +193,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
       teamId: g.teamId,
       name: title,
       kind: g.kind as GroupDto['kind'],
+      avatar: avatarUrl(g.avatar),
       mode: g.mode as GroupDto['mode'],
       adminOnlyInvite: g.adminOnlyInvite,
       protectBase: g.protectBase,

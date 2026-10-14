@@ -10,6 +10,7 @@ import { dateLocale } from '../../lib/time'
 import { useGet } from '../../lib/useGet'
 import {
   Avatar,
+  AvatarEditor,
   Button,
   ConfirmActionDialog,
   Dialog,
@@ -127,14 +128,18 @@ export function TeamSettingsDialog({
 function OverviewTab({ team, onClose }: { team: TeamDto; onClose: () => void }) {
   const admin = team.role !== 'member'
   const [name, setName] = useState(team.name)
-  const [avatar, setAvatar] = useState(team.avatar ?? '')
+  const image = teamImage(team)
+  const glyph = image ? null : team.avatar
+  const [avatar, setAvatar] = useState(glyph ?? '')
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'leave' | 'archive' | null>(null)
   const me = useSession((s) => s.user)
-  const dirty = name.trim() !== team.name || (avatar.trim() || null) !== team.avatar
+  const dirty = name.trim() !== team.name || (!image && (avatar.trim() || null) !== glyph)
   const save = async () => {
     setBusy(true)
-    await attempt(() => teamsApi.update(team.id, { name: name.trim(), avatar: avatar.trim() || null }))
+    await attempt(() =>
+      teamsApi.update(team.id, { name: name.trim(), ...(!image && { avatar: avatar.trim() || null }) }),
+    )
     setBusy(false)
   }
   return (
@@ -152,18 +157,30 @@ function OverviewTab({ team, onClose }: { team: TeamDto; onClose: () => void }) 
             <span className="gs-value">{team.name}</span>
           )}
         </GroupRow>
-        <GroupRow label={t('头像')} description={t('一个字或表情，留空用团队名首字')}>
+        <GroupRow label={t('头像')}>
           {admin ? (
-            <TextField
-              aria-label={t('头像')}
-              value={avatar}
-              maxLength={8}
-              onChange={(e) => setAvatar(e.target.value)}
+            <AvatarEditor
+              name={team.name}
+              shape="square"
+              src={image}
+              preview={<TeamAvatar team={team} size={40} />}
+              onUpload={(file) => teamsApi.uploadAvatar(team.id, file)}
+              onRemove={() => teamsApi.removeAvatar(team.id)}
             />
           ) : (
             <TeamAvatar team={team} size={28} />
           )}
         </GroupRow>
+        {admin && !image ? (
+          <GroupRow label={t('头像文字')} description={t('未上传图片时显示：一个字或表情，留空用团队名首字')}>
+            <TextField
+              aria-label={t('头像文字')}
+              value={avatar}
+              maxLength={8}
+              onChange={(e) => setAvatar(e.target.value)}
+            />
+          </GroupRow>
+        ) : null}
         <GroupRow label={t('我的角色')} value={ROLE_LABEL[team.role]} />
       </GroupBox>
       {admin ? (
@@ -210,8 +227,13 @@ function OverviewTab({ team, onClose }: { team: TeamDto; onClose: () => void }) 
   )
 }
 
+/** An uploaded image's URL; `avatar` otherwise holds a glyph. */
+export const teamImage = (team: Pick<TeamDto, 'avatar'>) =>
+  team.avatar?.startsWith('/api/') ? team.avatar : undefined
+
 export function TeamAvatar({ team, size }: { team: Pick<TeamDto, 'name' | 'avatar'>; size: number }) {
-  return <Avatar name={team.avatar || team.name} shape="square" size={size} />
+  const image = teamImage(team)
+  return <Avatar name={image ? team.name : team.avatar || team.name} src={image} shape="square" size={size} />
 }
 
 /** Live member list: reloads on the team's member events. */

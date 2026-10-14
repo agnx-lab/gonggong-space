@@ -21,7 +21,9 @@ export default {
   // Settings · overview
   邀请: 'Invites',
   头像: 'Avatar',
-  '一个字或表情，留空用团队名首字': "One character or emoji; empty uses the team name's initial",
+  头像文字: 'Avatar text',
+  '未上传图片时显示：一个字或表情，留空用团队名首字':
+    "Shown without an image: one character or emoji; empty uses the team name's initial",
   我的角色: 'My role',
   退出团队: 'Leave team',
   归档团队: 'Archive team',

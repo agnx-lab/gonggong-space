@@ -12,13 +12,16 @@ import type {
 import { useEffect, useState } from 'react'
 import { useSession } from '../../app/session'
 import { t } from '../../i18n'
-import { api } from '../../lib/api'
+import { api, avatarForm } from '../../lib/api'
 import { storedTeam, storeTeam } from '../../lib/team'
 
 export const teamsApi = {
   create: (name: string) => api.post<TeamDto>('/teams', { name }),
   update: (id: string, body: { name?: string; avatar?: string | null; params?: TeamParams }) =>
     api.patch<TeamDto>(`/teams/${id}`, body).then(upsertTeam),
+  uploadAvatar: (id: string, image: Blob) =>
+    api.put<TeamDto>(`/teams/${id}/avatar`, avatarForm(image)).then(upsertTeam),
+  removeAvatar: (id: string) => api.del<TeamDto>(`/teams/${id}/avatar`).then(upsertTeam),
   archive: (id: string) => api.post(`/teams/${id}/archive`),
   takeover: (id: string, groupId: string) => api.post<GroupDto>(`/teams/${id}/groups/${groupId}/takeover`),
   members: (id: string) => api.get<TeamMemberDto[]>(`/teams/${id}/members`),

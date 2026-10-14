@@ -82,7 +82,7 @@ export const UpdateMeReq = z.object({
   name: z.string().trim().min(1).max(40).optional(),
   email: z.union([z.literal(''), z.string().trim().toLowerCase().pipe(z.email().max(120))]).optional(),
 })
-/** PUT /api/me/avatar (multipart `file`): raster images only, SVG could carry script. */
+/** PUT /api/{me,teams/:id,bots/:id,groups/:id}/avatar (multipart `file`): raster images only, SVG could carry script. */
 export const AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 
@@ -140,6 +140,7 @@ export type TeamRole = z.infer<typeof TeamRole>
 export const TeamDto = z.object({
   id: z.string(),
   name: z.string(),
+  /** An uploaded image's URL (`/api/avatars/…`), else one character or emoji; null = the name's initial. */
   avatar: z.string().nullable(),
   /** The caller's role in it. */
   role: TeamRole,
@@ -347,6 +348,8 @@ export const BotDto = z.object({
   ownerName: z.string(),
   agentKind: AgentKind,
   avatar: BotAvatar,
+  /** Uploaded image shown instead of the role's face; null = the role. */
+  avatarUrl: z.string().nullable(),
   machineId: z.string().nullable(),
   machineName: z.string().nullable(),
   binding: BotBinding,
@@ -572,6 +575,8 @@ export const GroupDto = z.object({
   teamId: z.string(),
   name: z.string(),
   kind: GroupKind,
+  /** Uploaded image; null = tiled from the members (a DM shows its bot). */
+  avatar: z.string().nullable(),
   mode: z.enum(['partition', 'force']),
   /** Only group admins may invite people; members always may pull in their own bots. */
   adminOnlyInvite: z.boolean(),

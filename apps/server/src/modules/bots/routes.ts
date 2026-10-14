@@ -54,7 +54,7 @@ import { applyTier, assertTierAllowed, TIER_LABEL } from './tier.js'
 type BotRow = typeof bots.$inferSelect
 type IdParams = { Params: { id: string } }
 
-async function loadBot(ctx: Ctx, rawId: string) {
+export async function loadBot(ctx: Ctx, rawId: string) {
   const id = idParam(rawId, 'Bot 不存在')
   const [bot] = await ctx.db
     .select()
@@ -83,13 +83,19 @@ async function assertUsers(ctx: Ctx, teamId: string, ids: string[]) {
   if (found.length !== unique.length) fail('invalid', '指定名单包含不存在的成员')
 }
 
-function assertCanManage(user: SessionUser, bot: BotRow) {
+export function assertCanManage(user: SessionUser, bot: BotRow) {
   if (user.id !== bot.ownerId && user.role !== 'sysadmin')
     fail('forbidden', '只有归属人或系统管理员可以修改该 Bot')
 }
 
 /** Sysadmin actions on someone else's bot are audited (spec 9: all admin operations). */
-async function auditForeign(ctx: Ctx, user: SessionUser, bot: BotRow, action: string, detail: object = {}) {
+export async function auditForeign(
+  ctx: Ctx,
+  user: SessionUser,
+  bot: BotRow,
+  action: string,
+  detail: object = {},
+) {
   if (user.id !== bot.ownerId)
     await audit(ctx, {
       category: 'admin',

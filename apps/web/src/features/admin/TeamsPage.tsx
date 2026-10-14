@@ -23,6 +23,7 @@ import {
   ToolbarGroup,
   toast,
 } from '../../ui'
+import { TeamAvatar } from '../teams/TeamSettingsDialog'
 import { AdminPage } from './AdminPage'
 
 const day = (iso: string) => new Date(iso).toLocaleDateString()
@@ -89,7 +90,7 @@ export function TeamsPage() {
               sortable: true,
               render: (x) => (
                 <>
-                  <Avatar name={x.avatar || x.name} shape="square" size={18} />
+                  <TeamAvatar team={x} size={18} />
                   {x.name}
                 </>
               ),

@@ -5,6 +5,7 @@ import { t } from '../../i18n'
 import { cx } from '../../lib/cx'
 import { attempt, toastError } from '../../lib/errors'
 import {
+  AvatarEditor,
   Button,
   Dialog,
   GroupBox,
@@ -23,6 +24,7 @@ import { GroupFeishuTab } from '../feishu/GroupFeishuTab'
 import { RepoWorkspaceView } from '../repos/RepoWorkspaceView'
 import { SyncModeTab } from '../sync/SyncModeTab'
 import { groupsApi } from './api'
+import { GroupAvatar } from './GroupAvatar'
 import { BotsView, MembersView, type SettingsTab } from './GroupInfo'
 
 /** Only the P1 params are adjustable (spec §10). */
@@ -207,6 +209,18 @@ function BasicTab({ group }: { group: GroupDto }) {
           </Button>
         </span>
       </GroupRow>
+      {dm ? null : (
+        <GroupRow label={t('群头像')} description={t('未上传时由成员头像拼成')}>
+          <AvatarEditor
+            name={group.name}
+            shape="square"
+            src={group.avatar ?? undefined}
+            preview={<GroupAvatar group={group} size={40} />}
+            onUpload={(image) => groupsApi.uploadAvatar(group.id, image)}
+            onRemove={() => groupsApi.removeAvatar(group.id)}
+          />
+        </GroupRow>
+      )}
       {dm ? (
         <GroupRow label={t('类型')}>
           <span className="gs-value">{t('私聊 · 仅你和你的 Bot，不能邀请他人')}</span>

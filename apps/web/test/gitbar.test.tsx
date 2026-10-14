@@ -15,6 +15,7 @@ const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: { url: 'git@git.corp:pay/refund.git', branch: 'main' },
   members: [],
   botIds: ['b1', 'b2', 'b3', 'b4'],

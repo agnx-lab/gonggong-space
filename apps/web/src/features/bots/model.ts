@@ -8,7 +8,7 @@ import {
 } from '@gonggong/protocol'
 import { refreshNotifCount, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
-import { api } from '../../lib/api'
+import { api, avatarForm } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { toast } from '../../ui'
 
@@ -93,6 +93,9 @@ export const botsApi = {
     effort: string | null
   }) => api.post<BotDto>('/bots', body).then(saveBot),
   update: (id: string, body: BotPatch) => api.patch<BotDto>(`/bots/${id}`, body).then(saveBot),
+  uploadAvatar: (id: string, image: Blob) =>
+    api.put<BotDto>(`/bots/${id}/avatar`, avatarForm(image)).then(saveBot),
+  removeAvatar: (id: string) => api.del<BotDto>(`/bots/${id}/avatar`).then(saveBot),
   share: (id: string, userIds: string[]) => api.put<BotDto>(`/bots/${id}/shares`, { userIds }).then(saveBot),
   setDefaultWorkspace: (id: string, path: string | null) =>
     api.put<BotDto>(`/bots/${id}/default-workspace`, { path }).then(saveBot),

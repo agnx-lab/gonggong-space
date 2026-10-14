@@ -19,6 +19,8 @@ import { toastError } from '../../lib/errors'
 import { fmtTokens } from '../../lib/format'
 import {
   Alert,
+  Avatar,
+  AvatarEditor,
   Button,
   Form,
   FormRow,
@@ -38,7 +40,7 @@ import { UsageBars, useUsage } from '../usage/UsagePage'
 import { DirPicker } from '../workspaces/DirPicker'
 import { type AgentConfig, AgentConfigFields, useBotCatalog } from './AgentConfig'
 import { ApprovalFields, type ApprovalValue } from './ApprovalFields'
-import { BotAvatar, RolePicker, roleHint } from './avatars'
+import { avatarSrc, BotAvatar, RolePicker, roleHint } from './avatars'
 import { ProviderModelFields, useMachineProviders, useProviderCatalog } from './BotProvider'
 import { BotShares } from './BotShares'
 import { DeleteBotDialog } from './DeleteBotDialog'
@@ -279,6 +281,20 @@ export function BotDetail({
           <span>{bot.name}</span>
         )}
       </FormRow>
+      {canEdit ? (
+        <FormRow label={t('头像')} hint={t('上传的图片代替角色形象显示')}>
+          <AvatarEditor
+            name={bot.name}
+            shape="square"
+            src={bot.avatarUrl ?? undefined}
+            preview={
+              <Avatar name={bot.name} shape="square" size={40} src={bot.avatarUrl ?? avatarSrc(avatar)} />
+            }
+            onUpload={(image) => botsApi.uploadAvatar(bot.id, image)}
+            onRemove={() => botsApi.removeAvatar(bot.id)}
+          />
+        </FormRow>
+      ) : null}
       {canEdit ? (
         <FormRow label={t('角色')} align="top" hint={roleHint(avatar)}>
           <RolePicker value={avatar} onChange={setAvatar} />

@@ -1,4 +1,4 @@
-import type { BotAvatar as RoleKey } from '@gonggong/protocol'
+import type { BotDto, BotAvatar as RoleKey } from '@gonggong/protocol'
 import { BOT_AVATARS } from '@gonggong/protocol'
 import { useId } from 'react'
 import { useWorkspace } from '../../app/workspace'
@@ -81,6 +81,10 @@ export function avatarSrc(key: RoleKey, live = false) {
   return src
 }
 
+/** A bot's uploaded image, else its role's face. */
+export const botFace = (bot: Pick<BotDto, 'avatar' | 'avatarUrl'>, live = false) =>
+  bot.avatarUrl ?? avatarSrc(bot.avatar, live)
+
 export type PersonaRole = Exclude<RoleKey, 'role-gong'>
 
 const costumes = new Map<PersonaRole, MascotCostume>()
@@ -112,7 +116,7 @@ export function BotAvatar({ id, name, ...rest }: BotAvatarProps) {
     <Avatar
       name={name}
       shape="square"
-      src={bot ? avatarSrc(bot.avatar, bot.presence === 'running') : undefined}
+      src={bot ? botFace(bot, bot.presence === 'running') : undefined}
       {...rest}
     />
   )

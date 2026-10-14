@@ -59,6 +59,7 @@ const bot = (o: Partial<BotDto> = {}): BotDto => ({
   ownerName: '王磊',
   agentKind: 'claude',
   avatar: 'role-no',
+  avatarUrl: null,
   machineId: 'm1',
   machineName: 'wanglei-mbp',
   binding: 'bound',

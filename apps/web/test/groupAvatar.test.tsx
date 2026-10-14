@@ -18,7 +18,7 @@ describe('GroupAvatar', () => {
     useWorkspace.setState({ bots: [bot] })
     const { container } = render(
       <GroupAvatar
-        group={{ name: '支付服务重构', kind: 'group', members, botIds: ['b1', 'gone'] }}
+        group={{ name: '支付服务重构', kind: 'group', avatar: null, members, botIds: ['b1', 'gone'] }}
         size={40}
       />,
     )
@@ -31,7 +31,7 @@ describe('GroupAvatar', () => {
     useWorkspace.setState({ bots: [bot] })
     const { container } = render(
       <GroupAvatar
-        group={{ name: '小王的 Claude', kind: 'dm', members: [members[0]!], botIds: ['b1'] }}
+        group={{ name: '小王的 Claude', kind: 'dm', avatar: null, members: [members[0]!], botIds: ['b1'] }}
         size={40}
       />,
     )
@@ -41,11 +41,29 @@ describe('GroupAvatar', () => {
   it('a lone member falls back to the generated avatar', () => {
     const { container } = render(
       <GroupAvatar
-        group={{ name: '支付服务重构', kind: 'group', members: [members[0]!], botIds: [] }}
+        group={{ name: '支付服务重构', kind: 'group', avatar: null, members: [members[0]!], botIds: [] }}
         size={40}
       />,
     )
     expect(container.querySelector('.ui-avatar__tile')).toBeNull()
     expect(container.querySelector('svg.ui-avatar__art')?.getAttribute('data-pattern')).toMatch(/^\d+$/)
+  })
+
+  it('an uploaded image wins over the tiles, a bot image over its role', () => {
+    useWorkspace.setState({ bots: [{ ...bot, avatarUrl: '/api/avatars/b.png' }] })
+    const { container, rerender } = render(
+      <GroupAvatar
+        group={{ name: '支付服务重构', kind: 'group', avatar: '/api/avatars/g.png', members, botIds: ['b1'] }}
+        size={40}
+      />,
+    )
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('/api/avatars/g.png')
+    rerender(
+      <GroupAvatar
+        group={{ name: '小王的 Claude', kind: 'dm', avatar: null, members, botIds: ['b1'] }}
+        size={40}
+      />,
+    )
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('/api/avatars/b.png')
   })
 })

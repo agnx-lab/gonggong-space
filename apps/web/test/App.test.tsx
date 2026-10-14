@@ -29,6 +29,7 @@ const group = (id: string, name: string, kind: GroupDto['kind'] = 'group'): Grou
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: null,
   members: [],
   botIds: [],

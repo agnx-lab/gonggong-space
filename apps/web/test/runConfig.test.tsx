@@ -48,6 +48,7 @@ const group: GroupDto = {
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: null,
   members: [
     { userId: 'u1', name: '王磊', avatar: null, isAdmin: false },
@@ -71,6 +72,7 @@ const bot: BotDto = {
   ownerName: '王磊',
   agentKind: 'claude',
   avatar: 'role-no',
+  avatarUrl: null,
   machineId: 'm1',
   machineName: 'mbp',
   binding: 'bound',

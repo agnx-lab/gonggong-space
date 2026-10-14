@@ -8,7 +8,7 @@ import type {
 } from '@gonggong/protocol'
 import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
-import { api } from '../../lib/api'
+import { api, avatarForm } from '../../lib/api'
 
 const apply = (group: GroupDto) => {
   useWorkspace.getState().applyEvent({ t: 'group.updated', group })
@@ -18,6 +18,9 @@ const drop = (groupId: string) => useWorkspace.getState().applyEvent({ t: 'group
 
 export const groupsApi = {
   update: (id: string, body: UpdateGroupReq) => api.patch<GroupDto>(`/groups/${id}`, body).then(apply),
+  uploadAvatar: (id: string, image: Blob) =>
+    api.put<GroupDto>(`/groups/${id}/avatar`, avatarForm(image)).then(apply),
+  removeAvatar: (id: string) => api.del<GroupDto>(`/groups/${id}/avatar`).then(apply),
   removeNotice: (id: string) => api.del<GroupDto>(`/groups/${id}/notice`).then(apply),
   notices: (id: string) => api.get<GroupNoticeDto[]>(`/groups/${id}/notices`),
   setRepo: (id: string, body: { url: string; branch: string }) =>

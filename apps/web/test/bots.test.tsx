@@ -7,6 +7,7 @@ import { App } from '../src/App'
 import { useSession } from '../src/app/session'
 import { loadWorkspace, useWorkspace } from '../src/app/workspace'
 import { botStateText } from '../src/features/bots/model'
+import { mockCrop, uploadAvatar } from './crop'
 
 const wang: UserDto = {
   id: 'u1',
@@ -68,6 +69,7 @@ const bot = (o: Partial<BotDto>): BotDto => ({
   ownerName: '王磊',
   agentKind: 'claude',
   avatar: 'role-no',
+  avatarUrl: null,
   machineId: 'm1',
   machineName: 'wanglei-mbp',
   binding: 'bound',
@@ -121,7 +123,8 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const key = `${init.method ?? 'GET'} ${url}`
-      const body = init.body ? JSON.parse(String(init.body)) : undefined
+      const body =
+        init.body instanceof FormData ? init.body : init.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ key, body })
       // 管理后台 · Bot lists every team's bots; here they are the open team's.
       const h = routes[key] ?? (key === 'GET /api/admin/bots' ? routes['GET /api/bots'] : undefined)
@@ -450,6 +453,21 @@ describe('新建 Bot', () => {
 })
 
 describe('bot detail', () => {
+  it('uploads a cropped image that shows instead of the role, and resets it', async () => {
+    const image = '/api/avatars/0b7e7c1e-0000-4000-8000-000000000000.png'
+    routes['GET /api/bots'] = () => [bot({})]
+    routes['PUT /api/bots/b1/avatar'] = () => bot({ avatarUrl: image })
+    routes['DELETE /api/bots/b1/avatar'] = () => bot({})
+    renderAt('/', wang)
+    const detail = await openMyBot()
+    mockCrop()
+    await uploadAvatar(detail)
+    expect(calls.find((c) => c.key === 'PUT /api/bots/b1/avatar')?.body).toBeInstanceOf(FormData)
+    await waitFor(() => expect(useWorkspace.getState().bots[0]?.avatarUrl).toBe(image))
+    fireEvent.click(await within(detail).findByRole('button', { name: '恢复默认' }))
+    await waitFor(() => expect(useWorkspace.getState().bots[0]?.avatarUrl).toBeNull())
+  })
+
   it('forces the trigger list for the full tier and saves', async () => {
     routes['GET /api/bots'] = () => [bot({ triggerScope: 'list', triggerList: ['u2'] })]
     routes['PATCH /api/bots/b1'] = (b) => bot(b as Partial<BotDto>)

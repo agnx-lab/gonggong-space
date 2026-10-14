@@ -25,6 +25,7 @@ import { listAudit } from '../admin/audit.js'
 import { adminGroupDtos } from '../admin/groups.js'
 import { assertNotDemo, sysParams } from '../admin/params.js'
 import { requireUser } from '../auth/session.js'
+import { dropAvatar } from '../avatars/store.js'
 import { forgetTeamParams, teamOverrides } from '../groups/params.js'
 import { groupDto, publishGroup } from '../groups/service.js'
 import { forgetMembers, postEvent } from '../messages/service.js'
@@ -75,6 +76,7 @@ export function teamRoutes(ctx: Ctx) {
         .update(teams)
         .set({ ...patch, avatar: patch.avatar === undefined ? undefined : patch.avatar || null })
         .where(eq(teams.id, team.id))
+      if (patch.avatar !== undefined) await dropAvatar(team.avatar)
       forgetTeamParams(ctx.db, team.id)
       await auditTeam(me.id, team.id, 'team.update', patch)
       await publishTeam(ctx, team.id)

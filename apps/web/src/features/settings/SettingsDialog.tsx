@@ -1,24 +1,17 @@
-import {
-  AVATAR_MAX_BYTES,
-  AVATAR_TYPES,
-  type FeishuIdentityView,
-  type GitAccountDto,
-  type GitProvider,
-  type Locale,
-  type UserDto,
-} from '@gonggong/protocol'
+import type { FeishuIdentityView, GitAccountDto, GitProvider, Locale, UserDto } from '@gonggong/protocol'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { type GlassPreference, getGlass, setGlass } from '../../app/glass'
 import { useSession } from '../../app/session'
 import { getTheme, setTheme, type ThemePreference } from '../../app/theme'
 import { locale, setLocale, t } from '../../i18n'
-import { ApiError, api } from '../../lib/api'
+import { ApiError, api, avatarForm } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { toastError } from '../../lib/errors'
 import { useGet } from '../../lib/useGet'
 import {
   Alert,
   Avatar,
+  AvatarEditor,
   Button,
   Dialog,
   GroupBox,
@@ -446,64 +439,37 @@ function AccountPage() {
   )
 }
 
-/** Upload a picture, take the linked Feishu avatar, or fall back to the generated one. */
+/** Upload and crop a picture, take the linked Feishu avatar, or fall back to the generated one. */
 function AvatarRow() {
   const user = useSession((s) => s.user)
   const { data: feishu } = useGet<FeishuIdentityView>('/me/feishu')
-  const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   if (!user) return null
-  const run = async (call: () => Promise<UserDto>) => {
-    setBusy(true)
-    try {
-      useSession.getState().setUser(await call())
-    } catch (err) {
-      toastError(err)
-    } finally {
-      setBusy(false)
-    }
-  }
-  const pick = (file: File | undefined) => {
-    if (input.current) input.current.value = ''
-    if (!file) return
-    if (!(AVATAR_TYPES as readonly string[]).includes(file.type))
-      return toastError(new Error(t('头像仅支持 PNG、JPEG、WebP 或 GIF 图片')))
-    if (file.size > AVATAR_MAX_BYTES) return toastError(new Error(t('头像不能超过 {maxMb} MB', { maxMb: 2 })))
-    const form = new FormData()
-    form.append('file', file)
-    void run(() => api.put<UserDto>('/me/avatar', form))
-  }
+  const save = async (call: () => Promise<UserDto>) => useSession.getState().setUser(await call())
   const feishuAvatar = feishu?.identity?.avatar
   return (
     <GroupRow label={t('头像')}>
-      <span className="gs-value-line">
-        <Avatar name={user.name} src={user.avatar ?? undefined} size={40} />
-        <input
-          ref={input}
-          type="file"
-          accept={AVATAR_TYPES.join(',')}
-          hidden
-          aria-label={t('上传头像')}
-          onChange={(e) => pick(e.target.files?.[0])}
-        />
-        <Button size="small" disabled={busy} onClick={() => input.current?.click()}>
-          {t('上传头像…')}
-        </Button>
+      <AvatarEditor
+        name={user.name}
+        src={user.avatar ?? undefined}
+        disabled={busy}
+        onUpload={(image) => save(() => api.put<UserDto>('/me/avatar', avatarForm(image)))}
+        onRemove={() => save(() => api.del<UserDto>('/me/avatar'))}
+      >
         {feishuAvatar && feishuAvatar !== user.avatar ? (
           <Button
             size="small"
             disabled={busy}
-            onClick={() => run(() => api.post<UserDto>('/me/avatar/feishu'))}
+            onClick={async () => {
+              setBusy(true)
+              await save(() => api.post<UserDto>('/me/avatar/feishu')).catch(toastError)
+              setBusy(false)
+            }}
           >
             {t('使用飞书头像')}
           </Button>
         ) : null}
-        {user.avatar ? (
-          <Button size="small" disabled={busy} onClick={() => run(() => api.del<UserDto>('/me/avatar'))}>
-            {t('移除头像')}
-          </Button>
-        ) : null}
-      </span>
+      </AvatarEditor>
     </GroupRow>
   )
 }

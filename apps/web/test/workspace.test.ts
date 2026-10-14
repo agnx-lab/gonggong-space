@@ -13,6 +13,7 @@ const g: GroupDto = {
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: null,
   members: [],
   botIds: [],

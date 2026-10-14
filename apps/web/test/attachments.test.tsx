@@ -36,6 +36,7 @@ const group: GroupDto = {
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: { url: 'git@git.corp:pay/refund.git', branch: 'main' },
   members: [
     { userId: 'u1', name: '王磊', avatar: null, isAdmin: true },
@@ -58,6 +59,7 @@ const bot: BotDto = {
   ownerName: '王磊',
   agentKind: 'claude',
   avatar: 'role-no',
+  avatarUrl: null,
   machineId: 'mc1',
   machineName: 'wanglei-mbp',
   binding: 'bound',

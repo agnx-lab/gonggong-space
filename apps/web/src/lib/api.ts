@@ -75,6 +75,13 @@ export const api = {
   del: <T = void>(path: string) => request<T>('DELETE', path),
 }
 
+/** Multipart body of PUT …/avatar: the cropped image from `AvatarEditor`. */
+export function avatarForm(image: Blob) {
+  const form = new FormData()
+  form.append('file', image, 'avatar.png')
+  return form
+}
+
 /** User-facing text for a failure; a bare HTTP error (proxy, gateway) reads as the server being unreachable. */
 export const errorText = (err: unknown) =>
   err instanceof ApiError

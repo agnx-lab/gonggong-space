@@ -1,3 +1,4 @@
+export * from './avatar-editor'
 export * from './brand'
 export * from './calendar'
 export * from './color-well'

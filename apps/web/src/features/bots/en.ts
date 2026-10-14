@@ -253,4 +253,6 @@ export default {
   '{owner} 同意后会为你打开和 {name} 的私聊。私聊使用你单独的托管工作区，命令审批仍由 Bot 主人处理。':
     'Once {owner} approves, a direct chat with {name} opens for you. It uses a managed workspace of your own; command approvals stay with the Bot owner.',
   共享申请: 'Access requests',
+  头像: 'Avatar',
+  上传的图片代替角色形象显示: "An uploaded image shows instead of the role's face",
 } satisfies Record<string, string>

@@ -279,6 +279,7 @@ export const en = {
   一期不支持解绑仓库: 'Unbinding the repo is not supported yet',
   群不存在或你已不在群内: "The group doesn't exist or you are no longer in it",
   仅群管理员可操作: 'Only group admins can do this',
+  '私聊的头像跟随 Bot': "A DM's avatar follows its bot",
   团队不存在或你不是该团队成员: "The team doesn't exist or you're not a member of it",
   你还没有加入任何团队: "You haven't joined any team yet",
   仅团队管理员可操作: 'Only team admins can do this',

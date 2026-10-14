@@ -12,7 +12,7 @@ import { teamUserIds } from './service.js'
 const teamDto = (team: typeof teams.$inferSelect, role: string, unread: number): TeamDto => ({
   id: team.id,
   name: team.name,
-  avatar: team.avatar,
+  avatar: avatarUrl(team.avatar),
   role: role as TeamRole,
   archivedAt: team.archivedAt?.toISOString() ?? null,
   createdAt: team.createdAt.toISOString(),

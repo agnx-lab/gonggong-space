@@ -38,6 +38,7 @@ const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: null,
   members: [
     { userId: 'u1', name: '王磊', avatar: null, isAdmin: true },
@@ -62,6 +63,7 @@ const bot = (o: Partial<BotDto>): BotDto => ({
   ownerName: '王磊',
   agentKind: 'claude',
   avatar: 'role-no',
+  avatarUrl: null,
   machineId: 'mc1',
   machineName: 'wanglei-mbp',
   binding: 'bound',

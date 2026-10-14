@@ -1,7 +1,15 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { GroupDto, MeDto, TeamMemberDto, UserBriefDto, UserDto } from '@gonggong/protocol'
+import type {
+  BotDto,
+  GroupDto,
+  MeDto,
+  TeamDto,
+  TeamMemberDto,
+  UserBriefDto,
+  UserDto,
+} from '@gonggong/protocol'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { feishuIdentities } from '../src/db/schema.js'
 import { createTestApp, type TestApp } from './support/app.js'
@@ -112,5 +120,83 @@ describe('PATCH /api/me · email', () => {
     )
     expect((await http.patch('/api/me', { email: 'nope' })).status).toBe(400)
     expect((await http.patch<UserDto>('/api/me', { email: '' })).body.email).toBeNull()
+  })
+})
+
+async function put(cookie: string, path: string) {
+  const form = new FormData()
+  form.set('file', new Blob([new Uint8Array(PNG)], { type: 'image/png' }), 'a.png')
+  const res = await fetch(t.url(path), { method: 'PUT', headers: { cookie }, body: form })
+  return { status: res.status, body: await res.json() }
+}
+
+describe('团队头像', () => {
+  it('admins upload an image, a glyph or clearing replaces it; members may not', async () => {
+    const wang = await t.seed.user()
+    const team = await t.seed.team({ ownerId: wang.id })
+    const li = await t.seed.user({ teamId: team.id })
+    const cookie = await t.seed.cookie(wang.id)
+    const http = client(t, cookie)
+
+    const res = await put(cookie, `/api/teams/${team.id}/avatar`)
+    expect(res.status).toBe(200)
+    const avatar = (res.body as TeamDto).avatar!
+    expect(avatar).toMatch(/^\/api\/avatars\/[0-9a-f-]{36}\.png$/)
+    expect((await t.seed.cookie(li.id).then((c) => put(c, `/api/teams/${team.id}/avatar`))).status).toBe(403)
+
+    expect((await http.patch<TeamDto>(`/api/teams/${team.id}`, { avatar: '🚀' })).body.avatar).toBe('🚀')
+    expect((await image(cookie, avatar)).status).toBe(404)
+
+    const again = (await put(cookie, `/api/teams/${team.id}/avatar`)).body as TeamDto
+    expect((await http.del<TeamDto>(`/api/teams/${team.id}/avatar`)).body.avatar).toBeNull()
+    expect((await image(cookie, again.avatar!)).status).toBe(404)
+  })
+})
+
+describe('Bot 头像', () => {
+  it('the owner uploads an image shown over the role, which stays; clearing drops the file', async () => {
+    const wang = await t.seed.user()
+    const li = await t.seed.user()
+    const bot = await t.seed.bot({ ownerId: wang.id, avatar: 'role-loop' })
+    const cookie = await t.seed.cookie(wang.id)
+    const http = client(t, cookie)
+
+    const first = (await put(cookie, `/api/bots/${bot.id}/avatar`)) as { status: number; body: BotDto }
+    expect(first.status).toBe(200)
+    expect(first.body.avatarUrl).toMatch(/^\/api\/avatars\/[0-9a-f-]{36}\.png$/)
+    expect(first.body.avatar).toBe('role-loop')
+    expect((await t.seed.cookie(li.id).then((c) => put(c, `/api/bots/${bot.id}/avatar`))).status).toBe(403)
+
+    const second = (await put(cookie, `/api/bots/${bot.id}/avatar`)).body as BotDto
+    expect((await image(cookie, first.body.avatarUrl!)).status).toBe(404)
+    const picked = (await http.patch<BotDto>(`/api/bots/${bot.id}`, { avatar: 'role-gong' })).body
+    expect(picked).toMatchObject({ avatar: 'role-gong', avatarUrl: second.avatarUrl })
+
+    expect((await http.del<BotDto>(`/api/bots/${bot.id}/avatar`)).body).toMatchObject({
+      avatar: 'role-gong',
+      avatarUrl: null,
+    })
+    expect((await image(cookie, second.avatarUrl!)).status).toBe(404)
+  })
+})
+
+describe('群头像', () => {
+  it('group admins upload and clear it, members see it; others may not', async () => {
+    const wang = await t.seed.user()
+    const li = await t.seed.user()
+    const g = await t.seed.group({ createdBy: wang.id, memberIds: [li.id] })
+    const seen = events(t, li.id)
+    const cookie = await t.seed.cookie(wang.id)
+
+    expect((await client(t, cookie).get<GroupDto>(`/api/groups/${g.id}`)).body.avatar).toBeNull()
+    const res = await put(cookie, `/api/groups/${g.id}/avatar`)
+    expect(res.status).toBe(200)
+    const avatar = (res.body as GroupDto).avatar!
+    expect(avatar).toMatch(/^\/api\/avatars\/[0-9a-f-]{36}\.png$/)
+    expect(seen).toContainEqual({ t: 'group.updated', group: expect.objectContaining({ id: g.id, avatar }) })
+    expect((await t.seed.cookie(li.id).then((c) => put(c, `/api/groups/${g.id}/avatar`))).status).toBe(403)
+
+    expect((await client(t, cookie).del<GroupDto>(`/api/groups/${g.id}/avatar`)).body.avatar).toBeNull()
+    expect((await image(cookie, avatar)).status).toBe(404)
   })
 })

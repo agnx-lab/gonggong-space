@@ -6,6 +6,7 @@ import { App } from '../src/App'
 import { GLASS_STORAGE_KEY } from '../src/app/glass'
 import { useSession } from '../src/app/session'
 import { initTheme, setTheme, THEME_STORAGE_KEY } from '../src/app/theme'
+import { mockCrop, uploadAvatar } from './crop'
 import { apiError, mockApi } from './mockApi'
 
 const me: UserDto = {
@@ -371,19 +372,20 @@ describe('account menu', () => {
     renderAt('/')
     const settings = await openSettings()
     fireEvent.click(within(settings).getByRole('button', { name: /账户/ }))
-    expect(within(settings).queryByRole('button', { name: '移除头像' })).toBeNull()
+    expect(within(settings).queryByRole('button', { name: '恢复默认' })).toBeNull()
 
-    const file = new File([new Uint8Array([0x89, 0x50])], 'me.png', { type: 'image/png' })
-    fireEvent.change(within(settings).getByLabelText('上传头像'), { target: { files: [file] } })
+    mockCrop()
+    await uploadAvatar(settings)
     await waitFor(() => expect(useSession.getState().user?.avatar).toBe(uploaded))
     const put = calls.find((c) => c.method === 'PUT' && c.path === '/me/avatar')?.body as FormData
-    expect((put.get('file') as File).name).toBe('me.png')
+    expect((put.get('file') as File).type).toBe('image/png')
+    expect(within(settings).getByRole('button', { name: '编辑…' })).toBeTruthy()
 
     fireEvent.click(await within(settings).findByRole('button', { name: '使用飞书头像' }))
     await waitFor(() => expect(useSession.getState().user?.avatar).toBe(feishu))
     expect(within(settings).queryByRole('button', { name: '使用飞书头像' })).toBeNull()
 
-    fireEvent.click(within(settings).getByRole('button', { name: '移除头像' }))
+    fireEvent.click(within(settings).getByRole('button', { name: '恢复默认' }))
     await waitFor(() => expect(useSession.getState().user?.avatar).toBeNull())
   })
 
@@ -393,7 +395,7 @@ describe('account menu', () => {
     const settings = await openSettings()
     fireEvent.click(within(settings).getByRole('button', { name: /账户/ }))
     const file = new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })
-    fireEvent.change(within(settings).getByLabelText('上传头像'), { target: { files: [file] } })
+    fireEvent.change(within(settings).getByLabelText('选择图片'), { target: { files: [file] } })
     expect(await screen.findByText('头像仅支持 PNG、JPEG、WebP 或 GIF 图片')).toBeTruthy()
     expect(calls.some((c) => c.path === '/me/avatar')).toBe(false)
   })

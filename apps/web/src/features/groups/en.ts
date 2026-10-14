@@ -130,4 +130,6 @@ export default {
   '审批 {min} 分 · 接力 {hops} 跳': 'Approval {min} min · relay {hops} {hops:hop|hops}',
   '只对本群生效；与团队层、平台层同名时以群层为准。':
     'Applies to this group only; replaces same-named team and platform servers.',
+  群头像: 'Group avatar',
+  未上传时由成员头像拼成: "Without an upload, it's tiled from the members' avatars",
 } satisfies Record<string, string>

@@ -77,6 +77,7 @@ export const gitAccounts = pgTable(
 export const teams = pgTable('teams', {
   id: id(),
   name: text('name').notNull(),
+  /** `avatars/<uuid>` under the data dir, or one character or emoji; null = the name's initial. */
   avatar: text('avatar'),
   /** Overrides of TEAM_PARAM_KEYS for the team's groups. */
   params: jsonb('params').notNull().default({}),
@@ -176,7 +177,10 @@ export const bots = pgTable('bots', {
     .notNull()
     .references(() => users.id),
   agentKind: text('agent_kind').notNull(),
+  /** The role key (BOT_AVATARS). */
   avatar: text('avatar'),
+  /** `avatars/<uuid>` under the data dir, shown instead of the role; picking a role clears it. */
+  avatarImage: text('avatar_image'),
   /** null while 'pending_bind' (owner has no machine yet). */
   machineId: uuid('machine_id').references(() => machines.id),
   /** 'pending_bind' | 'pending_confirm' | 'bound' */
@@ -256,6 +260,8 @@ export const groups = pgTable('groups', {
   name: text('name').notNull(),
   /** 'group' | 'dm' */
   kind: text('kind').notNull(),
+  /** `avatars/<uuid>` under the data dir; null = tiled from the members. */
+  avatar: text('avatar'),
   /** A DM renamed by its owner shows `name`; otherwise it follows its Bot's name. */
   renamed: boolean('renamed').notNull().default(false),
   notice: text('notice').notNull().default(''),

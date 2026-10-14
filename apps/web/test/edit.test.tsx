@@ -29,6 +29,7 @@ const group: GroupDto = {
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: null,
   members: [
     { userId: 'u1', name: '王磊', avatar: null, isAdmin: true },

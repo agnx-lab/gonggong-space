@@ -11,6 +11,7 @@ import type { Ctx } from '../../context.js'
 import { botShares, bots, groupBots, groups, machines, runs, teamMembers, users } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { teamOfBot, teamUserIds } from '../teams/service.js'
+import { avatarUrl } from '../users/dto.js'
 import { defaultGitEmail } from './git.js'
 
 type BotRow = typeof bots.$inferSelect
@@ -88,6 +89,7 @@ export async function listBotDtos(ctx: Ctx, where?: SQL): Promise<BotDto[]> {
       ownerName,
       agentKind: bot.agentKind as BotDto['agentKind'],
       avatar: botRole(bot.avatar),
+      avatarUrl: avatarUrl(bot.avatarImage),
       machineId: bot.machineId,
       machineName: machine?.name ?? null,
       binding: bot.binding as BotDto['binding'],

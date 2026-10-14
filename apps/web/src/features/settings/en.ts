@@ -60,10 +60,5 @@ export default {
   修改邮箱: 'Change email',
   留空即清除: 'Leave empty to clear',
   头像: 'Avatar',
-  上传头像: 'Upload avatar',
-  '上传头像…': 'Upload avatar…',
   使用飞书头像: 'Use Feishu avatar',
-  移除头像: 'Remove avatar',
-  '头像仅支持 PNG、JPEG、WebP 或 GIF 图片': 'Avatars must be PNG, JPEG, WebP or GIF images',
-  '头像不能超过 {maxMb} MB': 'An avatar cannot exceed {maxMb} MB',
 } satisfies Record<string, string>

@@ -10,6 +10,7 @@ import { requireSysadmin } from '../auth/session.js'
 import { publishMember, publishTeam } from '../teams/dto.js'
 import { archiveTeam } from '../teams/members.js'
 import { createTeam } from '../teams/service.js'
+import { avatarUrl } from '../users/dto.js'
 import { sysParams } from './params.js'
 
 type P = { Params: { id: string } }
@@ -30,7 +31,7 @@ async function adminTeamDtos(ctx: Ctx, where?: SQL): Promise<AdminTeamDto[]> {
     return {
       id: team.id,
       name: team.name,
-      avatar: team.avatar,
+      avatar: avatarUrl(team.avatar),
       ownerId: owner?.userId ?? null,
       ownerName: owner?.name ?? null,
       members: members.length,

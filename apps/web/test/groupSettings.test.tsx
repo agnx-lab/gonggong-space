@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
+import { mockCrop, uploadAvatar } from './crop'
 import { apiError, mockApi } from './mockApi'
 
 const me: UserDto = {
@@ -29,6 +30,7 @@ const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: { url: 'git@git.corp:pay/pay-server.git', branch: 'main' },
   members: [
     { userId: 'u1', name: '王磊', avatar: null, isAdmin: true },
@@ -53,6 +55,7 @@ const bot = (o: Partial<BotDto>): BotDto => ({
   ownerName: '王磊',
   agentKind: 'claude',
   avatar: 'role-no',
+  avatarUrl: null,
   machineId: 'mc1',
   machineName: 'wanglei-mbp',
   binding: 'bound',
@@ -321,6 +324,21 @@ describe('group settings inspector', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: '保存' }))
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: '设置后' }))
     expect(await within(screen.getByRole('main')).findByRole('heading', { name: '设置后' })).toBeTruthy()
+  })
+
+  it('uploads a cropped group avatar from 基本信息 and shows it instead of the mosaic', async () => {
+    const image = '/api/avatars/0b7e7c1e-0000-4000-8000-000000000000.png'
+    const calls = mockApi(routes([group()], { 'PUT /groups/g1/avatar': group({ avatar: image }) }))
+    renderAt('/g/g1')
+    fireEvent.click(within(await openDrawer()).getByRole('button', { name: /基本信息/ }))
+    const dlg = await screen.findByRole('dialog', { name: '基本信息 · 支付服务重构' })
+    mockCrop()
+    await uploadAvatar(dlg)
+    expect(calls.some((c) => c.method === 'PUT' && c.path === '/groups/g1/avatar')).toBe(true)
+    await waitFor(() => expect(within(dlg).getByRole('button', { name: '恢复默认' })).toBeTruthy())
+    expect(
+      within(dlg).getByRole('img', { name: '支付服务重构' }).querySelector('img')?.getAttribute('src'),
+    ).toBe(image)
   })
 
   it('lets an admin remove the notice for everyone after confirming', async () => {

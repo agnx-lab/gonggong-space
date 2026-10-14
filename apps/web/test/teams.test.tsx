@@ -6,6 +6,7 @@ import { App } from '../src/App'
 import { type Tenancy, useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
 import { TeamSettingsDialog } from '../src/features/teams/TeamSettingsDialog'
+import { mockCrop, uploadAvatar } from './crop'
 import { apiError, mockApi } from './mockApi'
 
 const me: UserDto = {
@@ -85,6 +86,7 @@ const chatGroup = (o: Partial<GroupDto> = {}): GroupDto => ({
   protectBase: false,
   notice: '',
   noticeHidden: false,
+  avatar: null,
   repo: null,
   members: [
     { userId: 'u2', name: '李建国', avatar: null, isAdmin: true },
@@ -238,6 +240,31 @@ describe('team settings', () => {
       expiresInDays: 7,
       maxUses: null,
     })
+  })
+
+  it('lets admins upload a cropped image and reset it; the text avatar is only for no image', async () => {
+    const image = '/api/avatars/0b7e7c1e-0000-4000-8000-000000000000.png'
+    const calls = mockApi({
+      'PUT /teams/t1/avatar': team({ role: 'admin', avatar: image }),
+      'DELETE /teams/t1/avatar': team({ role: 'admin', avatar: null }),
+    })
+    signIn({ teams: [team({ role: 'admin' })], singleTeamMode: false, canCreateTeam: false })
+    const { rerender } = render(<TeamSettingsDialog team={team({ role: 'admin' })} onClose={() => {}} />)
+    expect(screen.getByRole('textbox', { name: '头像文字' })).toBeTruthy()
+    mockCrop()
+    await uploadAvatar(screen.getByRole('dialog'))
+    expect((calls.find((c) => c.method === 'PUT')?.body as FormData | undefined)?.get('file')).toBeInstanceOf(
+      Blob,
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '编辑头像' })).toBeNull())
+
+    rerender(<TeamSettingsDialog team={team({ role: 'admin', avatar: image })} onClose={() => {}} />)
+    expect(screen.queryByRole('textbox', { name: '头像文字' })).toBeNull()
+    expect(screen.getAllByRole('img', { name: '支付组' })[0]?.querySelector('img')?.getAttribute('src')).toBe(
+      image,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true))
   })
 })
 
