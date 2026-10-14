@@ -802,6 +802,17 @@ describe('chat view', () => {
     fireEvent.change(box, { target: { value: '/review', selectionStart: 7 } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(box.value).toBe('/gonggong-team:review-pr ')
+
+    // A skill picked mid-sentence stays where it was typed (agents read skill mentions anywhere).
+    fireEvent.change(box, { target: { value: '@小王的 Claude 先 /rev', selectionStart: 19 } })
+    await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0))
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(box.value).toBe('@小王的 Claude 先 /gonggong-team:review-pr ')
+    // Codex mentions skills as $name.
+    fireEvent.change(box, { target: { value: '@老李的 Codex 先 /rev', selectionStart: 18 } })
+    await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0))
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(box.value).toBe('@老李的 Codex 先 $gonggong-team:review-pr ')
   })
 
   it('shows a not-found state for groups I am not in', async () => {

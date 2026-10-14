@@ -19,6 +19,8 @@ export interface Candidate {
   insert: string
   /** Bots only: presence dot + text. */
   status?: { label: string; color: string }
+  /** A skill: agents read its mention anywhere, so it is inserted where typed (commands move to the head). */
+  skill?: boolean
 }
 
 interface Section {
@@ -122,6 +124,8 @@ export function useCandidates(group: GroupDto, before: string | null) {
     .map((x) => x.b)
   // A dm with a single bot needs no @: its commands and workspace files are offered right away.
   if (!mentioned.length && group.kind === 'dm' && bots.length === 1) mentioned.push(...bots)
+  // Codex mentions skills as `$name` (a leading `/name` is its own command); Claude reads `/name` anywhere.
+  const sigil = mentioned.length && mentioned.every((b) => b.agentKind === 'codex') ? '$' : '/'
   const base = `/groups/${group.id}/candidates`
   const remoteFiles = useRemote<FileCandidatesDto>(
     token?.char === '@'
@@ -189,7 +193,8 @@ export function useCandidates(group: GroupDto, before: string | null) {
                 label: `/${c.name}`,
                 mono: true,
                 hint: c.hint,
-                insert: `/${c.name}`,
+                insert: `${sigil}${c.name}`,
+                skill: true,
               })),
           },
           {
@@ -200,10 +205,11 @@ export function useCandidates(group: GroupDto, before: string | null) {
               .map((c) => ({
                 key: `agent:${c.botId}:${c.name}`,
                 icon: 'cpu',
-                label: `/${c.name}`,
+                label: c.name.startsWith('$') ? c.name : `/${c.name}`,
                 mono: true,
                 hint: c.hint,
-                insert: `/${c.name}`,
+                // Codex reports its skills as `$name`.
+                ...(c.name.startsWith('$') ? { insert: c.name, skill: true } : { insert: `/${c.name}` }),
               })),
           },
         ]

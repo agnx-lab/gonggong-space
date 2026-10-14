@@ -160,7 +160,7 @@ export const MessageComposer = memo(function MessageComposer({
 
   const pick = (c: Candidate) => {
     if (!token) return
-    if (token.char === '/' && token.mid) {
+    if (token.char === '/' && token.mid && !c.skill) {
       const { next, pos } = placeCommand(draft, caret, c.insert, names)
       pendingCaret.current = pos
       setDraft(next)
