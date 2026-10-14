@@ -26,7 +26,7 @@ async function linkedUsers(ctx: Ctx, teamId: string, unionIds: string[]) {
     .where(and(inArray(feishuIdentities.unionId, unionIds), isNull(users.disabledAt)))
 }
 
-async function boundGroupOf(ctx: Ctx, chatId: string) {
+export async function boundGroupOf(ctx: Ctx, chatId: string) {
   const [row] = await ctx.db
     .select({ id: groups.id, teamId: groups.teamId })
     .from(feishuChats)

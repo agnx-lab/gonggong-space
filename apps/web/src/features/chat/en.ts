@@ -174,4 +174,5 @@ export default {
   '等待 {owner} 为 {name} 确认工作区': 'Waiting for {owner} to choose a workspace for {name}',
   确认工作区: 'Choose workspace',
   '仅提及，不会让 Bot 开始工作': 'Mention only: it does not start the Bot',
+  '从飞书群创建…': 'Create from Feishu chat…',
 } satisfies Record<string, string>

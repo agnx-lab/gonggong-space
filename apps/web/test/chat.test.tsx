@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
+import { useToasts } from '../src/ui/toast'
 
 const me: UserDto = {
   id: 'u1',
@@ -945,6 +946,57 @@ describe('new group dialog', () => {
       botIds: ['b2'],
       repo: { url: 'git@git.corp:pay/refund.git', branch: 'release' },
     })
+  })
+
+  it('creates a group from a Feishu chat: picks the chat, keeps its name editable and reports who was left out', async () => {
+    const calls = mockApi({
+      ...baseRoutes([]),
+      'GET /me/git-accounts': () => [],
+      'GET /repos': () => [],
+      'GET /auth/options': () => ({ registrationOpen: false, feishuLogin: true }),
+      'GET /feishu/chats': () => ({ available: true, chats: [{ chatId: 'oc_1', name: '研发群' }] }),
+      'POST /groups/from-feishu': () => ({
+        group: group({ id: 'g7', name: '研发' }),
+        added: 2,
+        skippedUnlinked: 1,
+        skippedNotInTeam: 0,
+      }),
+      'GET /groups/g7/timeline': () => ({ messages: [], runs: [] }),
+      'POST /groups/g7/read': () => group({ id: 'g7' }),
+    })
+    renderAt('/')
+    fireEvent.click(screen.getByRole('button', { name: '新建群' }))
+    fireEvent.click(await screen.findByRole('button', { name: '从飞书群创建…' }))
+    const dialog = await screen.findByRole('dialog', { name: '从飞书群创建' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '飞书群' }))
+    fireEvent.click(await screen.findByText('研发群'))
+    const name = within(dialog).getByLabelText('名称') as HTMLInputElement
+    expect(name.value).toBe('研发群')
+    fireEvent.change(name, { target: { value: '研发' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '创建' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === '/groups/from-feishu')?.body).toEqual({
+        chatId: 'oc_1',
+        name: '研发',
+      }),
+    )
+    await waitFor(() =>
+      expect(useToasts.getState().items.map((i) => i.message)).toContain(
+        '已创建并绑定飞书群，拉入 2 人；1 人未绑定飞书账号，0 人不在本团队',
+      ),
+    )
+  })
+
+  it('opens 从飞书群创建 with the chat from a Feishu card link', async () => {
+    mockApi({
+      ...baseRoutes([]),
+      'GET /feishu/chats': () => ({ available: true, chats: [{ chatId: 'oc_1', name: '研发群' }] }),
+    })
+    renderAt('/?feishuChat=oc_1')
+    const dialog = await screen.findByRole('dialog', { name: '从飞书群创建' })
+    await waitFor(() =>
+      expect((within(dialog).getByLabelText('名称') as HTMLInputElement).value).toBe('研发群'),
+    )
   })
 
   it('blocks creating without a name, while checking, and on a missing branch', async () => {

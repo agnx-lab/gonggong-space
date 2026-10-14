@@ -1,12 +1,20 @@
-import { BindFeishuChatReq, type GroupFeishuView } from '@gonggong/protocol'
-import { asc, eq, isNull } from 'drizzle-orm'
+import {
+  BindFeishuChatReq,
+  CreateGroupFromFeishuReq,
+  type FeishuChatChoicesDto,
+  type GroupFeishuView,
+  type GroupFromFeishuDto,
+} from '@gonggong/protocol'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { Ctx } from '../../context.js'
-import { feishuChats, feishuIdentities, groupMembers, users } from '../../db/schema.js'
+import { bots, feishuApps, feishuChats, feishuIdentities, groupMembers, users } from '../../db/schema.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { requireUser } from '../auth/session.js'
-import { activeBots, publishGroup, requireAdmin } from '../groups/service.js'
+import { createGroup } from '../groups/create.js'
+import { activeBots, groupDto, publishGroup, requireAdmin } from '../groups/service.js'
+import { currentTeam } from '../teams/service.js'
 import { botApp, mainApp } from './apps.js'
 import { type FeishuChat, FeishuError } from './client.js'
 import { credsOf } from './gateway.js'
@@ -86,6 +94,21 @@ export async function checkBindable(ctx: Ctx, userId: string, chatId: string) {
   return { main, chat, members }
 }
 
+/** The team's bots whose own app is in the chat (Feishu leaves bots out of chat members, so each app is asked). */
+async function botsInChat(ctx: Ctx, teamId: string, chatId: string) {
+  const apps = await ctx.db
+    .select({ app: feishuApps, botId: bots.id })
+    .from(feishuApps)
+    .innerJoin(bots, eq(bots.id, feishuApps.botId))
+    .where(and(eq(bots.teamId, teamId), isNull(bots.deletedAt)))
+  const inChat = await Promise.all(
+    apps.map(async (a) =>
+      (await ctx.feishu.api.listChats(credsOf(a.app)).catch(() => [])).some((c) => c.chatId === chatId),
+    ),
+  )
+  return apps.filter((_, i) => inChat[i]).map((a) => a.botId)
+}
+
 /** `added`: a bot app just added to the chat, which Feishu's chat list may not show yet. */
 async function view(ctx: Ctx, groupId: string, userId: string, added?: string): Promise<GroupFeishuView> {
   const main = await mainApp(ctx)
@@ -133,6 +156,14 @@ async function view(ctx: Ctx, groupId: string, userId: string, added?: string): 
   }
 }
 
+/** 创建飞书群 calls in flight: the main app's 进群 card waits for them, so the chat it just created is bound first. */
+export const creatingChats = new Set<Promise<unknown>>()
+const tracked = <T>(run: () => Promise<T>) => {
+  const p = run()
+  creatingChats.add(p)
+  return p.finally(() => creatingChats.delete(p))
+}
+
 /** Feishu takes at most this many users and bots when creating a chat; the rest are added after. */
 const CREATE_USERS = 50
 const CREATE_BOTS = 5
@@ -147,6 +178,48 @@ export function feishuChatRoutes(ctx: Ctx) {
   }
 
   return async (app: FastifyInstance) => {
+    app.get('/api/feishu/chats', async (req): Promise<FeishuChatChoicesDto> => {
+      const user = await requireUser(ctx, req)
+      const main = await mainApp(ctx)
+      if (!main) return { available: false, chats: [] }
+      const chats = await bindableChats(ctx, main, user.id)
+      return { available: true, chats: chats.map((c) => ({ chatId: c.chatId, name: c.name })) }
+    })
+
+    // 从飞书群创建: a group of the current team bound to the chat, with its linked users and the bots whose app is in it.
+    app.post('/api/groups/from-feishu', async (req): Promise<GroupFromFeishuDto> => {
+      const user = await requireUser(ctx, req)
+      const teamId = await currentTeam(ctx, req, user.id)
+      const { chatId, name } = CreateGroupFromFeishuReq.parse(req.body)
+      const { chat, members } = await checkBindable(ctx, user.id, chatId)
+      const botIds = await botsInChat(ctx, teamId, chatId)
+      const groupId = await createGroup(
+        ctx,
+        user,
+        teamId,
+        { name, kind: 'group', memberIds: [], botIds, repo: null },
+        async (tx, groupId) => {
+          const [row] = await tx
+            .insert(feishuChats)
+            .values({ groupId, chatId, name: chat.name, boundBy: user.id, createdAt: ctx.now() })
+            .onConflictDoNothing()
+            .returning()
+          if (!row) fail('conflict', '该飞书群已绑定其他群')
+        },
+      )
+      markBound(ctx, groupId)
+      const sync = await syncFromFeishu(ctx, { id: groupId, teamId }, members)
+      await audit(ctx, {
+        category: 'admin',
+        actorUserId: user.id,
+        teamId,
+        groupId,
+        action: 'feishu.chat.create_group',
+        detail: { chatId, name: chat.name },
+      })
+      return { ...sync, group: await groupDto(ctx, user.id, groupId) }
+    })
+
     app.get<Params>('/api/groups/:id/feishu', async (req) => {
       const { user, group } = await admin(req, req.params.id)
       return view(ctx, group.id, user.id)
@@ -178,58 +251,60 @@ export function feishuChatRoutes(ctx: Ctx) {
     })
 
     // 创建飞书群: a chat owned by the admin with the group's linked members and bot apps, bound to the group.
-    app.post<Params>('/api/groups/:id/feishu/chat', async (req) => {
-      const { user, group } = await admin(req, req.params.id)
-      const main = (await mainApp(ctx)) ?? fail('invalid', '系统管理员尚未配置飞书主应用')
-      if (await boundChat(ctx.db, group.id)) return fail('conflict', '该群已绑定飞书群，请先解绑')
-      const members = await linkedMembers(ctx, group.id)
-      const owner = members.find((m) => m.userId === user.id)?.unionId
-      if (!owner) return fail('invalid', '请先在个人设置中绑定飞书账号')
-      const unionIds = members.flatMap((m) => (m.unionId && m.unionId !== owner ? [m.unionId] : []))
-      const appIds: string[] = []
-      for (const b of await activeBots(ctx, group.id)) {
-        const app = await botApp(ctx, b.id)
-        if (app) appIds.push(app.appId)
-      }
-      const name = group.name.slice(0, 60)
-      const chatId = await ctx.feishu.api
-        .createChat(credsOf(main), {
-          name,
-          ownerUnionId: owner,
-          unionIds: unionIds.slice(0, CREATE_USERS),
-          botAppIds: appIds.slice(0, CREATE_BOTS),
+    app.post<Params>('/api/groups/:id/feishu/chat', (req) =>
+      tracked(async () => {
+        const { user, group } = await admin(req, req.params.id)
+        const main = (await mainApp(ctx)) ?? fail('invalid', '系统管理员尚未配置飞书主应用')
+        if (await boundChat(ctx.db, group.id)) return fail('conflict', '该群已绑定飞书群，请先解绑')
+        const members = await linkedMembers(ctx, group.id)
+        const owner = members.find((m) => m.userId === user.id)?.unionId
+        if (!owner) return fail('invalid', '请先在个人设置中绑定飞书账号')
+        const unionIds = members.flatMap((m) => (m.unionId && m.unionId !== owner ? [m.unionId] : []))
+        const appIds: string[] = []
+        for (const b of await activeBots(ctx, group.id)) {
+          const app = await botApp(ctx, b.id)
+          if (app) appIds.push(app.appId)
+        }
+        const name = group.name.slice(0, 60)
+        const chatId = await ctx.feishu.api
+          .createChat(credsOf(main), {
+            name,
+            ownerUnionId: owner,
+            unionIds: unionIds.slice(0, CREATE_USERS),
+            botAppIds: appIds.slice(0, CREATE_BOTS),
+          })
+          .catch((err) =>
+            err instanceof FeishuError && err.code === NO_SCOPE
+              ? fail(
+                  'invalid',
+                  '飞书主应用没有建群权限，请系统管理员在飞书开放平台为主应用开通 im:chat:create 并发布版本',
+                )
+              : feishu(Promise.reject(err)),
+          )
+        const [row] = await ctx.db
+          .insert(feishuChats)
+          .values({ groupId: group.id, chatId, name, boundBy: user.id, createdAt: ctx.now() })
+          .onConflictDoNothing()
+          .returning()
+        if (!row) return fail('conflict', '该群已绑定飞书群，请先解绑')
+        markBound(ctx, group.id)
+        for (let i = CREATE_USERS; i < unionIds.length; i += CREATE_USERS)
+          await feishu(ctx.feishu.api.addUsers(credsOf(main), chatId, unionIds.slice(i, i + CREATE_USERS)))
+        // One by one: a bot that cannot join (e.g. the chat's bot limit) is left to 拉入飞书群 in the list below.
+        for (const appId of appIds.slice(CREATE_BOTS))
+          await ctx.feishu.api.addBot(credsOf(main), chatId, appId).catch(() => {})
+        await publishGroup(ctx, group.id)
+        await audit(ctx, {
+          category: 'admin',
+          actorUserId: user.id,
+          teamId: group.teamId,
+          groupId: group.id,
+          action: 'feishu.chat.create',
+          detail: { chatId, name },
         })
-        .catch((err) =>
-          err instanceof FeishuError && err.code === NO_SCOPE
-            ? fail(
-                'invalid',
-                '飞书主应用没有建群权限，请系统管理员在飞书开放平台为主应用开通 im:chat:create 并发布版本',
-              )
-            : feishu(Promise.reject(err)),
-        )
-      const [row] = await ctx.db
-        .insert(feishuChats)
-        .values({ groupId: group.id, chatId, name, boundBy: user.id, createdAt: ctx.now() })
-        .onConflictDoNothing()
-        .returning()
-      if (!row) return fail('conflict', '该群已绑定飞书群，请先解绑')
-      markBound(ctx, group.id)
-      for (let i = CREATE_USERS; i < unionIds.length; i += CREATE_USERS)
-        await feishu(ctx.feishu.api.addUsers(credsOf(main), chatId, unionIds.slice(i, i + CREATE_USERS)))
-      // One by one: a bot that cannot join (e.g. the chat's bot limit) is left to 拉入飞书群 in the list below.
-      for (const appId of appIds.slice(CREATE_BOTS))
-        await ctx.feishu.api.addBot(credsOf(main), chatId, appId).catch(() => {})
-      await publishGroup(ctx, group.id)
-      await audit(ctx, {
-        category: 'admin',
-        actorUserId: user.id,
-        teamId: group.teamId,
-        groupId: group.id,
-        action: 'feishu.chat.create',
-        detail: { chatId, name },
-      })
-      return view(ctx, group.id, user.id)
-    })
+        return view(ctx, group.id, user.id)
+      }),
+    )
 
     app.delete<Params>('/api/groups/:id/feishu', async (req, reply) => {
       const { user, group } = await admin(req, req.params.id)

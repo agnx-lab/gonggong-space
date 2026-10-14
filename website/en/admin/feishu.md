@@ -55,12 +55,13 @@ Enable under 「权限管理」 (Permissions):
 | Main app | User | `offline_access`, `contact:user.email:readonly`, `im:message`, `im:message.send_as_user`, `im:message.group_msg:get_as_user` |
 | Bot app | Tenant | `im:message.group_at_msg:readonly`, `im:message:send_as_bot`, `im:message:readonly`, `im:chat:readonly`, `im:resource`, `im:message.reactions:write_only`, `cardkit:card:write`, `application:application:patch` |
 
-### Events and callbacks (Bot apps only)
+### Events and callbacks
 
 Bind the app in Gonggong first and wait for 「已连接」 (Connected): Feishu only saves long-connection mode while the app is connected.
 
 - 「事件与回调 · 事件配置」 (Events & Callbacks · Events): choose **receive events through a long connection**, and add `im.message.receive_v1` (message received) and `im.message.recalled_v1` (message recalled).
 - 「事件与回调 · 回调配置」 (Events & Callbacks · Callbacks): choose **receive callbacks through a long connection**, and add `card.action.trigger` (card action).
+- The main app subscribes to events only (long connection): `im.chat.member.user.added_v1`, `im.chat.member.user.deleted_v1`, `im.chat.member.user.withdrawn_v1` (users joining or leaving, to sync members) and `im.chat.member.bot.added_v1` (bot added to a chat: an unbound chat gets the 「在共工创建对应群」 card).
 
 Gonggong receives events over the long connection, so the server needs no public callback URL.
 
@@ -81,6 +82,7 @@ After changing scopes or capabilities, create and publish a version under 「版
 1. Add the main app to the Feishu chat.
 2. A group admin picks that chat under 「群设置 · 飞书」 (Group settings · Feishu) in Gonggong and binds it. A Gonggong group binds to one Feishu chat.
    With no chat yet, click 「创建飞书群」 (Create Feishu chat): it creates a Feishu chat named after the group and binds it, with you as owner and the members who linked Feishu and the Bots with a Feishu app in it (you must have linked Feishu, and the main app needs `im:chat:create`).
+   You can also start from the Feishu chat: in the 「新建群」 (New group) dialog click 「从飞书群创建…」 (Create from Feishu chat), pick an unbound chat both you and the main app are in, and the group is created, bound and filled in one step (team members in the chat who linked Feishu join, and Bots already in the chat are added). When the main app is added to an unbound chat it posts a 「在共工创建对应群」 (Create the group in Gonggong) card there that opens this dialog (needs the public URL to be set).
 3. The list shows each Bot of the group. Click 「拉入飞书群」 (Add to chat) for Bots not in the chat yet; a Bot marked 「未绑定飞书应用」 (No Feishu app) needs its Bot app bound first.
 4. Members can then @ Bots in the Feishu chat to start runs. They must have signed in to Gonggong with Feishu (or bound Feishu in their settings) and be members of the Gonggong group.
 

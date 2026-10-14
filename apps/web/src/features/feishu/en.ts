@@ -129,4 +129,12 @@ export default {
   '确定新建飞书群「{name}」并绑定到本群？': 'Create Feishu chat “{name}” and bind it to this group?',
   创建: 'Create',
   已创建并绑定飞书群: 'Feishu chat created and bound',
+  从飞书群创建: 'Create from Feishu chat',
+  '已创建并绑定飞书群，拉入 {n} 人；{unlinked} 人未绑定飞书账号，{outside} 人不在本团队':
+    'Group created and bound; {n} joined, {unlinked} have no linked Feishu account, {outside} are not in this team',
+  '已创建并绑定飞书群，拉入 {n} 人': 'Group created and bound; {n} joined',
+  卡片里的飞书群你不在其中或已绑定其他群:
+    "You are not in the card's Feishu chat, or it is bound to another group",
+  '你是群管理员；飞书群里已绑定飞书账号的本团队成员和已在群里的 Bot 会一起加入。找不到群？请先把主应用拉进飞书群；已被其他群绑定的不显示':
+    "You become the group admin; team members in the chat who linked Feishu and the Bots already in it join too. Can't find a chat? Add the main app to it first; chats bound to another group are not listed",
 } satisfies Record<string, string>

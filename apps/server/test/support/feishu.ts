@@ -247,6 +247,12 @@ export class FakeFeishu {
     })
   }
 
+  /** Someone adds the app's bot to a chat (im.chat.member.bot.added_v1). */
+  botAdded(appId: string, chatId: string, name: string) {
+    this.chats.set(appId, [...(this.chats.get(appId) ?? []), { chatId, name, avatar: null }])
+    return this.emit(appId, 'im.chat.member.bot.added_v1', { chat_id: chatId, name })
+  }
+
   private conn(appId: string) {
     const c = this.conns.get(appId)
     if (!c?.open) throw new Error(`no open Feishu connection for ${appId}`)

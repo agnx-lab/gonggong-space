@@ -6,6 +6,7 @@ import { api } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { useGet } from '../../lib/useGet'
 import { Button, Dialog, GroupBox, Icon, IconButton, Input } from '../../ui'
+import { useAuthOptions } from '../auth/options'
 import { BotAvatar } from '../bots/avatars'
 import { AGENT_LABEL } from '../bots/model'
 import { BotPicker, BotPresence, MemberPicker } from '../groups/pickers'
@@ -28,7 +29,19 @@ export type GroupKind = GroupDto['kind']
 const toggle = (list: string[], id: string) =>
   list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
 
-export function NewGroupDialog({ me, kind, onClose }: { me: UserDto; kind: GroupKind; onClose: () => void }) {
+export function NewGroupDialog({
+  me,
+  kind,
+  onClose,
+  onFromFeishu,
+}: {
+  me: UserDto
+  kind: GroupKind
+  onClose: () => void
+  /** 从飞书群创建 instead (offered once the main Feishu app is configured). */
+  onFromFeishu?: () => void
+}) {
+  const feishu = useAuthOptions()?.feishuLogin
   const allBots = useWorkspace((s) => s.bots)
   const navigate = useNavigate()
   const [name, setName] = useState('')
@@ -97,7 +110,15 @@ export function NewGroupDialog({ me, kind, onClose }: { me: UserDto; kind: Group
       onClose={onClose}
       footer={
         <>
-          <span className="ng-foot">{status}</span>
+          {!dm && feishu && onFromFeishu && !status ? (
+            <span className="ng-foot">
+              <Button variant="plain" onClick={onFromFeishu}>
+                {t('从飞书群创建…')}
+              </Button>
+            </span>
+          ) : (
+            <span className="ng-foot">{status}</span>
+          )}
           <Button onClick={onClose}>{t('取消')}</Button>
           <Button variant="primary" disabled={disabled || checking} onClick={() => void submit()}>
             {checking ? t('检查中…') : t('创建')}

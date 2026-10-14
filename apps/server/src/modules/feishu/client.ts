@@ -47,11 +47,15 @@ export const BOT_TENANT_SCOPES = [
   'application:application:patch',
 ]
 export const BOT_EVENTS = ['im.message.receive_v1', 'im.message.recalled_v1']
-/** The main app follows who joins and leaves the chats it is in (a bound chat's members mirror the group). */
+/**
+ * The main app follows who joins and leaves the chats it is in (a bound chat's members mirror the group), and being
+ * added to a chat (it offers to create the matching group).
+ */
 export const MAIN_EVENTS = [
   'im.chat.member.user.added_v1',
   'im.chat.member.user.deleted_v1',
   'im.chat.member.user.withdrawn_v1',
+  'im.chat.member.bot.added_v1',
 ]
 export const BOT_CALLBACKS = ['card.action.trigger']
 

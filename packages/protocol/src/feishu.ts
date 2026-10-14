@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { GroupDto } from './web.js'
 
 // ── 飞书联动 (plan 飞书联动-开发计划) ──
 
@@ -100,6 +101,22 @@ export const FeishuMemberSyncDto = z.object({
   skippedNotInTeam: z.number().int(),
 })
 export type FeishuMemberSyncDto = z.infer<typeof FeishuMemberSyncDto>
+
+/** GET /api/feishu/chats: chats to create a group from (the main app and the caller are in, not bound yet). */
+export const FeishuChatChoicesDto = z.object({
+  /** false until the main app is configured. */
+  available: z.boolean(),
+  chats: z.array(z.object({ chatId: z.string(), name: z.string() })),
+})
+export type FeishuChatChoicesDto = z.infer<typeof FeishuChatChoicesDto>
+
+/** POST /api/groups/from-feishu: a group in the current team, bound to the chat, with its linked users. */
+export const CreateGroupFromFeishuReq = z.object({
+  chatId: z.string().trim().min(1),
+  name: z.string().trim().min(1).max(60),
+})
+export const GroupFromFeishuDto = FeishuMemberSyncDto.extend({ group: GroupDto })
+export type GroupFromFeishuDto = z.infer<typeof GroupFromFeishuDto>
 
 /** PUT /api/groups/:id/feishu: bind the group to one of the main app's chats (one to one). */
 export const BindFeishuChatReq = z.object({ chatId: z.string().trim().min(1) })

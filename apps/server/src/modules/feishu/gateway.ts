@@ -21,6 +21,7 @@ export interface FeishuInbound {
   'im.chat.member.user.withdrawn_v1': Parameters<
     NonNullable<lark.EventHandles['im.chat.member.user.withdrawn_v1']>
   >[0]
+  'im.chat.member.bot.added_v1': Parameters<NonNullable<lark.EventHandles['im.chat.member.bot.added_v1']>>[0]
   'card.action.trigger': lark.RawCardActionEvent & {
     action?: { form_value?: Record<string, unknown>; input_value?: string }
   }
@@ -32,6 +33,7 @@ export const FEISHU_EVENTS = [
   'im.chat.member.user.added_v1',
   'im.chat.member.user.deleted_v1',
   'im.chat.member.user.withdrawn_v1',
+  'im.chat.member.bot.added_v1',
   'card.action.trigger',
 ] as const satisfies readonly FeishuEventType[]
 

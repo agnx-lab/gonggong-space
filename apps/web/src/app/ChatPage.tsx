@@ -9,6 +9,7 @@ import { confirmBot } from '../features/bots/model'
 import { NewBotDialog } from '../features/bots/NewBotDialog'
 import { ChatView } from '../features/chat/ChatView'
 import { type GroupKind, NewGroupDialog } from '../features/chat/NewGroupDialog'
+import { FeishuGroupDialog } from '../features/feishu/FeishuGroupDialog'
 import { BindMachineDialog } from '../features/machines/BindMachineDialog'
 import { MachinePage } from '../features/machines/MachinePage'
 import { openInWorkbench } from '../features/previews/store'
@@ -108,6 +109,19 @@ function useLinkedPreview(groupId: string | undefined) {
   }, [id, groupId, bench, setParams])
 }
 
+/** `?feishuChat=<chat id>` (the main app's card in a new Feishu chat) opens 从飞书群创建 with that chat. */
+function useLinkedFeishuChat() {
+  const [params, setParams] = useSearchParams()
+  const linked = params.get('feishuChat')
+  const [open, setOpen] = useState<{ chatId?: string } | null>(null)
+  useEffect(() => {
+    if (!linked) return
+    setOpen({ chatId: linked })
+    setParams({}, { replace: true })
+  }, [linked, setParams])
+  return [open, setOpen] as const
+}
+
 /** `?bot=<id>` (the desktop app's 在 Web 中管理) opens that bot's page. */
 function useLinkedBot() {
   const [params] = useSearchParams()
@@ -128,6 +142,7 @@ export function ChatPage() {
   )
   const [groupsState, retryGroups] = useChatData()
   const [creating, setCreating] = useState<GroupKind | null>(null)
+  const [fromFeishu, setFromFeishu] = useLinkedFeishuChat()
   const [binding, setBinding] = useState(false)
   const [newBot, setNewBot] = useState(false)
   const [setting, setSetting] = useState<{ botId: string; tab?: BotTab } | null>(null)
@@ -272,7 +287,20 @@ export function ChatPage() {
         )}
       </ChatLayout>
       <Presence>
-        {creating && me ? <NewGroupDialog me={me} kind={creating} onClose={() => setCreating(null)} /> : null}
+        {creating && me ? (
+          <NewGroupDialog
+            me={me}
+            kind={creating}
+            onClose={() => setCreating(null)}
+            onFromFeishu={() => {
+              setCreating(null)
+              setFromFeishu({})
+            }}
+          />
+        ) : null}
+        {fromFeishu ? (
+          <FeishuGroupDialog chatId={fromFeishu.chatId} onClose={() => setFromFeishu(null)} />
+        ) : null}
       </Presence>
       <BindMachineDialog open={binding} onClose={() => setBinding(false)} />
       <Presence>{newBot && me ? <NewBotDialog me={me} onClose={() => setNewBot(false)} /> : null}</Presence>

@@ -477,6 +477,9 @@ export const en = {
   '该群已绑定飞书群，请先解绑': 'This group is already bound to a Feishu chat, unbind it first',
   主应用不在该飞书群中: "The main app isn't in that Feishu chat",
   请先在个人设置中绑定飞书账号: 'Link your Feishu account in your settings first',
+  '把这个飞书群接入共工：在共工创建对应的群并绑定，已绑定飞书账号的成员会自动加入，之后在群里 @Bot 即可使用。':
+    'Connect this chat to Gonggong: create the matching group there and bind it. Members who linked Feishu join automatically; then @ Bots right here.',
+  在共工创建对应群: 'Create the group in Gonggong',
   '飞书主应用没有建群权限，请系统管理员在飞书开放平台为主应用开通 im:chat:create 并发布版本':
     'The Feishu main app cannot create chats: a system admin must enable im:chat:create for it on the Feishu Open Platform and publish a version',
   '你不在该飞书群中，不能绑定': "You aren't in that Feishu chat, so you can't bind it",

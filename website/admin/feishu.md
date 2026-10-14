@@ -55,12 +55,13 @@
 | 主应用 | 用户身份 | `offline_access`、`contact:user.email:readonly`、`im:message`、`im:message.send_as_user`、`im:message.group_msg:get_as_user` |
 | Bot 应用 | 应用身份 | `im:message.group_at_msg:readonly`、`im:message:send_as_bot`、`im:message:readonly`、`im:chat:readonly`、`im:resource`、`im:message.reactions:write_only`、`cardkit:card:write`、`application:application:patch` |
 
-### 事件与回调（仅 Bot 应用）
+### 事件与回调
 
 先在共工里绑定，确认状态为「已连接」后再配置。飞书要求保存长连接方式时应用已经连上。
 
 - 「事件与回调 · 事件配置」：订阅方式选**使用长连接接收事件**，添加事件 `im.message.receive_v1`（接收消息）和 `im.message.recalled_v1`（消息撤回）。
 - 「事件与回调 · 回调配置」：订阅方式选**使用长连接接收回调**，添加回调 `card.action.trigger`（卡片回传交互）。
+- 主应用只订阅事件（长连接）：`im.chat.member.user.added_v1`、`im.chat.member.user.deleted_v1`、`im.chat.member.user.withdrawn_v1`（用户进出群，同步群成员）和 `im.chat.member.bot.added_v1`（机器人进群，在未绑定的飞书群里发「在共工创建对应群」卡片）。
 
 共工通过长连接接收事件，服务器不需要公网回调地址。
 
@@ -81,6 +82,7 @@
 1. 把主应用拉进飞书群。
 2. 群管理员在共工的「群设置 · 飞书」里选择这个飞书群并绑定。一个共工群只能绑定一个飞书群。
    没有现成的飞书群时，点「创建飞书群」：以本群名称新建飞书群并自动绑定，你是群主，已绑定飞书账号的成员和有飞书应用的 Bot 一并拉入（需要你已绑定飞书账号，主应用已开通 `im:chat:create`）。
+   也可以从飞书群出发：在共工「新建群」对话框点「从飞书群创建…」，选择你和主应用都在、尚未绑定的飞书群，一步完成建群、绑定和拉人（飞书群里已绑定飞书账号的本团队成员加入，已在飞书群里的 Bot 一起拉入）。主应用刚被拉进一个未绑定的飞书群时，会在群里发「在共工创建对应群」卡片，点开即进入这个对话框（需配置「公开访问地址」）。
 3. 列表中显示群里各 Bot 的状态，没进群的 Bot 点「拉入飞书群」即可；显示「未绑定飞书应用」的 Bot，需要先按上文绑定它的 Bot 应用。
 4. 之后成员在飞书群里 @Bot 就能触发运行。成员需要先用飞书登录过共工（或在个人设置里绑定飞书），并且是对应共工群的成员。
 
