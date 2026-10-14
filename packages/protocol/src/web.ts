@@ -501,6 +501,21 @@ export const UpdateBotReq = z.object({
   gitName: z.string().trim().min(1).max(80).nullable().optional(),
   gitEmail: z.email().max(200).nullable().optional(),
 })
+/** POST /api/bots/:id/share-requests: a member asks the owner to share the bot with them. */
+export const BotShareRequestReq = z.object({ reason: z.string().trim().max(200).default('') })
+/** A pending 申请共享 (GET /api/bots/:id/share-requests: all of them for the owner, only one's own otherwise). */
+export const BotShareRequestDto = z.object({
+  id: z.string(),
+  botId: z.string(),
+  userId: z.string(),
+  userName: z.string(),
+  reason: z.string(),
+  createdAt: z.string(),
+})
+export type BotShareRequestDto = z.infer<typeof BotShareRequestDto>
+/** POST /api/share-requests/:id/approve: the DM opened for the requester. */
+export const ShareApprovedDto = z.object({ groupId: z.string() })
+export type ShareApprovedDto = z.infer<typeof ShareApprovedDto>
 /** PUT /api/bots/:id/shares (owner or sysadmin): the full list of members the bot is shared with. */
 export const BotSharesReq = z.object({ userIds: z.array(z.string()).max(200) })
 
@@ -517,6 +532,8 @@ export const NotificationType = z.enum([
   'sync_drift',
   'sync_conflict',
   'mention',
+  'bot_share_request',
+  'bot_share_decided',
 ])
 export const NotificationDto = z.object({
   id: z.string(),
@@ -538,6 +555,8 @@ export const PUSHED_NOTIFICATION_TYPES: readonly NotificationDto['type'][] = [
   'offline_expired',
   'chain_done',
   'mention',
+  'bot_share_request',
+  'bot_share_decided',
 ]
 export const PushKeyDto = z.object({ publicKey: z.string() })
 export const PushSubscriptionReq = z.object({

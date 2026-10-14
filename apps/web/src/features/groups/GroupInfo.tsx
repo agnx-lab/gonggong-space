@@ -29,6 +29,7 @@ import {
 import { BotAvatar } from '../bots/avatars'
 import { BotDialog } from '../bots/BotDialog'
 import { AGENT_LABEL, PRESENCE, TRIGGER_SCOPE_LABEL } from '../bots/model'
+import { ShareRequestAction } from '../bots/ShareRequest'
 import { PreviewsView } from '../previews/PreviewsView'
 import { usePreviews } from '../previews/store'
 import { repoPath } from '../repos/RepoPicker'
@@ -595,6 +596,7 @@ export function BotsView({ group, isAdmin, member }: { group: GroupDto; isAdmin:
               </span>
               <span>{t('触发 {scope}', { scope: SCOPE_LABEL(b) })}</span>
               <span className="spacer" />
+              <ShareRequestAction bot={b} />
               {b.ownerId === me?.id || me?.role === 'sysadmin' ? (
                 <>
                   <GroupTierPicker groupId={group.id} bot={b} tier={states?.[b.id]?.tier ?? null} />

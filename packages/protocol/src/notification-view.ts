@@ -95,6 +95,29 @@ export function notificationView(n: NotificationDto, tr: (t: I18nText) => string
         group,
         href: `/g/${p('groupId')}?msg=${p('messageId')}`,
       }
+    case 'bot_share_request':
+      return {
+        label: say(n.resolvedAt ? '共享申请' : '待处理共享申请'),
+        text: p('reason')
+          ? say('{by} 申请使用 {bot}：{reason}', { by: p('byName'), bot, reason: p('reason') })
+          : say('{by} 申请使用 {bot}', { by: p('byName'), bot }),
+        group: '',
+        href: `/bot/${p('botId')}`,
+      }
+    case 'bot_share_decided':
+      return n.payload.approved
+        ? {
+            label: say('共享申请已通过'),
+            text: say('{by} 同意共享 {bot}，已为你打开私聊', { by: p('byName'), bot }),
+            group: '',
+            href: `/g/${p('groupId')}`,
+          }
+        : {
+            label: say('共享申请被拒绝'),
+            text: say('{by} 拒绝共享 {bot}', { by: p('byName'), bot }),
+            group: '',
+            href: `/bot/${p('botId')}`,
+          }
     case 'bot_confirm':
       return {
         label: say('待确认 Bot'),

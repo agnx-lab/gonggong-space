@@ -27,6 +27,7 @@ import { APPROVAL_LABEL } from './ApprovalFields'
 import { BotAvatar, ROLES } from './avatars'
 import { type BotTab, BotWarning } from './BotSettings'
 import { agentCliVersion, agentLine, BINDING_LABEL, PRESENCE, TRIGGER_SCOPE_LABEL } from './model'
+import { ShareRequestAction, useDm } from './ShareRequest'
 import './bots.css'
 import { t } from '../../i18n'
 
@@ -313,30 +314,6 @@ function Profile({
   )
 }
 
-/** Opens the caller's DM with the bot, starting one when there is none. */
-function useDm(bot: BotDto) {
-  const navigate = useNavigate()
-  const dm = useWorkspace((s) =>
-    s.groups.find((g) => g.kind === 'dm' && g.botIds.length === 1 && g.botIds[0] === bot.id),
-  )
-  return async () => {
-    if (dm) return navigate(`/g/${dm.id}`)
-    try {
-      const group = await api.post<GroupDto>('/groups', {
-        name: bot.name,
-        kind: 'dm',
-        memberIds: [],
-        botIds: [bot.id],
-        repo: null,
-      })
-      useWorkspace.getState().applyEvent({ t: 'group.updated', group })
-      navigate(`/g/${group.id}`)
-    } catch (e) {
-      toastError(e)
-    }
-  }
-}
-
 /**
  * A bot opened from the sidebar: what it is and how it is set up, whether and where it works, what it used.
  * Those it is shared with see their own usage; settings open a dialog.
@@ -368,6 +345,7 @@ export function BotPage({
         title={bot.name}
         subtitle={[agentLine(bot), bot.machineName, bot.ownerName].filter(Boolean).join(' · ')}
         onBack={onBack}
+        trailing={owner || shared ? undefined : <ShareRequestAction bot={bot} />}
         actions={[
           ...(owner || shared
             ? [

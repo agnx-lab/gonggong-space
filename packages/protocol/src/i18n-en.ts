@@ -171,6 +171,14 @@ export const protocolEn = {
   '{by} 为你创建了 {bot}，请确认绑定': '{by} created {bot} for you, please confirm the binding',
   '共享 Bot': 'Shared Bot',
   '有人@我': 'Mentioned',
+  共享申请: 'Share request',
+  待处理共享申请: 'Share request to review',
+  '{by} 申请使用 {bot}：{reason}': '{by} asks to use {bot}: {reason}',
+  '{by} 申请使用 {bot}': '{by} asks to use {bot}',
+  共享申请已通过: 'Share request approved',
+  '{by} 同意共享 {bot}，已为你打开私聊': '{by} shared {bot} with you; a direct chat is open',
+  共享申请被拒绝: 'Share request declined',
+  '{by} 拒绝共享 {bot}': '{by} declined to share {bot}',
   '{by} 将 {bot} 共享给你，可以和它私聊': '{by} shared {bot} with you, you can now chat with it directly',
 
   // Agent config

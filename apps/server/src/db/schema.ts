@@ -226,6 +226,29 @@ export const botShares = pgTable(
   (t) => [primaryKey({ columns: [t.botId, t.userId] }), index('bot_shares_user').on(t.userId)],
 )
 
+/** 申请共享: a member asks the owner to share a bot with them; one pending request per bot and member. */
+export const botShareRequests = pgTable(
+  'bot_share_requests',
+  {
+    id: id(),
+    botId: uuid('bot_id')
+      .notNull()
+      .references(() => bots.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    reason: text('reason').notNull().default(''),
+    /** 'pending' | 'approved' | 'rejected' */
+    status: text('status').notNull().default('pending'),
+    decidedBy: uuid('decided_by').references(() => users.id),
+    decidedAt: ts('decided_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('bot_share_requests_pending').on(t.botId, t.userId).where(sql`${t.status} = 'pending'`),
+  ],
+)
+
 // ── Groups ──────────────────────────────────────────────────────────────────
 export const groups = pgTable('groups', {
   id: id(),

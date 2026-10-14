@@ -19,6 +19,7 @@ import { attachmentRoutes } from './modules/attachments/routes.js'
 import { feishuAuthRoutes } from './modules/auth/feishu.js'
 import { authRoutes } from './modules/auth/routes.js'
 import { botRoutes } from './modules/bots/routes.js'
+import { shareRequestRoutes } from './modules/bots/share-requests.js'
 import { Mirrors } from './modules/candidates/mirror.js'
 import { candidateRoutes } from './modules/candidates/routes.js'
 import { startCandidates } from './modules/candidates/service.js'
@@ -147,6 +148,7 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   await app.register(machineRoutes(ctx))
   await app.register(providerRoutes(ctx))
   await app.register(botRoutes(ctx))
+  await app.register(shareRequestRoutes(ctx))
   await app.register(notificationRoutes(ctx))
   await app.register(workspaceRoutes(ctx))
   await app.register(repoRoutes(ctx))

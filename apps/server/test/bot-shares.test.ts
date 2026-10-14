@@ -187,3 +187,49 @@ describe('a shared bot in a direct chat', () => {
     ).toHaveLength(2)
   })
 })
+
+describe('申请共享', () => {
+  const request = (p: People, as: People['asLi'], reason = '写周报') =>
+    as.post<{ id: string }>(`/api/bots/${p.bot.id}/share-requests`, { reason })
+  const noticesOf = (userId: string) =>
+    t.db.select().from(notifications).where(eq(notifications.userId, userId))
+
+  it('asks the owner once; approving shares the bot and opens a DM for the requester', async () => {
+    const p = await people()
+    const res = await request(p, p.asLi)
+    expect(res.status).toBe(200)
+    expect((await request(p, p.asLi)).status).toBe(409)
+    const [ask] = await noticesOf(p.wang.id)
+    expect(ask).toMatchObject({
+      type: 'bot_share_request',
+      payload: { requestId: res.body.id, botId: p.bot.id, byName: '李建国', reason: '写周报' },
+    })
+    expect((await p.asLi.get<unknown[]>(`/api/bots/${p.bot.id}/share-requests`)).body).toHaveLength(1)
+    expect((await p.asZhao.get<unknown[]>(`/api/bots/${p.bot.id}/share-requests`)).body).toEqual([])
+    expect((await p.asLi.post(`/api/share-requests/${res.body.id}/approve`)).status).toBe(403)
+
+    const ok = await p.asWang.post<{ groupId: string }>(`/api/share-requests/${res.body.id}/approve`)
+    expect(ok.status).toBe(200)
+    const dm = (await p.asLi.get<GroupDto[]>('/api/groups')).body.find((g) => g.id === ok.body.groupId)
+    expect(dm).toMatchObject({ kind: 'dm', botIds: [p.bot.id] })
+    expect((await p.asLi.get<BotDto>(`/api/bots/${p.bot.id}`)).body.sharedWith).toEqual([p.li.id])
+    const mine = await noticesOf(p.li.id)
+    expect(mine.map((n) => n.type)).toEqual(['bot_share_decided'])
+    expect(mine[0]?.payload).toMatchObject({ approved: true, groupId: ok.body.groupId })
+    expect((await noticesOf(p.wang.id))[0]?.resolvedAt).not.toBeNull()
+    expect((await p.asWang.get<unknown[]>(`/api/bots/${p.bot.id}/share-requests`)).body).toEqual([])
+    expect((await request(p, p.asLi)).status).toBe(400)
+  })
+
+  it('tells the requester when the owner declines; outsiders and the owner cannot ask', async () => {
+    const p = await people()
+    const res = await request(p, p.asZhao, '')
+    expect((await p.asWang.post(`/api/share-requests/${res.body.id}/reject`)).status).toBe(204)
+    const [n] = await noticesOf(p.zhao.id)
+    expect(n).toMatchObject({ type: 'bot_share_decided', payload: { approved: false, botId: p.bot.id } })
+    expect((await p.asZhao.get<BotDto>(`/api/bots/${p.bot.id}`)).body.sharedWith).toEqual([])
+    expect((await request(p, p.asWang)).status).toBe(400)
+    const outsider = client(t, await t.seed.cookie(p.outsider.id))
+    expect((await request(p, outsider)).status).toBe(404)
+  })
+})

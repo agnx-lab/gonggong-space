@@ -244,4 +244,13 @@ export default {
   '添加成员…': 'Add members…',
   '对方可以和 Bot 私聊、查看它的配置，每个私聊使用独立的托管工作区，命令审批仍由 Bot 主人处理；取消共享后对方的私聊转为只读。即时生效':
     'They can message the Bot directly and see its settings. Each of their chats gets a managed workspace of its own; command approvals stay with the Bot owner. Once unshared, their chats turn read-only. Saved at once',
+  等待主人同意: 'Waiting for the owner',
+  申请共享: 'Request access',
+  '申请共享 {name}': 'Request access to {name}',
+  提交申请: 'Send request',
+  用途: 'Purpose',
+  '一句话说明用途（可选）': 'What you need it for (optional)',
+  '{owner} 同意后会为你打开和 {name} 的私聊。私聊使用你单独的托管工作区，命令审批仍由 Bot 主人处理。':
+    'Once {owner} approves, a direct chat with {name} opens for you. It uses a managed workspace of your own; command approvals stay with the Bot owner.',
+  共享申请: 'Access requests',
 } satisfies Record<string, string>

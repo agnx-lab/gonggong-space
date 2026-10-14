@@ -5,6 +5,7 @@ import { toastError } from '../../lib/errors'
 import { Button, Form, FormRow, IconButton } from '../../ui'
 import { MemberPicker } from '../groups/pickers'
 import { botsApi } from './model'
+import { ShareRequestList } from './ShareRequest'
 
 /** 共享 tab: who may DM the bot and see its details; each change is saved at once. */
 export function BotShares({ bot, users }: { bot: BotDto; users: UserBriefDto[] }) {
@@ -58,6 +59,7 @@ export function BotShares({ bot, users }: { bot: BotDto; users: UserBriefDto[] }
           onAdd={(ids) => void save([...bot.sharedWith, ...ids])}
         />
       </FormRow>
+      <ShareRequestList bot={bot} />
     </Form>
   )
 }

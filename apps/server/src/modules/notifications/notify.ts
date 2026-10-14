@@ -65,8 +65,8 @@ export async function notify(
  */
 export async function resolveNotifications(
   ctx: Ctx,
-  type: 'approval' | 'question' | 'sync_conflict' | 'sync_drift',
-  key: 'approvalId' | 'questionSetId' | 'conflictId' | 'botId',
+  type: 'approval' | 'question' | 'sync_conflict' | 'sync_drift' | 'bot_share_request',
+  key: 'approvalId' | 'questionSetId' | 'conflictId' | 'botId' | 'requestId',
   ids: string[],
   groupId?: string,
 ) {

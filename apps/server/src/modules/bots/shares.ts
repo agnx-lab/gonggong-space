@@ -46,7 +46,7 @@ async function assertSharable(ctx: Ctx, bot: BotRow, ids: string[]) {
 }
 
 /** The DMs `userIds` opened with the bot, where it is (`active`) or was taken out. */
-async function dmsOf(ctx: Ctx, botId: string, userIds: string[], active: boolean) {
+export async function dmsOf(ctx: Ctx, botId: string, userIds: string[], active: boolean) {
   if (!userIds.length) return []
   return ctx.db
     .select({ id: groups.id })
@@ -65,9 +65,15 @@ async function dmsOf(ctx: Ctx, botId: string, userIds: string[], active: boolean
 
 /**
  * Replaces who the bot is shared with. Those dropped keep their DMs read-only (the bot leaves, its runs stop);
- * those added are notified, and get back DMs an earlier unsharing closed.
+ * those added are notified (unless `quiet`: the caller tells them), and get back DMs an earlier unsharing closed.
  */
-export async function setShares(ctx: Ctx, by: SessionUser, bot: BotRow, wanted: string[]) {
+export async function setShares(
+  ctx: Ctx,
+  by: SessionUser,
+  bot: BotRow,
+  wanted: string[],
+  o: { quiet?: boolean } = {},
+) {
   const ids = [...new Set(wanted)]
   await assertSharable(ctx, bot, ids)
   const current = (
@@ -112,7 +118,7 @@ export async function setShares(ctx: Ctx, by: SessionUser, bot: BotRow, wanted: 
     await postEvent(ctx, g.id, '{user} 重新共享了 {bot}', { user: by.name, bot: bot.name })
     await publishGroup(ctx, g.id)
   }
-  for (const userId of added)
+  for (const userId of o.quiet ? [] : added)
     await notify(ctx, userId, 'bot_shared', { botId: bot.id, botName: bot.name, byName: by.name })
   return { added, removed }
 }

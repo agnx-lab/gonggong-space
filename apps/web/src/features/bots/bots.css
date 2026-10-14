@@ -434,3 +434,23 @@ a.bot-page__group:hover {
 .bot-shares__row + .bot-shares__row {
   border-top: 1px solid var(--separator);
 }
+.share-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+.share-ask__note {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote-size);
+}
+.share-req__who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.share-req__reason {
+  color: var(--label-secondary);
+  font-size: var(--text-footnote-size);
+}

@@ -477,6 +477,13 @@ export const en = {
   '该群已绑定飞书群，请先解绑': 'This group is already bound to a Feishu chat, unbind it first',
   主应用不在该飞书群中: "The main app isn't in that Feishu chat",
   请先在个人设置中绑定飞书账号: 'Link your Feishu account in your settings first',
+  申请不存在: 'Request not found',
+  申请不存在或已处理: 'Request not found or already handled',
+  '只有 Bot 主人或系统管理员可以处理共享申请':
+    'Only the Bot owner or a system admin can handle share requests',
+  '这是你自己的 Bot': 'This is your own Bot',
+  '该 Bot 已共享给你': 'This Bot is already shared with you',
+  '已申请，等待 Bot 主人处理': 'Already requested; waiting for the Bot owner',
   '把这个飞书群接入共工：在共工创建对应的群并绑定，已绑定飞书账号的成员会自动加入，之后在群里 @Bot 即可使用。':
     'Connect this chat to Gonggong: create the matching group there and bind it. Members who linked Feishu join automatically; then @ Bots right here.',
   在共工创建对应群: 'Create the group in Gonggong',

@@ -36,6 +36,33 @@ const ICON: Record<NotificationDto['type'], { icon: IconName; color: string }> =
   sync_drift: { icon: 'arrow-clockwise', color: 'var(--system-orange)' },
   sync_conflict: { icon: 'exclamation-circle', color: 'var(--system-red)' },
   mention: { icon: 'at', color: 'var(--system-blue)' },
+  bot_share_request: { icon: 'person-add', color: 'var(--system-orange)' },
+  bot_share_decided: { icon: 'bot', color: 'var(--system-blue)' },
+}
+
+/** 同意 / 拒绝 of a 申请共享 right in the notification; the settled notification arrives over realtime. */
+function ShareRequestActions({ n }: { n: NotificationDto }) {
+  const [busy, setBusy] = useState(false)
+  const decide = async (verb: 'approve' | 'reject') => {
+    setBusy(true)
+    try {
+      await api.post(`/share-requests/${n.payload.requestId}/${verb}`, {})
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="notif__actions">
+      <Button size="small" variant="primary" disabled={busy} onClick={() => void decide('approve')}>
+        {t('同意')}
+      </Button>
+      <Button size="small" disabled={busy} onClick={() => void decide('reject')}>
+        {t('拒绝#reject')}
+      </Button>
+    </div>
+  )
 }
 
 /**
@@ -247,6 +274,7 @@ function Panel({
                       </div>
                     </button>
                     {outside(n) ? <ApprovalActions n={n} /> : null}
+                    {n.type === 'bot_share_request' && !n.resolvedAt ? <ShareRequestActions n={n} /> : null}
                     <IconButton
                       size="small"
                       variant="plain"
