@@ -56,9 +56,10 @@ function outcome(a: ApprovalDto) {
   }
 }
 
-/** The run's latest permission request (spec §3.4): only the bot owner may decide, others just watch. */
+/** The run's oldest pending permission request, else its latest (spec §3.4): only the bot owner may decide, others just watch.
+ *  Agents may ask several in parallel; deciding a later one must not hide an earlier one still blocking the turn. */
 export function ApprovalBlock({ run }: { run: RunDto }) {
-  const a = run.approvals.at(-1)
+  const a = run.approvals.find((x) => x.status === 'pending') ?? run.approvals.at(-1)
   const bot = useWorkspace((s) => s.bots.find((b) => b.id === run.botId))
   const state = useWorkspace((s) => s.botStates[run.groupId]?.[run.botId])
   const me = useSession((s) => s.user)

@@ -199,4 +199,18 @@ describe('ApprovalBlock', () => {
     expect(screen.getByText('权限请求 · 访问网络')).toBeTruthy()
     expect(screen.queryByText('go build ./...')).toBeNull()
   })
+
+  it('keeps an earlier still-pending request visible after a later one is decided', () => {
+    login('u1', '王磊')
+    render(
+      <ApprovalBlock
+        run={run([
+          approval({ toolKind: 'fetch', detail: 'Search "养老 补贴"' }),
+          approval({ id: 'a2', status: 'approved', decidedByName: '王磊', decidedAt: NOW.toISOString() }),
+        ])}
+      />,
+    )
+    expect(screen.getByText('Search "养老 补贴"')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '批准' })).toBeTruthy()
+  })
 })
