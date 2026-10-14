@@ -1,6 +1,8 @@
-import { Toolbar, ToolbarGroup } from '@web/ui'
+import { Icon, Toolbar, ToolbarGroup } from '@web/ui'
 import { t } from '../i18n'
+import { ipc } from '../ipc'
 import { connKind, host, PILL } from '../lib/labels'
+import { fail } from '../lib/ui'
 import { useDaemon } from '../store'
 
 /**
@@ -32,9 +34,23 @@ export function TitleBar({
     >
       {title ? null : <span className="dk-flex" />}
       <ToolbarGroup>
-        <span className="dk-conn" data-testid="conn-pill" style={{ color: pill.color }}>
-          <span className="dk-conn__text">{text}</span>
-        </span>
+        {pill === PILL.ok ? (
+          <button
+            type="button"
+            className="dk-conn dk-conn--link"
+            data-testid="conn-pill"
+            title={t('在浏览器中打开共工')}
+            style={{ color: pill.color }}
+            onClick={() => void ipc.openWeb().catch(fail)}
+          >
+            <span className="dk-conn__text">{text}</span>
+            <Icon name="external" size={12} className="dk-conn__icon" />
+          </button>
+        ) : (
+          <span className="dk-conn" data-testid="conn-pill" style={{ color: pill.color }}>
+            <span className="dk-conn__text">{text}</span>
+          </span>
+        )}
       </ToolbarGroup>
     </Toolbar>
   )

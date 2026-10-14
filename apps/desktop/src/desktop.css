@@ -128,6 +128,19 @@ code,
 .dk-conn__text {
   color: var(--label);
 }
+.dk-conn--link {
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.dk-conn--link:hover {
+  background: var(--control-fill);
+}
+.dk-conn__icon {
+  color: var(--label-secondary);
+}
 .dk-content {
   position: relative;
   display: flex;

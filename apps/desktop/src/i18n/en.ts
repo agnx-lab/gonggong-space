@@ -336,6 +336,7 @@ export const en = {
   'ACP 适配器 {list}': 'ACP adapters {list}',
   'v{version} · 协议 v{protocol}': 'v{version} · protocol v{protocol}',
   '已连接 {host}': 'Connected to {host}',
+  在浏览器中打开共工: 'Open Gonggong in the browser',
   '有运行中的任务，重启会中断': 'Tasks are running. Restarting will interrupt them',
   '本机有 {n} 个任务正在运行，重启后它们会被中断。':
     '{n} {n:task is|tasks are} running on this machine and will be interrupted by the restart.',

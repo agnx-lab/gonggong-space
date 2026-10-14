@@ -24,6 +24,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         shell::app_info,
         shell::set_locale,
         shell::snapshot,
+        shell::open_web,
         onboarding::parse_link,
         onboarding::login,
         onboarding::start_daemon,

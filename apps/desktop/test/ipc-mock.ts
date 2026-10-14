@@ -50,6 +50,7 @@ vi.mock('../src/ipc', () => ({
     bots: vi.fn(),
     openBotInWeb: vi.fn(),
     openProvidersInWeb: vi.fn(),
+    openWeb: vi.fn(),
     tunnels: vi.fn(async () => ({ previews: [], services: [] })),
     closeTunnel: vi.fn(),
     retryCast: vi.fn(),

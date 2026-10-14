@@ -1,5 +1,6 @@
 use super::Result;
 use crate::host::{Host, Snapshot};
+use crate::i18n::tr;
 use gonggong::config::Config;
 use gonggong::protocol::{AgentKind, MachineInfo, PROTOCOL_VERSION};
 use serde::Serialize;
@@ -55,4 +56,12 @@ pub fn set_locale(locale: String, app: AppHandle) -> Result<()> {
 #[tauri::command]
 pub fn snapshot(host: State<'_, Host>) -> Snapshot {
     host.snapshot()
+}
+
+/// 已连接 pill: the bound server's web app in the default browser (its own sign-in, no token handed over).
+#[tauri::command]
+pub fn open_web(app: AppHandle) -> Result<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let config = Config::load().map_err(|e| e.to_string())?.ok_or(tr!("尚未绑定"))?;
+    app.opener().open_url(format!("{}/", config.server.trim_end_matches('/')), None::<&str>).map_err(|e| e.to_string())
 }

@@ -48,3 +48,17 @@ it('titles a run detail after the run instead of the overview', async () => {
   fireEvent.click(screen.getByRole('button', { name: '返回' }))
   expect(within(toolbar()).getByRole('heading', { name: '概览' })).toBeTruthy()
 })
+
+it('opens the server in the browser from the connection pill only while connected', async () => {
+  m.openWeb.mockResolvedValue()
+  const { unmount } = render(<Shell />)
+  const pill = within(toolbar()).getByRole('button', { name: /已连接/ })
+  expect(pill.getAttribute('title')).toBe('在浏览器中打开共工')
+  fireEvent.click(pill)
+  expect(m.openWeb).toHaveBeenCalled()
+  unmount()
+  useDaemon.setState({ snapshot: { phase: 'unbound' } })
+  render(<Shell />)
+  expect(within(toolbar()).queryByRole('button', { name: /未绑定/ })).toBeNull()
+  expect(within(toolbar()).getByTestId('conn-pill').textContent).toBe('未绑定')
+})

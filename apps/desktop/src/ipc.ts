@@ -334,6 +334,8 @@ export const ipc = {
   openBotInWeb: (id: string) => invoke<void>('open_bot_in_web', { id }),
   /** 在 Web 中管理: this machine's 供应商 tab. */
   openProvidersInWeb: () => invoke<void>('open_providers_in_web'),
+  /** 已连接 pill: the bound server's web app. */
+  openWeb: () => invoke<void>('open_web'),
   tunnels: () => invoke<Tunnels>('tunnels'),
   /** Closes the tunnel and, with `stopService`, stops the service behind it (same as 停止 on the Web). */
   closeTunnel: (id: string, stopService: boolean) => invoke<void>('close_tunnel', { id, stopService }),
