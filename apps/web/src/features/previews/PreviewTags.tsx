@@ -11,11 +11,11 @@ export function PreviewTags({ groupId }: { groupId: string }) {
   const list = usePreviews(groupId)
   if (!list?.previews.length) return null
   return (
-    <div className="pv-tags">
+    <>
       {list.previews.map((p) => (
         <PreviewTag key={p.id} preview={p} service={list.services.find((s) => s.id === p.serviceId)} />
       ))}
-    </div>
+    </>
   )
 }
 

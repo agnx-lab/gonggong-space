@@ -42,6 +42,7 @@ import { GroupNotice } from '../groups/GroupNotice'
 import { GroupSettingsDialog } from '../groups/GroupSettingsDialog'
 import { PreviewTags } from '../previews/PreviewTags'
 import { ScheduleCard } from '../schedules/ScheduleCard'
+import { ScheduleTag } from '../schedules/ScheduleTag'
 import { ConflictEvent } from '../sync/RunSyncLine'
 import { LinkedConflict, SyncBar, useLinkedSync } from '../sync/SyncBar'
 import { TakeoverDialog } from '../teams/TakeoverDialog'
@@ -471,7 +472,7 @@ export function ChatView({
             ? []
             : [
                 {
-                  icon: 'sidebar-right' as const,
+                  icon: 'cog' as const,
                   label: t('群设置'),
                   active: infoOpen,
                   onClick: () => (infoOpen ? inspector.close() : inspector.open('group-info', 'main')),
@@ -622,7 +623,10 @@ export function ChatView({
       </div>
       {readOnly || closed ? null : (
         <>
-          <PreviewTags groupId={group.id} />
+          <div className="chat-view__pins">
+            <ScheduleTag groupId={group.id} onManage={() => inspector.open('group-info', 'schedules')} />
+            <PreviewTags groupId={group.id} />
+          </div>
           <LiveRunsBar runs={runList} onLocate={locate} />
           <ProviderBanner group={group} />
           <MessageComposer group={group} dropFiles={dropFiles} onSent={onSent} />

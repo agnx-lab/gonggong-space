@@ -135,13 +135,6 @@
 .pv-share__url > :first-child {
   flex: 1;
 }
-.pv-tags {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-6);
-  padding: var(--space-8) var(--space-16) 0;
-}
 .pv-tag {
   display: inline-flex;
   align-items: center;

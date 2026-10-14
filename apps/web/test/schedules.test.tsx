@@ -13,6 +13,7 @@ import { SchedulesPage } from '../src/features/admin/SchedulesPage'
 import { ScheduleCard } from '../src/features/schedules/ScheduleCard'
 import { ScheduleDialog } from '../src/features/schedules/ScheduleDialog'
 import { SchedulesView } from '../src/features/schedules/SchedulesView'
+import { ScheduleTag } from '../src/features/schedules/ScheduleTag'
 import { resetSchedules } from '../src/features/schedules/store'
 import { realtime } from '../src/lib/realtime'
 import { mockApi } from './mockApi'
@@ -193,6 +194,45 @@ describe('schedule card', () => {
     act(() => push!({ t: 'group.schedules', groupId: 'g1', schedules: [] } as never))
     expect(screen.getByText('已删除')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '暂停' })).toBeNull()
+  })
+})
+
+describe('schedule tag', () => {
+  it('counts upcoming tasks above the composer and lists them soonest first', async () => {
+    mockApi({
+      'GET /groups/g1/schedules': list(
+        schedule({ id: 's1', name: '日报', nextRunAt: '2026-10-06T01:00:00.000Z' }),
+        schedule({
+          id: 's2',
+          name: '提醒',
+          cron: null,
+          runAt: '2026-10-05T02:00:00.000Z',
+          nextRunAt: '2026-10-05T02:00:00.000Z',
+        }),
+        schedule({ id: 's3', name: '周报', enabled: false, nextRunAt: null }),
+        schedule({
+          id: 's4',
+          name: '已触发',
+          cron: null,
+          runAt: '2026-10-01T02:00:00.000Z',
+          nextRunAt: null,
+        }),
+      ),
+    })
+    const onManage = vi.fn()
+    render(<ScheduleTag groupId="g1" onManage={onManage} />)
+    fireEvent.click(await screen.findByRole('button', { name: '定时任务：2 个' }))
+    const names = screen.getAllByTestId(/^schedule-tag-/).map((el) => el.dataset.testid)
+    expect(names).toEqual(['schedule-tag-s2', 'schedule-tag-s1'])
+    expect(screen.queryByText('周报')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '管理' }))
+    expect(onManage).toHaveBeenCalled()
+  })
+
+  it('renders nothing without upcoming tasks', async () => {
+    mockApi({ 'GET /groups/g1/schedules': list(schedule({ enabled: false, nextRunAt: null })) })
+    const { container } = render(<ScheduleTag groupId="g1" onManage={() => {}} />)
+    await waitFor(() => expect(container.innerHTML).toBe(''))
   })
 })
 
