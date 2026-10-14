@@ -2,10 +2,12 @@ import type { UserCardDto } from '@gonggong/protocol'
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
+import { useSession } from '../../app/session'
 import { api } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { Float, ProfileCard, Spinner } from '../../ui'
 import { ROLE_LABEL } from '../auth/AccountMenu'
+import { mentionInChat } from '../chat/mention'
 import { useHoverCard } from './useHoverCard'
 import './users.css'
 import { t } from '../../i18n'
@@ -45,26 +47,29 @@ function place(anchor: DOMRect, card: HTMLElement): { style: CSSProperties; abov
 }
 
 /**
- * Wraps a user's name or avatar; hovering or focusing it shows their Pane ProfileCard in the shared popover panel,
- * portaled to <body> and fixed at the anchor so it is neither clipped by the timeline nor sampling a glass ancestor. `tabIndex={-1}` for a second trigger of the same user next to a focusable one.
+ * A trigger wrapping a name or avatar; hovering or focusing it shows `card` in the shared popover panel, portaled to
+ * <body> and fixed at the anchor so it is neither clipped by the timeline nor sampling a glass ancestor. `version`
+ * changes when the card's content (and so its size) does. `tabIndex={-1}` for a second trigger of the same target
+ * next to a focusable one.
  */
-export function UserCardTrigger({
-  userId,
-  groupId,
+export function HoverCardTrigger({
+  label,
+  hover,
+  card,
+  version,
   tabIndex = 0,
   className,
   children,
 }: {
-  userId: string
-  groupId?: string
+  label: string
+  hover: ReturnType<typeof useHoverCard>
+  card: ReactNode
+  version?: unknown
   tabIndex?: number
   className?: string
   children: ReactNode
 }) {
-  const { open, close, triggerProps, cardProps } = useHoverCard()
-  const [wanted, setWanted] = useState(false)
-  if (open && !wanted) setWanted(true)
-  const { card, error } = useCard(userId, groupId, wanted)
+  const { open, close, triggerProps, cardProps } = hover
   const anchor = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const [spot, setSpot] = useState<ReturnType<typeof place>>()
@@ -73,7 +78,7 @@ export function UserCardTrigger({
   useLayoutEffect(() => {
     if (open && anchor.current && panel.current)
       setSpot(place(anchor.current.getBoundingClientRect(), panel.current))
-  }, [open, card, error])
+  }, [open, version])
 
   useEffect(() => {
     if (!open) return
@@ -101,27 +106,72 @@ export function UserCardTrigger({
           open={open}
           placement={spot?.above ? 'top-start' : 'bottom-start'}
           role="dialog"
-          aria-label={t('用户名片')}
+          aria-label={label}
           className="ui-popover user-card"
           style={spot?.style}
           {...cardProps}
         >
-          {card ? (
-            <ProfileCard
-              name={card.name}
-              avatar={card.avatar ?? undefined}
-              status={card.online ? 'online' : 'offline'}
-              statusText={card.online ? t('在线') : t('离线')}
-              title={card.account}
-              tags={card.groupAdmin ? [{ label: t('群管理员'), tone: 'blue' }] : undefined}
-              fields={[{ label: t('角色'), value: ROLE_LABEL[card.role] }]}
-            />
-          ) : (
-            <div className="user-card__status">{error ?? <Spinner />}</div>
-          )}
+          {card}
         </Float>,
         document.body,
       )}
     </>
+  )
+}
+
+/** The @TA action of a card shown in a group: hands the name to that group's composer and closes the card. */
+export const mentionAction = (groupId: string, name: string, close: () => void) => ({
+  label: t('@TA'),
+  onClick: () => {
+    mentionInChat(groupId, name)
+    close()
+  },
+})
+
+/** A user's card; in a group it offers @TA, except on my own. */
+export function UserCardTrigger({
+  userId,
+  groupId,
+  tabIndex,
+  className,
+  children,
+}: {
+  userId: string
+  groupId?: string
+  tabIndex?: number
+  className?: string
+  children: ReactNode
+}) {
+  const hover = useHoverCard()
+  const me = useSession((s) => s.user?.id)
+  const [wanted, setWanted] = useState(false)
+  if (hover.open && !wanted) setWanted(true)
+  const { card, error } = useCard(userId, groupId, wanted)
+  return (
+    <HoverCardTrigger
+      label={t('用户名片')}
+      hover={hover}
+      version={card ?? error}
+      tabIndex={tabIndex}
+      className={className}
+      card={
+        card ? (
+          <ProfileCard
+            name={card.name}
+            avatar={card.avatar ?? undefined}
+            status={card.online ? 'online' : 'offline'}
+            statusText={card.online ? t('在线') : t('离线')}
+            title={card.account}
+            tags={card.groupAdmin ? [{ label: t('群管理员'), tone: 'blue' }] : undefined}
+            fields={[{ label: t('角色'), value: ROLE_LABEL[card.role] }]}
+            actions={groupId && userId !== me ? [mentionAction(groupId, card.name, hover.close)] : undefined}
+          />
+        ) : (
+          <div className="user-card__status">{error ?? <Spinner />}</div>
+        )
+      }
+    >
+      {children}
+    </HoverCardTrigger>
   )
 }

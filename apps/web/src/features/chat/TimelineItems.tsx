@@ -32,7 +32,7 @@ import { stepText, toolTitle } from '../runs/mcp'
 import { QuestionBlock } from '../runs/QuestionBlock'
 import { OfflineNote, RunActions } from '../runs/RunActions'
 import { RunSyncLine } from '../sync/RunSyncLine'
-import { UserCardTrigger } from '../users'
+import { BotCardTrigger, UserCardTrigger } from '../users'
 import { openTab } from '../workbench/open'
 import { Clamp } from './Clamp'
 import { citeInChat } from './cite'
@@ -263,10 +263,22 @@ function person(m: MessageDto, avatar?: string): MessageAuthor {
   }
 }
 
-const botAuthor = (name: string): MessageAuthor => ({
+/** A bot: avatar and name open its bot card. */
+const botAuthor = (name: string, botId: string | null, groupId: string): MessageAuthor => ({
   name,
   bot: true,
-  avatarNode: <BotAvatar name={name} size={32} />,
+  avatarNode: botId ? (
+    <BotCardTrigger botId={botId} groupId={groupId} tabIndex={-1} className="user-card-trigger--block">
+      <BotAvatar id={botId} name={name} size={32} />
+    </BotCardTrigger>
+  ) : (
+    <BotAvatar name={name} size={32} />
+  ),
+  nameNode: botId ? (
+    <BotCardTrigger botId={botId} groupId={groupId}>
+      <b>{name}</b>
+    </BotCardTrigger>
+  ) : undefined,
 })
 
 function Text({ body, names, me }: { body: string; names: string[]; me?: string }) {
@@ -436,7 +448,7 @@ function ReplyMessage({
     <div data-testid="bot-reply">
       <Message
         className={cx(isRich(m) && 'tl-msg--wide')}
-        author={botAuthor(m.authorName)}
+        author={botAuthor(m.authorName, m.authorId, m.groupId)}
         continued={continued}
         time={<Time iso={m.createdAt} />}
         meta={meta}
@@ -596,7 +608,7 @@ export const RunCard = memo(function RunCard({
       {(bar) => (
         <div className="run-card" data-testid="run-card" data-status={run.status}>
           <Message
-            author={botAuthor(botName)}
+            author={botAuthor(botName, run.botId, run.groupId)}
             time={<Time iso={reply?.createdAt ?? run.queuedAt} />}
             meta={meta}
             bare

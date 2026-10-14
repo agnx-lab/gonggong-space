@@ -20,6 +20,7 @@ import { AppendBanner } from '../runs/AppendBanner'
 import { useAppend } from '../runs/append'
 import { type Candidate, CandidatePopover, placeCommand, useCandidates } from './ComposerCandidates'
 import { useCite } from './cite'
+import { mentions, useMention } from './mention'
 import { mentionedBots, type Picks, RunConfigChips } from './RunConfigChips'
 import './composer.css'
 import { t } from '../../i18n'
@@ -157,6 +158,18 @@ export const MessageComposer = memo(function MessageComposer({
     useCite.setState({ pending: null })
     change(`${draft}${draft && !/\s$/.test(draft) ? ' ' : ''}${cited.text} `)
   }, [cited])
+
+  const mention = useMention((s) => (s.pending?.groupId === group.id ? s.pending : null))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per handed-over name, onto the draft it was rendered with
+  useEffect(() => {
+    if (!mention) return
+    useMention.setState({ pending: null })
+    if (mentions(draft, mention.name)) return input.current?.focus()
+    // The caret survives the blur caused by clicking the card.
+    const c = input.current?.selectionStart ?? draft.length
+    const insert = `${c > 0 && !/\s/.test(draft[c - 1] ?? '') ? ' ' : ''}@${mention.name} `
+    change(draft.slice(0, c) + insert + draft.slice(c), c + insert.length)
+  }, [mention])
 
   const pick = (c: Candidate) => {
     if (!token) return

@@ -5,7 +5,7 @@ import { useWorkspace } from '../src/app/workspace'
 import { useCite } from '../src/features/chat/cite'
 import { BotReply } from '../src/features/chat/TimelineItems'
 
-const bot = (id: string, name: string) => ({ id, name, avatar: 'role-no' }) as BotDto
+const bot = (id: string, name: string) => ({ id, name, avatar: 'role-no', presence: 'online' }) as BotDto
 const reply = (o: Partial<MessageDto>): MessageDto => ({
   id: 'm1',
   seq: 1,
