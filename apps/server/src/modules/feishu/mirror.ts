@@ -198,12 +198,15 @@ export async function linkOf(ctx: Ctx, feishuMessageId: string) {
 }
 
 /** The app speaking for a bot: its own, or the main app until it has one. */
-async function appOfBot(ctx: Ctx, botId: string) {
+export async function appOfBot(ctx: Ctx, botId: string) {
   return (await botApp(ctx, botId)) ?? (await mainApp(ctx))
 }
 
 const textBody = (text: string): FeishuBody => ({ msgType: 'text', content: JSON.stringify({ text }) })
-const cardBody = (card: object): FeishuBody => ({ msgType: 'interactive', content: JSON.stringify(card) })
+export const cardBody = (card: object): FeishuBody => ({
+  msgType: 'interactive',
+  content: JSON.stringify(card),
+})
 
 /**
  * A web message that @-s bots goes to the bound chat through the main app: as its author when they authorized

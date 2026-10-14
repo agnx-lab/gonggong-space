@@ -14,6 +14,7 @@ export default {
   关闭预览: 'Close preview',
   '交给其他 Bot': 'Hand off to another Bot',
   读取飞书群消息: 'Read Feishu group messages',
+  发送飞书卡片: 'Send Feishu card',
   创建定时任务: 'Create scheduled task',
   定时任务列表: 'Scheduled tasks',
   修改定时任务: 'Edit scheduled task',

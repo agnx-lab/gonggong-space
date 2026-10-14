@@ -404,6 +404,22 @@ export const ClientReleasePublishArgs = z.object({
     ),
 })
 
+export const FEISHU_CARD_IMAGES_MAX = 10
+
+export const FeishuSendCardArgs = z.object({
+  card: z
+    .record(z.string(), z.unknown())
+    .describe(
+      '飞书卡片 JSON 2.0：{"schema":"2.0","header":{…},"body":{"elements":[…]}}；本地图片的位置（如 img 元素的 img_key）写占位符，如 "chart"',
+    ),
+  images: z
+    .record(z.string().regex(/^[\w-]{1,40}$/), z.string().min(1).max(500))
+    .describe(
+      `占位符 → 工作区内图片的相对路径，如 {"chart": "out/chart.png"}；至多 ${FEISHU_CARD_IMAGES_MAX} 张，png/jpg/gif/webp 等，单张不超过 10 MB`,
+    )
+    .optional(),
+})
+
 /**
  * Tools of the built-in `gonggong` MCP server answered by the daemon itself (it owns the processes); generated into
  * `gonggong-daemon-tools.json`. `service_start` is not auto-approved: it runs an arbitrary command.
@@ -445,6 +461,13 @@ export const DAEMON_TOOLS = {
       '把本机构建好的一个客户端产物（gg daemon、gg-cast 或桌面端安装包 Gonggong_<版本>_*.dmg / *-setup.exe）上传到当前空间，' +
       '成员的 daemon 随后自动升级、可在网页下载安装包。一次一个文件，有多个就逐个调用；只有系统管理员发起的对话可以发布。',
     input: ClientReleasePublishArgs,
+  },
+  feishu_send_card: {
+    title: GONGGONG_TOOL_TITLES.feishu_send_card,
+    description:
+      '以本 Bot 的飞书应用身份，往本群绑定的飞书群发一张自定义消息卡片，回复在触发本轮的消息下；' +
+      '卡片引用的工作区图片会自动上传并换成 img_key。本群未绑定飞书群时不可用。普通回复不需要它，最终回复会自动同步到飞书。',
+    input: FeishuSendCardArgs,
   },
   preview_miniprogram: {
     title: '发布小程序预览',

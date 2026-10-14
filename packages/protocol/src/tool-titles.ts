@@ -7,6 +7,7 @@ export const GONGGONG_TOOL_TITLES = {
   list_questions: '提问卡片历史',
   fetch_attachments: '下载历史附件',
   list_feishu_messages: '读取飞书群消息',
+  feishu_send_card: '发送飞书卡片',
   preview_expose: '发布预览',
   preview_gui: '发布桌面应用预览',
   preview_close: '关闭预览',

@@ -27,6 +27,7 @@ import { startCandidates } from './modules/candidates/service.js'
 import { conversationStatsRoutes } from './modules/conversation-stats/routes.js'
 import { feishuChatRoutes } from './modules/feishu/chats.js'
 import { startFeishuConfigRetry } from './modules/feishu/config.js'
+import { feishuCardRoutes } from './modules/feishu/custom-card.js'
 import { startFeishu } from './modules/feishu/gateway.js'
 import { startFeishuInbound } from './modules/feishu/inbound.js'
 import { startFeishuInvite } from './modules/feishu/invite.js'
@@ -160,6 +161,7 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   await app.register(adminRoutes(ctx))
   await app.register(adminTeamRoutes(ctx))
   await app.register(feishuRoutes(ctx))
+  await app.register(feishuCardRoutes(ctx))
   await app.register(feishuChatRoutes(ctx))
   startFeishuInbound(ctx)
   startFeishuMembers(ctx)

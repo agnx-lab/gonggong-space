@@ -15,9 +15,9 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -209,6 +209,8 @@ async fn handle(
                 Some(forward(backends.api.as_ref().as_ref(), asker.as_ref(), name, args).await)
             } else if name == "client_release_publish" {
                 Some(publish_release(backends.api.as_ref().as_ref(), asker.as_ref(), args).await)
+            } else if name == "feishu_send_card" {
+                Some(send_feishu_card(backends.api.as_ref().as_ref(), asker.as_ref(), args).await)
             } else if is_daemon_tool(name) {
                 Some(hosted(&backends, asker.as_ref(), name, args).await)
             } else {
@@ -337,31 +339,68 @@ async fn publish_release(api: Option<&Config>, asker: &dyn Asker, args: &Value) 
     let a = ReleaseArgs::deserialize(args).map_err(|e| format!("参数无效：{e}"))?;
     let api = api.ok_or("未连接服务器，无法发布")?;
     let (run_id, cwd) = asker.active_run().ok_or(NOT_RUNNING)?;
-    const OUTSIDE: &str = "文件必须是工作区内已存在的文件";
     let root = cwd.canonicalize().map_err(|e| format!("工作区不可用：{e}"))?;
-    let path = root.join(&a.file).canonicalize().map_err(|_| OUTSIDE.to_string())?;
-    if !path.starts_with(&root) || !path.is_file() {
-        return Err(OUTSIDE.into());
-    }
+    let path = workspace_file(&root, &a.file).ok_or("文件必须是工作区内已存在的文件")?;
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let data = tokio::fs::read(&path).await.map_err(|e| format!("读取 {name} 失败：{e}"))?;
     let size = data.len();
     let form =
         reqwest::multipart::Form::new().part("file", reqwest::multipart::Part::bytes(data).file_name(name.clone()));
-    let url = format!("{}/api/daemon/runs/{run_id}/release-files", api.server.trim_end_matches('/'));
+    let body = post_form(api, &format!("/api/daemon/runs/{run_id}/release-files"), form)
+        .await
+        .map_err(|e| format!("上传 {name} 失败：{e}"))?
+        .map_err(|reason| format!("服务器拒绝了 {name}：{reason}"))?;
+    let version = body["version"].as_str().unwrap_or_default();
+    Ok(format!("已发布 {name}（{:.1} MB）到当前空间，当前发布版本 {version}", size as f64 / 1_048_576.0))
+}
+
+#[derive(Deserialize)]
+struct FeishuCardArgs {
+    card: Value,
+    #[serde(default)]
+    images: BTreeMap<String, String>,
+}
+
+/// Sends a custom Feishu card with the workspace images it references; the server uploads them with the bot's app.
+async fn send_feishu_card(api: Option<&Config>, asker: &dyn Asker, args: &Value) -> Result<String, String> {
+    let a = FeishuCardArgs::deserialize(args).map_err(|e| format!("参数无效：{e}"))?;
+    let api = api.ok_or("未连接服务器，无法发送")?;
+    let (run_id, cwd) = asker.active_run().ok_or(NOT_RUNNING)?;
+    let root = cwd.canonicalize().map_err(|e| format!("工作区不可用：{e}"))?;
+    let mut form = reqwest::multipart::Form::new().text("card", a.card.to_string());
+    for (key, file) in &a.images {
+        let path = workspace_file(&root, file).ok_or_else(|| format!("图片 {file} 必须是工作区内已存在的文件"))?;
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let data = tokio::fs::read(&path).await.map_err(|e| format!("读取 {file} 失败：{e}"))?;
+        form = form.part(format!("image.{key}"), reqwest::multipart::Part::bytes(data).file_name(name));
+    }
+    let body = post_form(api, &format!("/api/daemon/runs/{run_id}/feishu-card"), form)
+        .await
+        .and_then(|r| r)
+        .map_err(|e| format!("飞书卡片未发送：{e}"))?;
+    Ok(format!("已发送飞书卡片到飞书群「{}」", body["chat"].as_str().unwrap_or_default()))
+}
+
+/// `rel` resolved inside the (canonical) workspace `root`, if it is an existing file there.
+fn workspace_file(root: &Path, rel: &str) -> Option<PathBuf> {
+    root.join(rel).canonicalize().ok().filter(|p| p.starts_with(root) && p.is_file())
+}
+
+/// POSTs a multipart form to the server as the machine: Err when it could not be sent, Ok(Err(reason)) when the
+/// server refused it.
+async fn post_form(api: &Config, path: &str, form: reqwest::multipart::Form) -> Result<Result<Value, String>, String> {
+    let url = format!("{}{path}", api.server.trim_end_matches('/'));
     let send = async {
         let res = tls::http()?.post(url).bearer_auth(&api.token).multipart(form).timeout(UPLOAD_TIMEOUT).send().await?;
         let status = res.status();
         let body: Value = res.json().await.unwrap_or(Value::Null);
         anyhow::Ok((status, body))
     };
-    let (status, body) = send.await.map_err(|e| format!("上传 {name} 失败：{e:#}"))?;
+    let (status, body) = send.await.map_err(|e| format!("{e:#}"))?;
     if !status.is_success() {
-        let reason = body["message"].as_str().map_or_else(|| status.to_string(), String::from);
-        return Err(format!("服务器拒绝了 {name}：{reason}"));
+        return Ok(Err(body["message"].as_str().map_or_else(|| status.to_string(), String::from)));
     }
-    let version = body["version"].as_str().unwrap_or_default();
-    Ok(format!("已发布 {name}（{:.1} MB）到当前空间，当前发布版本 {version}", size as f64 / 1_048_576.0))
+    Ok(Ok(body))
 }
 
 #[derive(Deserialize)]
@@ -688,6 +727,7 @@ mod tests {
                 "service_stop",
                 "preview_static",
                 "client_release_publish",
+                "feishu_send_card",
                 "preview_miniprogram"
             ]
         );
@@ -743,6 +783,10 @@ mod tests {
 
     /// Answers each request by path: the tool call with `tool`, attachment downloads with their name; records them.
     async fn fake_server(tool: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+        fake_server_with("200 OK", tool).await
+    }
+
+    async fn fake_server_with(status: &'static str, tool: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -757,7 +801,7 @@ mod tests {
                 let body = if req.starts_with("POST") { tool.to_string() } else { "PDF".to_string() };
                 log.lock().unwrap().push(req);
                 let res = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 s.write_all(res.as_bytes()).await.unwrap();
@@ -821,6 +865,39 @@ mod tests {
         }
         assert_eq!(publish_release(Some(&api), &Fake::default(), &args).await, Err(NOT_RUNNING.into()));
         assert!(is_builtin("mcp__gonggong__preview_static") && !is_builtin("mcp__gonggong__client_release_publish"));
+    }
+
+    #[tokio::test]
+    async fn sends_a_feishu_card_with_its_workspace_images_for_the_live_run() {
+        let (base, seen) = fake_server(r#"{"chat":"研发群"}"#).await;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("out")).unwrap();
+        std::fs::write(dir.path().join("out/chart.png"), "PNGDATA").unwrap();
+        let live =
+            Fake(Mutex::default(), Mutex::default(), Some(("r1".into(), dir.path().to_path_buf())), Mutex::default());
+        let api = config(base);
+        let card = json!({ "schema": "2.0", "body": { "elements": [{ "tag": "img", "img_key": "chart" }] } });
+        let args = json!({ "card": card, "images": { "chart": "out/chart.png" } });
+
+        let text = send_feishu_card(Some(&api), &live, &args).await.unwrap();
+        assert_eq!(text, "已发送飞书卡片到飞书群「研发群」");
+        let req = seen.lock().unwrap()[0].clone();
+        assert!(req.starts_with("POST /api/daemon/runs/r1/feishu-card HTTP/1.1"), "{req}");
+        assert!(req.to_ascii_lowercase().contains("authorization: bearer mt_1"));
+        assert!(req.contains(r#"name="card""#) && req.contains(&card.to_string()), "{req}");
+        assert!(req.contains(r#"name="image.chart"; filename="chart.png""#) && req.contains("PNGDATA"), "{req}");
+
+        for file in ["../x.png", "out", "out/missing.png"] {
+            let args = json!({ "card": card, "images": { "chart": file } });
+            let err = send_feishu_card(Some(&api), &live, &args).await;
+            assert_eq!(err, Err(format!("图片 {file} 必须是工作区内已存在的文件")), "{file}");
+        }
+        let refusal = r#"{"error":"conflict","message":"本群未绑定飞书群，无法发送飞书卡片"}"#;
+        let (base, _) = fake_server_with("409 Conflict", refusal).await;
+        let err = send_feishu_card(Some(&config(base)), &live, &json!({ "card": card })).await;
+        assert_eq!(err, Err("飞书卡片未发送：本群未绑定飞书群，无法发送飞书卡片".into()));
+        assert_eq!(send_feishu_card(Some(&api), &Fake::default(), &args).await, Err(NOT_RUNNING.into()));
+        assert!(is_builtin("mcp__gonggong__feishu_send_card"));
     }
 
     #[tokio::test(start_paused = true)]

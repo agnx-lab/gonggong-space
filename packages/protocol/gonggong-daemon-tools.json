@@ -140,6 +140,38 @@
     }
   },
   {
+    "name": "feishu_send_card",
+    "title": "发送飞书卡片",
+    "description": "以本 Bot 的飞书应用身份，往本群绑定的飞书群发一张自定义消息卡片，回复在触发本轮的消息下；卡片引用的工作区图片会自动上传并换成 img_key。本群未绑定飞书群时不可用。普通回复不需要它，最终回复会自动同步到飞书。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "card": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {},
+          "description": "飞书卡片 JSON 2.0：{\"schema\":\"2.0\",\"header\":{…},\"body\":{\"elements\":[…]}}；本地图片的位置（如 img 元素的 img_key）写占位符，如 \"chart\""
+        },
+        "images": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[\\w-]{1,40}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "description": "占位符 → 工作区内图片的相对路径，如 {\"chart\": \"out/chart.png\"}；至多 10 张，png/jpg/gif/webp 等，单张不超过 10 MB"
+        }
+      },
+      "required": ["card"]
+    }
+  },
+  {
     "name": "preview_miniprogram",
     "title": "发布小程序预览",
     "description": "在本机微信开发者工具里打开工作区的小程序项目并跳到指定页面，在群里发一张带模拟器截图的预览卡片；同一项目再次调用会切换卡片的页面并重新截图。开发者工具的启动、登录（未登录时卡片上显示登录二维码，扫码后自动恢复）和「信任此项目」都由它处理：不要自己用 wechatide、cli 或其他命令操作开发者工具，也不要另发登录二维码。",

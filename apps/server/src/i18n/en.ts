@@ -212,6 +212,18 @@ export const en = {
   指定名单包含不存在的成员: 'The allowlist contains unknown members',
   运行不存在或已结束: 'The run does not exist or has ended',
   只有系统管理员发起的运行可以发布客户端: 'Only runs started by a system admin can publish clients',
+  '图片 {name} 的格式飞书不支持，可用 {types}':
+    'Feishu does not support the format of image {name}; use {types}',
+  '图片 {name} 超过飞书的 10 MB 上限': "Image {name} exceeds Feishu's 10 MB limit",
+  '卡片不是合法的 JSON': 'The card is not valid JSON',
+  '卡片须是飞书卡片 JSON 2.0：schema 为 "2.0"，内容放在 body.elements':
+    'The card must be Feishu card JSON 2.0: schema "2.0" with its content in body.elements',
+  '卡片里没有用到图片占位符 {key}': 'The card does not use the image placeholder {key}',
+  '本群未绑定飞书群，无法发送飞书卡片':
+    'This group is not bound to a Feishu chat, so no Feishu card can be sent',
+  '空间未配置飞书应用，无法发送飞书卡片': 'No Feishu app is configured, so no Feishu card can be sent',
+  '飞书拒绝了{what}：{reason}': 'Feishu rejected {what}: {reason}',
+  '卡片超过飞书的 30 KB 上限': "The card exceeds Feishu's 30 KB limit",
   '不能共享给 Bot 主人自己': "A Bot can't be shared with its own owner",
   共享对象包含不存在或已停用的成员: 'The share list contains unknown or disabled members',
   '只有归属人或系统管理员可以修改该 Bot': 'Only the owner or a system admin can change this Bot',

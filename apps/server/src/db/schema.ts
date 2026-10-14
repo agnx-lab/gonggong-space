@@ -1122,7 +1122,8 @@ export const feishuMessageLinks = pgTable(
     direction: text('direction').notNull(),
     /**
      * 'message' | 'run_card' | 'question' | 'approval' | 'preview' | 'reaction' (a bot's working reaction: its
-     * reaction_id is `feishuMessageId`, the message it is on is `feishuRef`).
+     * reaction_id is `feishuMessageId`, the message it is on is `feishuRef`) | 'custom_card' (sent by a run's
+     * feishu_send_card).
      */
     kind: text('kind').notNull(),
     messageId: uuid('message_id').references(() => messages.id),
