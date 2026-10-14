@@ -22,6 +22,7 @@ import { listRuns } from '../runs/dto.js'
 import { triggerRuns } from '../runs/trigger.js'
 import { appendTarget, sendAppend } from './append.js'
 import { editMessage } from './edit.js'
+import { memberMentions, notifyMentions } from './mentions.js'
 import { resolveQuote } from './quote.js'
 import { hideMessage, notHiddenBy, recallMessage } from './recall.js'
 import { type MessageMeta, type MessageRow, messageDto, publishMessage } from './service.js'
@@ -87,6 +88,7 @@ export function messageRoutes(ctx: Ctx) {
           ? await agentCommand(ctx, group.id, parsed, addressed, inGroup)
           : null
       const mentions = agent?.botIds ?? (!explicit.length && soleDmBot ? [soleDmBot.id] : explicit)
+      const userMentions = await memberMentions(ctx, group.id, body)
       const picks = await checkPicks(ctx, me, group.id, runOptions, target || command ? [] : mentions)
 
       // The advisory lock serializes retries/double-clicks carrying the same clientId.
@@ -111,6 +113,7 @@ export function messageRoutes(ctx: Ctx) {
         })
         const meta: MessageMeta = {
           mentions,
+          ...(userMentions.length > 0 && { userMentions }),
           clientId,
           ...(command && !target && { command: command.name }),
           // `command` also keeps it out of later group context.
@@ -130,6 +133,7 @@ export function messageRoutes(ctx: Ctx) {
       const dto = messageDto(row, me.name)
       if (created) {
         await publishMessage(ctx, dto)
+        await notifyMentions(ctx, row, me.name)
         if (target) await sendAppend(ctx, target, dto)
         else if (command) await runCommand(ctx, { group, user: me, message: row, command, bots: inGroup })
         else if (mentions.length) {

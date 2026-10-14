@@ -516,6 +516,7 @@ export const NotificationType = z.enum([
   'schedule_paused',
   'sync_drift',
   'sync_conflict',
+  'mention',
 ])
 export const NotificationDto = z.object({
   id: z.string(),
@@ -536,6 +537,7 @@ export const PUSHED_NOTIFICATION_TYPES: readonly NotificationDto['type'][] = [
   'question',
   'offline_expired',
   'chain_done',
+  'mention',
 ]
 export const PushKeyDto = z.object({ publicKey: z.string() })
 export const PushSubscriptionReq = z.object({
@@ -565,6 +567,8 @@ export const GroupDto = z.object({
   ),
   botIds: z.array(z.string()),
   unread: z.number().int(),
+  /** An unread message @s the caller ([有人@我]); always sent by the server. */
+  mentioned: z.boolean().optional(),
   lastSeq: z.number().int(),
   /** One-line preview of the latest message, '' when empty. */
   last: z.string(),
@@ -708,6 +712,8 @@ export const MessageDto = z.object({
   body: z.string(),
   /** Bot ids this message triggers (explicit @ or quote). */
   mentions: z.array(z.string()),
+  /** Member ids it @s (被 @ notifications); always sent by the server. */
+  userMentions: z.array(z.string()).optional(),
   runId: z.string().nullable(),
   createdAt: z.string(),
   attachments: z.array(Attachment),

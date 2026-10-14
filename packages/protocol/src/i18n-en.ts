@@ -170,6 +170,7 @@ export const protocolEn = {
   '待确认 Bot': 'Bot to confirm',
   '{by} 为你创建了 {bot}，请确认绑定': '{by} created {bot} for you, please confirm the binding',
   '共享 Bot': 'Shared Bot',
+  '有人@我': 'Mentioned',
   '{by} 将 {bot} 共享给你，可以和它私聊': '{by} shared {bot} with you, you can now chat with it directly',
 
   // Agent config

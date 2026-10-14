@@ -23,3 +23,27 @@ export function scanMentions(body: string, bots: { id: string; name: string }[])
 export const parseMentions = (body: string, bots: { id: string; name: string }[]) => [
   ...new Set(scanMentions(body, bots).map((s) => s.id)),
 ]
+
+/** Fenced blocks and inline code: an @ there is quoted, not addressed. */
+const CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/g
+
+/**
+ * Mentioned member ids in order of appearance, deduped. Bots are matched too so that the longest name wins
+ * (`@小王的 Claude` is the bot, not member 小王).
+ */
+export function mentionedMembers(
+  body: string,
+  members: { id: string; name: string }[],
+  bots: { id: string; name: string }[],
+  o: { skipCode?: boolean } = {},
+) {
+  const ids = new Set(members.map((m) => m.id))
+  const text = o.skipCode ? body.replace(CODE, ' ') : body
+  return [
+    ...new Set(
+      scanMentions(text, [...bots, ...members])
+        .map((s) => s.id)
+        .filter((id) => ids.has(id)),
+    ),
+  ]
+}

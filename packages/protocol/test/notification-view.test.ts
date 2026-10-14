@@ -15,6 +15,14 @@ const n = (type: NotificationDto['type'], payload: Record<string, unknown>): Not
 })
 
 describe('notificationView', () => {
+  it('links a mention to the message', () => {
+    expect(
+      notificationView(
+        n('mention', { groupId: 'g1', groupName: '支付', messageId: 'm1', byName: '王磊', text: '看下这个' }),
+      ),
+    ).toEqual({ label: '有人@我', text: '王磊：看下这个', group: '支付', href: '/g/g1?msg=m1' })
+  })
+
   it('describes each type with the prototype labels and a link to act on it', () => {
     expect(
       notificationView(

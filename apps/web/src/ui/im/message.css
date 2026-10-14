@@ -178,6 +178,9 @@ body:has(.ui-menu--context) .pn-msg .pn-msg__actions {
   color: var(--bubble-link);
   font-weight: 500;
 }
+.pn-mention--bot {
+  color: var(--label-secondary);
+}
 .pn-mention--me {
   background: var(--accent-fill);
   color: var(--on-accent);

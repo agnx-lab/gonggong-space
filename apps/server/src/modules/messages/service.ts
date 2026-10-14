@@ -21,6 +21,8 @@ export type MessageRow = typeof messages.$inferSelect
  */
 export type MessageMeta = {
   mentions?: string[]
+  /** Members it @s (被 @ notifications). */
+  userMentions?: string[]
   clientId?: string
   command?: string
   /** An agent command sent verbatim to the mentioned bots (RunStart.command). */
@@ -56,6 +58,7 @@ export const messageDto = (m: MessageRow, authorName: string, reactions: Reactio
     authorName,
     body: m.body,
     mentions: recalled ? [] : ((m.meta as MessageMeta).mentions ?? []),
+    userMentions: recalled ? [] : ((m.meta as MessageMeta).userMentions ?? []),
     runId: m.runId,
     createdAt: m.createdAt.toISOString(),
     attachments: (m.meta as MessageMeta).attachments ?? [],

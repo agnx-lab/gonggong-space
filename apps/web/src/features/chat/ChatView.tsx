@@ -51,6 +51,7 @@ import { useRunDeltas } from './deltas'
 import { GitBar } from './GitBar'
 import { continues, eventFolds, sameDay, unreadStart } from './grouping'
 import { LiveRunsBar } from './LiveRunsBar'
+import { MentionNames } from './Markdown'
 import { MessageComposer } from './MessageComposer'
 import { ProviderBanner } from './ProviderBanner'
 import { repoName } from './repo'
@@ -342,6 +343,14 @@ export function ChatView({
     () => [...bots.map((b) => b.name), ...group.members.map((m) => m.name)],
     [bots, group.members],
   )
+  const mentionNames = useMemo(
+    () => ({
+      members: group.members.map((m) => m.name),
+      bots: bots.filter((b) => group.botIds.includes(b.id)).map((b) => b.name),
+      me: me?.name,
+    }),
+    [bots, group.members, group.botIds, me?.name],
+  )
   const userName = (id: string | null) => group.members.find((m) => m.userId === id)?.name ?? '—'
 
   const card = (r: RunDto, reply?: MessageDto) => {
@@ -419,219 +428,226 @@ export function ChatView({
   // Its bot was unshared or deleted: the history stays, nothing can be asked any more.
   const closed = dm && !botCount
   return (
-    <div className="chat-view" {...(readOnly ? {} : drag.handlers)}>
-      <ChatHeader
-        group
-        avatar={<GroupAvatar group={group} size={32} />}
-        title={group.name}
-        onBack={onBack}
-        tags={dm ? undefined : [{ label: GROUP_MODE_LABEL[group.mode], tone: 'gray' }]}
-        badges={group.feishu ? <FeishuChatLink chat={group.feishu} /> : null}
-        subtitle={
-          <>
-            {group.muted ? (
-              <Icon name="bell-slash" size={11} label={t('消息免打扰#muted')} className="chat-view__muted" />
-            ) : null}
-            {dm
-              ? sharer
-                ? t('{owner} 共享的 Bot · ', { owner: sharer })
-                : t('仅你和你的 Bot · ')
-              : botCount
-                ? t('{n} 人 · {bots} Bot · ', { n: group.members.length, bots: botCount })
-                : t('{n} 人 · ', { n: group.members.length })}
-            <span title={group.repo?.url}>
-              {group.repo
-                ? `${repoName(group.repo.url)} · ${group.repo.branch}`
-                : dm
-                  ? t('未绑定仓库 · Bot 使用本机目录')
-                  : t('未绑定仓库 · 各 Bot 使用本机目录')}
-            </span>
-          </>
-        }
-        actions={[
-          ...(!dm
-            ? [
-                {
-                  icon: 'person-2' as const,
-                  label: botCount
-                    ? t('群成员：{n} 人，{bots} 个 Bot', { n: group.members.length, bots: botCount })
-                    : t('群成员：{n} 人', { n: group.members.length }),
-                  onClick: () => inspector.open('group-info', 'members'),
-                },
-              ]
-            : []),
-          {
-            icon: 'dashboard' as const,
-            label: benchTabs ? t('工作台') : t('工作台 · 还没有打开的标签页'),
-            text: benchTabs || undefined,
-            active: benchOpen && benchTabs > 0,
-            disabled: !benchTabs,
-            onClick: () => useWorkbench.getState().setOpen(!benchOpen),
-          },
-          ...(readOnly
-            ? []
-            : [
-                {
-                  icon: 'cog' as const,
-                  label: t('群设置'),
-                  active: infoOpen,
-                  onClick: () => (infoOpen ? inspector.close() : inspector.open('group-info', 'main')),
-                },
-              ]),
-        ]}
-      />
-      <InspectorPortal view="group-info">
-        <GroupInfo
-          key={String(inspector.payload)}
-          group={group}
-          initialView={(inspector.payload as InfoView | null) ?? 'main'}
-          readOnly={readOnly}
-          onClose={inspector.close}
-          onSettings={setSettings}
+    <MentionNames.Provider value={mentionNames}>
+      <div className="chat-view" {...(readOnly ? {} : drag.handlers)}>
+        <ChatHeader
+          group
+          avatar={<GroupAvatar group={group} size={32} />}
+          title={group.name}
+          onBack={onBack}
+          tags={dm ? undefined : [{ label: GROUP_MODE_LABEL[group.mode], tone: 'gray' }]}
+          badges={group.feishu ? <FeishuChatLink chat={group.feishu} /> : null}
+          subtitle={
+            <>
+              {group.muted ? (
+                <Icon
+                  name="bell-slash"
+                  size={11}
+                  label={t('消息免打扰#muted')}
+                  className="chat-view__muted"
+                />
+              ) : null}
+              {dm
+                ? sharer
+                  ? t('{owner} 共享的 Bot · ', { owner: sharer })
+                  : t('仅你和你的 Bot · ')
+                : botCount
+                  ? t('{n} 人 · {bots} Bot · ', { n: group.members.length, bots: botCount })
+                  : t('{n} 人 · ', { n: group.members.length })}
+              <span title={group.repo?.url}>
+                {group.repo
+                  ? `${repoName(group.repo.url)} · ${group.repo.branch}`
+                  : dm
+                    ? t('未绑定仓库 · Bot 使用本机目录')
+                    : t('未绑定仓库 · 各 Bot 使用本机目录')}
+              </span>
+            </>
+          }
+          actions={[
+            ...(!dm
+              ? [
+                  {
+                    icon: 'person-2' as const,
+                    label: botCount
+                      ? t('群成员：{n} 人，{bots} 个 Bot', { n: group.members.length, bots: botCount })
+                      : t('群成员：{n} 人', { n: group.members.length }),
+                    onClick: () => inspector.open('group-info', 'members'),
+                  },
+                ]
+              : []),
+            {
+              icon: 'dashboard' as const,
+              label: benchTabs ? t('工作台') : t('工作台 · 还没有打开的标签页'),
+              text: benchTabs || undefined,
+              active: benchOpen && benchTabs > 0,
+              disabled: !benchTabs,
+              onClick: () => useWorkbench.getState().setOpen(!benchOpen),
+            },
+            ...(readOnly
+              ? []
+              : [
+                  {
+                    icon: 'cog' as const,
+                    label: t('群设置'),
+                    active: infoOpen,
+                    onClick: () => (infoOpen ? inspector.close() : inspector.open('group-info', 'main')),
+                  },
+                ]),
+          ]}
         />
-      </InspectorPortal>
-      <Presence>
-        {settings ? (
-          <GroupSettingsDialog group={group} tab={settings} onClose={() => setSettings(null)} />
-        ) : null}
-      </Presence>
-      <SyncBar
-        group={group}
-        isAdmin={isAdmin}
-        hidden={readOnly}
-        onSettings={isAdmin ? () => setSettings('mode') : undefined}
-      />
-      <LinkedConflict groupId={group.id} />
-      {readOnly ? null : <GitBar group={group} />}
-      <div className="chat-view__body">
-        {drag.over ? (
-          <div className="chat-view__drop">
-            <DropZone
-              defaultDragging
-              multiple
-              aria-label={t('添加附件')}
-              title={t('将文件拖到这里')}
-              overTitle={t('松开以添加附件')}
-              description={t('随下一条消息发送给群里的 Bot')}
-              onFiles={(files) => dropFiles.current?.(files)}
-            />
-          </div>
-        ) : null}
-        <div className="chat-scroll" ref={box} onScroll={onScroll}>
-          <div className="chat-view__banners">
-            {readOnly ? <ReadOnlyBanner group={group} /> : null}
-            {closed && !readOnly ? (
-              <PinnedBanner
-                icon="eye"
-                title={t('只读')}
-                text={t('Bot 已取消共享或已删除，只能查看历史消息。')}
+        <InspectorPortal view="group-info">
+          <GroupInfo
+            key={String(inspector.payload)}
+            group={group}
+            initialView={(inspector.payload as InfoView | null) ?? 'main'}
+            readOnly={readOnly}
+            onClose={inspector.close}
+            onSettings={setSettings}
+          />
+        </InspectorPortal>
+        <Presence>
+          {settings ? (
+            <GroupSettingsDialog group={group} tab={settings} onClose={() => setSettings(null)} />
+          ) : null}
+        </Presence>
+        <SyncBar
+          group={group}
+          isAdmin={isAdmin}
+          hidden={readOnly}
+          onSettings={isAdmin ? () => setSettings('mode') : undefined}
+        />
+        <LinkedConflict groupId={group.id} />
+        {readOnly ? null : <GitBar group={group} />}
+        <div className="chat-view__body">
+          {drag.over ? (
+            <div className="chat-view__drop">
+              <DropZone
+                defaultDragging
+                multiple
+                aria-label={t('添加附件')}
+                title={t('将文件拖到这里')}
+                overTitle={t('松开以添加附件')}
+                description={t('随下一条消息发送给群里的 Bot')}
+                onFiles={(files) => dropFiles.current?.(files)}
               />
-            ) : null}
-            <GroupNotice group={group} readOnly={readOnly} />
-            {readOnly ? null : <WorkspaceBanner group={group} />}
-          </div>
-          <MessageList className="chat-scroll__list">
-            {tl.older === 'loading' ? (
-              <div className="chat-scroll__older" data-testid="older-loading">
-                <Spinner />
-              </div>
-            ) : tl.older === 'failed' ? (
-              <div className="chat-scroll__older" data-testid="older-error">
-                {t('加载更早消息失败')}
-                <Button size="small" variant="plain" onClick={loadOlder}>
-                  {t('重试')}
-                </Button>
-              </div>
-            ) : null}
-            {tl.failed ? (
-              <EmptyState
-                bare
-                illustration={<FailedArt />}
-                title={t('消息加载失败')}
-                description={t('请检查网络后重试。')}
-                actions={
-                  <Button size="small" onClick={tl.retry}>
+            </div>
+          ) : null}
+          <div className="chat-scroll" ref={box} onScroll={onScroll}>
+            <div className="chat-view__banners">
+              {readOnly ? <ReadOnlyBanner group={group} /> : null}
+              {closed && !readOnly ? (
+                <PinnedBanner
+                  icon="eye"
+                  title={t('只读')}
+                  text={t('Bot 已取消共享或已删除，只能查看历史消息。')}
+                />
+              ) : null}
+              <GroupNotice group={group} readOnly={readOnly} />
+              {readOnly ? null : <WorkspaceBanner group={group} />}
+            </div>
+            <MessageList className="chat-scroll__list">
+              {tl.older === 'loading' ? (
+                <div className="chat-scroll__older" data-testid="older-loading">
+                  <Spinner />
+                </div>
+              ) : tl.older === 'failed' ? (
+                <div className="chat-scroll__older" data-testid="older-error">
+                  {t('加载更早消息失败')}
+                  <Button size="small" variant="plain" onClick={loadOlder}>
                     {t('重试')}
                   </Button>
-                }
-              />
-            ) : !tl.loaded ? (
-              <div className="chat-scroll__loading">
-                <Mascot action="wait" size={72} label={t('加载中')} />
-              </div>
-            ) : tl.messages.length ? (
-              tl.messages.map((m, i) => {
-                const prev = tl.messages[i - 1]
-                const fold = folds.get(i)
-                if (folded.has(i)) return null
-                return (
-                  <Fragment key={m.id}>
-                    {prev && sameDay(prev.createdAt, m.createdAt) ? null : (
-                      <ChatNotice kind="date" day={dayLabel(m.createdAt)} />
-                    )}
-                    {m.id === unreadAt ? <ChatNotice kind="unread" /> : null}
-                    {fold === undefined ? (
-                      <div
-                        inert={readOnly}
-                        data-msg-id={m.id}
-                        className={cx(
-                          'tl-item',
-                          tl.arrived.has(m.id) && 'tl-item--enter',
-                          flash === m.id && 'tl-item--flash',
-                        )}
-                      >
-                        {renderMessage(m, isCompact(prev, m))}
-                      </div>
-                    ) : (
-                      <EventFold events={fold} flash={flash} />
-                    )}
-                    {runsByTrigger.get(m.id)?.map((r) =>
-                      replies.has(r.id) ? null : readOnly ? (
-                        <div key={r.id} inert className="chat-view__inert">
-                          {card(r)}
+                </div>
+              ) : null}
+              {tl.failed ? (
+                <EmptyState
+                  bare
+                  illustration={<FailedArt />}
+                  title={t('消息加载失败')}
+                  description={t('请检查网络后重试。')}
+                  actions={
+                    <Button size="small" onClick={tl.retry}>
+                      {t('重试')}
+                    </Button>
+                  }
+                />
+              ) : !tl.loaded ? (
+                <div className="chat-scroll__loading">
+                  <Mascot action="wait" size={72} label={t('加载中')} />
+                </div>
+              ) : tl.messages.length ? (
+                tl.messages.map((m, i) => {
+                  const prev = tl.messages[i - 1]
+                  const fold = folds.get(i)
+                  if (folded.has(i)) return null
+                  return (
+                    <Fragment key={m.id}>
+                      {prev && sameDay(prev.createdAt, m.createdAt) ? null : (
+                        <ChatNotice kind="date" day={dayLabel(m.createdAt)} />
+                      )}
+                      {m.id === unreadAt ? <ChatNotice kind="unread" /> : null}
+                      {fold === undefined ? (
+                        <div
+                          inert={readOnly}
+                          data-msg-id={m.id}
+                          className={cx(
+                            'tl-item',
+                            tl.arrived.has(m.id) && 'tl-item--enter',
+                            flash === m.id && 'tl-item--flash',
+                          )}
+                        >
+                          {renderMessage(m, isCompact(prev, m))}
                         </div>
                       ) : (
-                        card(r)
-                      ),
-                    )}
-                  </Fragment>
-                )
-              })
-            ) : (
-              <EmptyState
-                bare
-                illustration={<EmptyChatArt />}
-                title={t('还没有消息')}
-                description={t('@ 一个 Bot 让它开始工作，不 @ 的消息会作为上下文补送。')}
-              />
-            )}
-            {readOnly && working.length ? (
-              <TypingIndicator
-                name={working}
-                action={t('正在处理')}
-                bubble={<Mascot action="think" costume={workingCostume} size={36} />}
-              />
+                        <EventFold events={fold} flash={flash} />
+                      )}
+                      {runsByTrigger.get(m.id)?.map((r) =>
+                        replies.has(r.id) ? null : readOnly ? (
+                          <div key={r.id} inert className="chat-view__inert">
+                            {card(r)}
+                          </div>
+                        ) : (
+                          card(r)
+                        ),
+                      )}
+                    </Fragment>
+                  )
+                })
+              ) : (
+                <EmptyState
+                  bare
+                  illustration={<EmptyChatArt />}
+                  title={t('还没有消息')}
+                  description={t('@ 一个 Bot 让它开始工作，不 @ 的消息会作为上下文补送。')}
+                />
+              )}
+              {readOnly && working.length ? (
+                <TypingIndicator
+                  name={working}
+                  action={t('正在处理')}
+                  bubble={<Mascot action="think" costume={workingCostume} size={36} />}
+                />
+              ) : null}
+            </MessageList>
+            {unseen ? (
+              <button type="button" className="chat-scroll__pill" onClick={toBottom}>
+                <Icon name="chevron-down" size={13} />
+                {t('{n} 条新消息', { n: unseen })}
+              </button>
             ) : null}
-          </MessageList>
-          {unseen ? (
-            <button type="button" className="chat-scroll__pill" onClick={toBottom}>
-              <Icon name="chevron-down" size={13} />
-              {t('{n} 条新消息', { n: unseen })}
-            </button>
-          ) : null}
-        </div>
-      </div>
-      {readOnly || closed ? null : (
-        <>
-          <div className="chat-view__pins">
-            <ScheduleTag groupId={group.id} onManage={() => inspector.open('group-info', 'schedules')} />
-            <PreviewTags groupId={group.id} />
           </div>
-          <LiveRunsBar runs={runList} onLocate={locate} />
-          <ProviderBanner group={group} />
-          <MessageComposer group={group} dropFiles={dropFiles} onSent={onSent} />
-        </>
-      )}
-    </div>
+        </div>
+        {readOnly || closed ? null : (
+          <>
+            <div className="chat-view__pins">
+              <ScheduleTag groupId={group.id} onManage={() => inspector.open('group-info', 'schedules')} />
+              <PreviewTags groupId={group.id} />
+            </div>
+            <LiveRunsBar runs={runList} onLocate={locate} />
+            <ProviderBanner group={group} />
+            <MessageComposer group={group} dropFiles={dropFiles} onSent={onSent} />
+          </>
+        )}
+      </div>
+    </MentionNames.Provider>
   )
 }

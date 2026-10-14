@@ -93,6 +93,7 @@ function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabS
           preview,
           draft: current ? undefined : draftOf(g.id),
           unread: g.unread,
+          mention: g.mentioned,
           muted: g.muted,
           pinned: g.pinned,
           live: g.liveRunIds.length > 0,

@@ -86,6 +86,18 @@ it('tracks unread and the last line from new messages', () => {
   expect(useWorkspace.getState().groups[1]).toMatchObject({ unread: 1, lastSeq: 9, last: '李建国：看着呢' })
 })
 
+it('flags a group whose unread message @s me', () => {
+  useWorkspace.setState({ groups: [g, { ...g, id: 'g2' }], activeGroupId: 'g2' })
+  const { applyEvent } = useWorkspace.getState()
+  applyEvent({ t: 'message.new', message: msg({ seq: 2, userMentions: ['u3'] }) })
+  expect(useWorkspace.getState().groups[0]?.mentioned).toBeFalsy()
+  applyEvent({ t: 'message.new', message: msg({ seq: 3, userMentions: ['u1'] }) })
+  applyEvent({ t: 'message.new', message: msg({ seq: 4, groupId: 'g2', userMentions: ['u1'] }) })
+  const [g1, g2] = useWorkspace.getState().groups
+  expect(g1?.mentioned).toBe(true)
+  expect(g2?.mentioned).toBeFalsy()
+})
+
 it('ignores a replayed message and drops removed groups', () => {
   useWorkspace.setState({ groups: [{ ...g, lastSeq: 5 }] })
   const { applyEvent } = useWorkspace.getState()

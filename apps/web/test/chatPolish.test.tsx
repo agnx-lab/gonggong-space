@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { replyFiles } from '../src/features/chat/grouping'
-import { Markdown } from '../src/features/chat/Markdown'
+import { Markdown, MentionNames } from '../src/features/chat/Markdown'
 import { fmtUsage } from '../src/features/chat/TimelineItems'
 import { plainText } from '../src/lib/plain'
 
@@ -21,6 +21,34 @@ describe('markdown autolinks', () => {
   it('leaves written links alone', () => {
     render(<Markdown text="[文档](https://example.com/docs)" />)
     expect(screen.getByRole('link', { name: '文档' }).getAttribute('href')).toBe('https://example.com/docs')
+  })
+})
+
+describe('markdown mentions', () => {
+  it('highlights members (me stronger) and greys bots as mention-only, skipping code and links', () => {
+    const { container } = render(
+      <MentionNames.Provider
+        value={{ members: ['陈晨', '王磊'], bots: ['Codex', '陈晨的 Codex'], me: '王磊' }}
+      >
+        <Markdown
+          text={
+            '@陈晨 看下，@陈晨的 Codex 继续，`@陈晨` 不算，[@王磊](https://x.dev) 也不算\n\n**@王磊** 你确认'
+          }
+        />
+      </MentionNames.Provider>,
+    )
+    const spans = [...container.querySelectorAll('.pn-mention')].map((e) => [e.textContent, e.className])
+    expect(spans).toEqual([
+      ['@陈晨', 'pn-mention'],
+      ['@陈晨的 Codex', 'pn-mention pn-mention--bot'],
+      ['@王磊', 'pn-mention pn-mention--me'],
+    ])
+    expect(screen.getByTitle('仅提及，不会让 Bot 开始工作')).toBeTruthy()
+  })
+
+  it('leaves @ alone outside a chat', () => {
+    const { container } = render(<Markdown text="@陈晨 看下" />)
+    expect(container.querySelector('.pn-mention')).toBeNull()
   })
 })
 

@@ -1,7 +1,7 @@
 import { PROTOCOL_VERSION, type RunStart, type WebEvent } from '@gonggong/protocol'
 import { and, asc, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { groupBots, messages, runEvents, runs, systemParams } from '../src/db/schema.js'
+import { groupBots, messages, notifications, runEvents, runs, systemParams } from '../src/db/schema.js'
 import { forgetSysParams } from '../src/modules/admin/params.js'
 import { publishRuns } from '../src/modules/runs/dto.js'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
@@ -121,6 +121,21 @@ const done = (runId: string, o: Record<string, unknown> = {}) => ({
 })
 
 describe('run engine', () => {
+  it('notifies the members a reply @s outside code, without triggering bots', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    await w.mention('@小王的 Claude 看下')
+    const { runId } = await d.next()
+    d.send(done(runId, { reply: '@陈晨 改好了，`@王磊` 不算，@陈晨的 Codex 继续' }))
+    await vi.waitFor(async () => {
+      const [n] = await t.db.select().from(notifications).where(eq(notifications.userId, w.bob.id))
+      expect(n).toMatchObject({ type: 'mention', payload: { byName: '小王的 Claude' } })
+    })
+    const [reply] = await t.db.select().from(messages).where(eq(messages.runId, runId))
+    expect(reply?.meta).toMatchObject({ mentions: [], userMentions: [w.bob.id] })
+    expect(await t.db.select().from(notifications).where(eq(notifications.userId, w.alice.id))).toEqual([])
+  })
+
   it('dispatches a mention with context since the last @ and fallback context when resuming', async () => {
     const w = await world()
     const web = watch(w.bob.id)

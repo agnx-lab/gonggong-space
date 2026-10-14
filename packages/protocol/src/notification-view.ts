@@ -88,6 +88,13 @@ export function notificationView(n: NotificationDto, tr: (t: I18nText) => string
         group,
         href: p('conflictId') ? `/g/${p('groupId')}?conflict=${p('conflictId')}` : at(''),
       }
+    case 'mention':
+      return {
+        label: say('有人@我'),
+        text: `${p('byName')}：${p('text')}`,
+        group,
+        href: `/g/${p('groupId')}?msg=${p('messageId')}`,
+      }
     case 'bot_confirm':
       return {
         label: say('待确认 Bot'),

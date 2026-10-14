@@ -98,6 +98,10 @@ const unread =
   sql<number>`${sql.raw(`(select count(*) from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
   and m.kind <> 'event' and m.author_user_id is distinct from "group_members"."user_id")`)}`.mapWith(Number)
 
+const mentioned = sql<boolean>`${sql.raw(`exists(select 1 from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
+  and m.meta->'userMentions' @> jsonb_build_array("group_members"."user_id")
+  and m.author_user_id is distinct from "group_members"."user_id" and m.recalled_at is null)`)}`
+
 /** `userId`'s unread messages per team, over the live groups they are in. */
 export async function unreadByTeam(ctx: Ctx, userId: string) {
   const rows = await ctx.db
@@ -117,7 +121,7 @@ export async function unreadByTeam(ctx: Ctx, userId: string) {
 async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
   if (!userIds.length) return []
   const rows = await ctx.db
-    .select({ group: groups, title: groupTitle, me: groupMembers, lastSeq, lastId, unread })
+    .select({ group: groups, title: groupTitle, me: groupMembers, lastSeq, lastId, unread, mentioned })
     .from(groups)
     .innerJoin(groupMembers, and(eq(groupMembers.groupId, groups.id), inArray(groupMembers.userId, userIds)))
     .where(and(isNull(groups.archivedAt), where))
@@ -174,7 +178,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
       .where(and(inArray(feishuChats.groupId, gids), isNull(feishuChats.unboundAt))),
   ])
 
-  return rows.map(({ group: g, title, me, lastSeq, unread }) => {
+  return rows.map(({ group: g, title, me, lastSeq, unread, mentioned }) => {
     const repo = repos.find((r) => r.groupId === g.id)
     const chat = chats.find((c) => c.groupId === g.id)
     const gbots = groupBotRows.filter((b) => b.groupId === g.id)
@@ -200,6 +204,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
         .map(({ userId, name, avatar, isAdmin }) => ({ userId, name, avatar: avatarUrl(avatar), isAdmin })),
       botIds: gbots.map((b) => b.botId),
       unread,
+      mentioned,
       lastSeq: Number(lastSeq ?? 0),
       last: !last
         ? ''
@@ -230,7 +235,16 @@ export async function readerGroupDto(ctx: Ctx, userId: string, groupId: string):
   const [view] = await groupViews(ctx, (await memberIds(ctx, groupId)).slice(0, 1), eq(groups.id, groupId))
   if (!view) return fail('not_found', '群不存在或你已不在群内')
   const { lastI18n: _, ...group } = view.group
-  return { ...group, last: '', unread: 0, noticeHidden: false, pinned: false, muted: false, foldRuns: false }
+  return {
+    ...group,
+    last: '',
+    unread: 0,
+    mentioned: false,
+    noticeHidden: false,
+    pinned: false,
+    muted: false,
+    foldRuns: false,
+  }
 }
 
 type User = { id: string; name: string }

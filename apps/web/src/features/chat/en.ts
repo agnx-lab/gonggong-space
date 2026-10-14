@@ -173,4 +173,5 @@ export default {
     'Choose a workspace for {name} before it can work: a managed clone or an existing local one',
   '等待 {owner} 为 {name} 确认工作区': 'Waiting for {owner} to choose a workspace for {name}',
   确认工作区: 'Choose workspace',
+  '仅提及，不会让 Bot 开始工作': 'Mention only: it does not start the Bot',
 } satisfies Record<string, string>

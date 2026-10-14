@@ -35,6 +35,7 @@ const ICON: Record<NotificationDto['type'], { icon: IconName; color: string }> =
   schedule_paused: { icon: 'clock', color: 'var(--system-orange)' },
   sync_drift: { icon: 'arrow-clockwise', color: 'var(--system-orange)' },
   sync_conflict: { icon: 'exclamation-circle', color: 'var(--system-red)' },
+  mention: { icon: 'at', color: 'var(--system-blue)' },
 }
 
 /**

@@ -9,6 +9,7 @@ import { onApprovalRequest, voidApprovals } from '../approvals/service.js'
 import { publishBot } from '../bots/dto.js'
 import { mirrorDelta } from '../feishu/mirror.js'
 import { requeueAppends } from '../messages/append.js'
+import { memberMentions, notifyMentions } from '../messages/mentions.js'
 import { authorName, memberIds, messageDto, publishMessage } from '../messages/service.js'
 import { onQuestionAsk, onQuestionWithdraw, voidQuestions } from '../questions/service.js'
 import { settleSchedule } from '../schedules/engine.js'
@@ -426,6 +427,7 @@ async function onDone(ctx: Ctx, machineId: string, done: RunDone) {
 async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
   const stopped = await stoppedDone(ctx, owned, done)
   const reply = done.reply.trim() ? redact(done.reply) : null
+  const userMentions = reply ? await memberMentions(ctx, owned.groupId, reply, { skipCode: true }) : []
   const ended = await ctx.db.transaction(async (tx) => {
     const [run] = await tx
       .update(runs)
@@ -467,7 +469,8 @@ async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
             kind: 'bot',
             authorBotId: run.botId,
             body: reply,
-            meta: { mentions: [] },
+            // Bots it @s are not triggered: only hand_off starts another bot.
+            meta: { mentions: [], ...(userMentions.length > 0 && { userMentions }) },
             runId: run.id,
           })
           .returning()
@@ -475,8 +478,11 @@ async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
     return { run, state, message }
   })
   if (!ended) return
-  if (ended.message)
-    await publishMessage(ctx, messageDto(ended.message, await authorName(ctx, ended.message)))
+  if (ended.message) {
+    const name = await authorName(ctx, ended.message)
+    await publishMessage(ctx, messageDto(ended.message, name))
+    await notifyMentions(ctx, ended.message, name)
+  }
   if (ended.state && done.git) await publishBotState(ctx, ended.state)
   return ended.run
 }

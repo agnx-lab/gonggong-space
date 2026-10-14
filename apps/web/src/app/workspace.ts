@@ -41,9 +41,18 @@ export const previewOf = (m: Pick<MessageDto, 'kind' | 'authorName' | 'body'>) =
 
 function withMessage(g: GroupDto, m: MessageDto, activeGroupId: string | null): GroupDto {
   if (m.seq <= g.lastSeq) return g
-  const counts = m.kind !== 'event' && m.authorId !== useSession.getState().user?.id && g.id !== activeGroupId
+  const me = useSession.getState().user?.id
+  const counts = m.kind !== 'event' && m.authorId !== me && g.id !== activeGroupId
   const lastI18n = m.kind === 'event' ? m.i18n : undefined
-  return { ...g, lastSeq: m.seq, last: previewOf(m), lastI18n, unread: g.unread + (counts ? 1 : 0) }
+  const mentioned = g.mentioned || (counts && !!me && !!m.userMentions?.includes(me))
+  return {
+    ...g,
+    lastSeq: m.seq,
+    last: previewOf(m),
+    lastI18n,
+    unread: g.unread + (counts ? 1 : 0),
+    mentioned,
+  }
 }
 
 export const lastText = (g: Pick<GroupDto, 'last' | 'lastI18n'>) => (g.lastI18n ? t.text(g.lastI18n) : g.last)
