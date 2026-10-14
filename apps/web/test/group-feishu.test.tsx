@@ -38,6 +38,7 @@ describe('群设置 · 飞书', () => {
       },
     })
     render(<GroupFeishuTab group={group} />)
+    expect(await screen.findByText('找不到群？请先把主应用拉进飞书群；已被其他群绑定的不显示')).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: '飞书群' }))
     fireEvent.click(await screen.findByText('飞书研发群'))
     fireEvent.click(screen.getByRole('button', { name: '绑定' }))

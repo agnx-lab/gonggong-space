@@ -89,6 +89,11 @@ async function setRun(runId: string, values: Partial<typeof runs.$inferInsert>) 
 describe('群设置 · 飞书 binding', () => {
   it('a group admin picks one of the main app chats; bots show whether their app is in it', async () => {
     const { ownerHttp, group, bot } = await setup({ bind: false })
+    // A chat the admin is not in stays hidden (another team's chat names must not leak).
+    t.feishu.chats.set(MAIN, [
+      ...(t.feishu.chats.get(MAIN) ?? []),
+      { chatId: 'oc_x', name: '别的群', avatar: null },
+    ])
     const before = await ownerHttp.get<GroupFeishuView>(`/api/groups/${group.id}/feishu`)
     expect(before.body).toMatchObject({
       available: true,

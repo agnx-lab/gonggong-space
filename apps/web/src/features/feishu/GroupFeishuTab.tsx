@@ -116,7 +116,7 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
             ) : null}
           </>
         ) : (
-          <GroupRow label={t('飞书群')} description={t('列出主应用所在尚未绑定的飞书群')}>
+          <GroupRow label={t('飞书群')} description={t('列出主应用和你都在、尚未绑定的飞书群')}>
             <PopUpButton
               aria-label={t('飞书群')}
               placeholder={data.chats.length ? t('选择飞书群') : t('没有可绑定的飞书群')}
@@ -145,6 +145,9 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
           </GroupRow>
         )}
       </GroupBox>
+      {data.chat ? null : (
+        <div className="gs-note">{t('找不到群？请先把主应用拉进飞书群；已被其他群绑定的不显示')}</div>
+      )}
       {data.chat && data.bots.length ? (
         <GroupBox>
           {data.bots.map((b) => (

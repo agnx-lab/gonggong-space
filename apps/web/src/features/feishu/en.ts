@@ -70,7 +70,9 @@ export default {
   飞书群: 'Feishu chat',
   一个共工群只能绑定一个飞书群: 'A Gonggong group can be bound to one Feishu chat',
   '解绑#feishu': 'Unbind',
-  列出主应用所在尚未绑定的飞书群: 'Chats the main app is in that are not bound yet',
+  '列出主应用和你都在、尚未绑定的飞书群': 'Chats both the main app and you are in that are not bound yet',
+  '找不到群？请先把主应用拉进飞书群；已被其他群绑定的不显示':
+    "Can't find a chat? Add the main app to it first; chats bound to another group are not listed",
   选择飞书群: 'Choose a Feishu chat',
   没有可绑定的飞书群: 'No Feishu chat to bind',
   已绑定飞书群: 'Feishu chat bound',
