@@ -12,6 +12,7 @@ const unbound: GroupFeishuView = {
   chat: null,
   chats: [{ chatId: 'oc_1', name: '飞书研发群' }],
   bots: [],
+  members: [],
 }
 
 describe('群设置 · 飞书', () => {
@@ -45,6 +46,40 @@ describe('群设置 · 飞书', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '拉入飞书群' }))
     expect(await screen.findByText('已在群中')).toBeTruthy()
+  })
+
+  it('creates a Feishu chat after listing who can and cannot be pulled in', async () => {
+    let view: GroupFeishuView = {
+      ...unbound,
+      bots: [
+        { botId: 'b1', name: 'codex', appId: 'cli_b1', inChat: false },
+        { botId: 'b2', name: 'claude', appId: null, inChat: false },
+      ],
+      members: [
+        { userId: 'u1', name: '王磊', linked: true },
+        { userId: 'u2', name: '李娜', linked: true },
+        { userId: 'u3', name: '陈晨', linked: false },
+      ],
+    }
+    const calls = mockApi({
+      'GET /groups/g1/feishu': () => view,
+      'POST /groups/g1/feishu/chat': () => {
+        view = {
+          ...view,
+          chats: [],
+          chat: { groupId: 'g1', chatId: 'oc_9', name: '研发群', boundAt: '2026-10-14T00:00:00Z' },
+        }
+        return view
+      },
+    })
+    render(<GroupFeishuTab group={group} />)
+    fireEvent.click(await screen.findByRole('button', { name: '创建飞书群' }))
+    expect(await screen.findByText('拉入：王磊、李娜、codex')).toBeTruthy()
+    expect(screen.getByText('未绑定飞书账号，不会拉入：陈晨')).toBeTruthy()
+    expect(screen.getByText('没有飞书应用，不会拉入：claude')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+    expect(await screen.findByRole('button', { name: '解绑' })).toBeTruthy()
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/groups/g1/feishu/chat')).toBe(true)
   })
 
   it('offers to rename the group after its Feishu chat when the names differ', async () => {
@@ -82,7 +117,7 @@ describe('群设置 · 飞书', () => {
   })
 
   it('explains that the main app must be configured first', async () => {
-    mockApi({ 'GET /groups/g1/feishu': { available: false, chat: null, chats: [], bots: [] } })
+    mockApi({ 'GET /groups/g1/feishu': { available: false, chat: null, chats: [], bots: [], members: [] } })
     render(<GroupFeishuTab group={group} />)
     expect(await screen.findByText('系统管理员尚未配置飞书主应用，暂不能绑定飞书群。')).toBeTruthy()
   })

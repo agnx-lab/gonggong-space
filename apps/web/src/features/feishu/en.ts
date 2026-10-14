@@ -115,4 +115,16 @@ export default {
   '新加入 {n} 人': '{n} joined',
   '新加入 {n} 人；{unlinked} 人未注册共工，{outside} 人不在本团队':
     '{n} joined; {unlinked} have no Gonggong account, {outside} are not in this team',
+  '拉入：{names}': 'Adds: {names}',
+  '未绑定飞书账号，不会拉入：{names}': 'Not added (no linked Feishu account): {names}',
+  '没有飞书应用，不会拉入：{names}': 'Not added (no Feishu app): {names}',
+  '你是群主，之后在本群添加的成员也会被拉进飞书群':
+    'You own the chat; members added to this group later are pulled into it too',
+  新建飞书群: 'New Feishu chat',
+  '用本群名称新建飞书群并绑定，拉入已绑定飞书的成员和 Bot':
+    'Create a Feishu chat named after this group and bind it, with linked members and Bots',
+  创建飞书群: 'Create Feishu chat',
+  '确定新建飞书群「{name}」并绑定到本群？': 'Create Feishu chat “{name}” and bind it to this group?',
+  创建: 'Create',
+  已创建并绑定飞书群: 'Feishu chat created and bound',
 } satisfies Record<string, string>

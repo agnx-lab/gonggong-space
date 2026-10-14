@@ -51,7 +51,7 @@ Enable under 「权限管理」 (Permissions):
 
 | App | Identity | Scopes |
 | --- | --- | --- |
-| Main app | Tenant | `im:message:send_as_bot`, `im:chat:readonly`, `im:chat.members:write_only`, `im:resource`, `im:message.reactions:write_only`, `cardkit:card:write`, `application:application:patch` |
+| Main app | Tenant | `im:message:send_as_bot`, `im:chat:readonly`, `im:chat.members:write_only`, `im:chat:create`, `im:resource`, `im:message.reactions:write_only`, `cardkit:card:write`, `application:application:patch` |
 | Main app | User | `offline_access`, `contact:user.email:readonly`, `im:message`, `im:message.send_as_user`, `im:message.group_msg:get_as_user` |
 | Bot app | Tenant | `im:message.group_at_msg:readonly`, `im:message:send_as_bot`, `im:message:readonly`, `im:chat:readonly`, `im:resource`, `im:message.reactions:write_only`, `cardkit:card:write`, `application:application:patch` |
 
@@ -80,6 +80,7 @@ After changing scopes or capabilities, create and publish a version under 「版
 
 1. Add the main app to the Feishu chat.
 2. A group admin picks that chat under 「群设置 · 飞书」 (Group settings · Feishu) in Gonggong and binds it. A Gonggong group binds to one Feishu chat.
+   With no chat yet, click 「创建飞书群」 (Create Feishu chat): it creates a Feishu chat named after the group and binds it, with you as owner and the members who linked Feishu and the Bots with a Feishu app in it (you must have linked Feishu, and the main app needs `im:chat:create`).
 3. The list shows each Bot of the group. Click 「拉入飞书群」 (Add to chat) for Bots not in the chat yet; a Bot marked 「未绑定飞书应用」 (No Feishu app) needs its Bot app bound first.
 4. Members can then @ Bots in the Feishu chat to start runs. They must have signed in to Gonggong with Feishu (or bound Feishu in their settings) and be members of the Gonggong group.
 

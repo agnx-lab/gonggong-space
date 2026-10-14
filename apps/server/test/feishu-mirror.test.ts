@@ -174,6 +174,7 @@ describe('群设置 · 飞书 binding', () => {
       chat: null,
       chats: [],
       bots: [],
+      members: [],
     })
   })
 })

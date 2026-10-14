@@ -28,6 +28,7 @@ export const MAIN_TENANT_SCOPES = [
   'im:message:send_as_bot',
   'im:chat:readonly',
   'im:chat.members:write_only',
+  'im:chat:create',
   'im:resource',
   'im:message.reactions:write_only',
   'cardkit:card:write',
@@ -186,6 +187,14 @@ export interface FeishuApi {
   ): Promise<FeishuHistoryItem[]>
   /** Adds the bot of `botAppId` to the chat (the calling app must be in it). */
   addBot(app: FeishuCreds, chatId: string, botAppId: string): Promise<void>
+  /**
+   * Creates a chat owned by a user, with users (union ids, at most 50) and bot apps (at most 5) in it; the calling
+   * app joins as an admin. Returns its chat_id.
+   */
+  createChat(
+    app: FeishuCreds,
+    o: { name: string; ownerUnionId: string; unionIds: string[]; botAppIds: string[] },
+  ): Promise<string>
   /** Adds users (by union id) to the chat; the calling app must be in it. */
   addUsers(app: FeishuCreds, chatId: string, unionIds: string[]): Promise<void>
   /** 扫码创建: resolves once the scanning admin confirmed; throws FeishuRegisterError otherwise. */
@@ -469,6 +478,21 @@ export function larkApi(): FeishuApi {
           data: { id_list: [botAppId] },
         }),
       )
+    },
+
+    async createChat(app, o) {
+      const data = await call(
+        client(app).im.v1.chat.create({
+          params: { user_id_type: 'union_id', set_bot_manager: true },
+          data: {
+            name: o.name,
+            owner_id: o.ownerUnionId,
+            user_id_list: o.unionIds,
+            bot_id_list: o.botAppIds,
+          },
+        }),
+      )
+      return data?.chat_id ?? ''
     },
 
     async addUsers(app, chatId, unionIds) {

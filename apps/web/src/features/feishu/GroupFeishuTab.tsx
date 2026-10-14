@@ -1,10 +1,25 @@
 import type { FeishuMemberSyncDto, GroupDto, GroupFeishuView } from '@gonggong/protocol'
 import { useState } from 'react'
-import { t } from '../../i18n'
+import { locale, t } from '../../i18n'
 import { api } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { useGet } from '../../lib/useGet'
 import { Button, ConfirmActionDialog, GroupBox, GroupRow, PopUpButton, Spinner, Tag, toast } from '../../ui'
+
+const list = (names: string[]) => names.join(locale === 'en' ? ', ' : '、')
+
+/** Who a created chat pulls in and who it leaves out (unlinked members, bots without an app). */
+function createConsequences(v: GroupFeishuView) {
+  const joined = [...v.members.filter((m) => m.linked), ...v.bots.filter((b) => b.appId)].map((x) => x.name)
+  const unlinked = v.members.filter((m) => !m.linked).map((m) => m.name)
+  const noApp = v.bots.filter((b) => !b.appId).map((b) => b.name)
+  return [
+    t('拉入：{names}', { names: list(joined) }),
+    ...(unlinked.length ? [t('未绑定飞书账号，不会拉入：{names}', { names: list(unlinked) })] : []),
+    ...(noApp.length ? [t('没有飞书应用，不会拉入：{names}', { names: list(noApp) })] : []),
+    t('你是群主，之后在本群添加的成员也会被拉进飞书群'),
+  ]
+}
 
 /** 群设置 · 飞书: bind the group to one Feishu chat of the main app; bots need their own app in that chat. */
 export function GroupFeishuTab({ group }: { group: GroupDto }) {
@@ -13,6 +28,7 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
   const [chatId, setChatId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [unbinding, setUnbinding] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   const run = async (call: () => Promise<unknown>, done: string) => {
     setBusy(true)
@@ -118,6 +134,16 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
             </Button>
           </GroupRow>
         )}
+        {data.chat ? null : (
+          <GroupRow
+            label={t('新建飞书群')}
+            description={t('用本群名称新建飞书群并绑定，拉入已绑定飞书的成员和 Bot')}
+          >
+            <Button disabled={busy} onClick={() => setCreating(true)}>
+              {t('创建飞书群')}
+            </Button>
+          </GroupRow>
+        )}
       </GroupBox>
       {data.chat && data.bots.length ? (
         <GroupBox>
@@ -138,6 +164,21 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
             </GroupRow>
           ))}
         </GroupBox>
+      ) : null}
+      {creating && !data.chat ? (
+        <ConfirmActionDialog
+          title={t('创建飞书群')}
+          message={t('确定新建飞书群「{name}」并绑定到本群？', { name: group.name })}
+          consequences={createConsequences(data)}
+          label={t('创建')}
+          done={t('已创建并绑定飞书群')}
+          run={() => api.post(`${path}/chat`, {})}
+          onDone={() => {
+            setCreating(false)
+            reload()
+          }}
+          onClose={() => setCreating(false)}
+        />
       ) : null}
       {unbinding && data.chat ? (
         <ConfirmActionDialog

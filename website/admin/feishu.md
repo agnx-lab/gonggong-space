@@ -51,7 +51,7 @@
 
 | 应用 | 身份 | 权限 |
 | --- | --- | --- |
-| 主应用 | 应用身份 | `im:message:send_as_bot`、`im:chat:readonly`、`im:chat.members:write_only`、`im:resource`、`im:message.reactions:write_only`、`cardkit:card:write`、`application:application:patch` |
+| 主应用 | 应用身份 | `im:message:send_as_bot`、`im:chat:readonly`、`im:chat.members:write_only`、`im:chat:create`、`im:resource`、`im:message.reactions:write_only`、`cardkit:card:write`、`application:application:patch` |
 | 主应用 | 用户身份 | `offline_access`、`contact:user.email:readonly`、`im:message`、`im:message.send_as_user`、`im:message.group_msg:get_as_user` |
 | Bot 应用 | 应用身份 | `im:message.group_at_msg:readonly`、`im:message:send_as_bot`、`im:message:readonly`、`im:chat:readonly`、`im:resource`、`im:message.reactions:write_only`、`cardkit:card:write`、`application:application:patch` |
 
@@ -80,6 +80,7 @@
 
 1. 把主应用拉进飞书群。
 2. 群管理员在共工的「群设置 · 飞书」里选择这个飞书群并绑定。一个共工群只能绑定一个飞书群。
+   没有现成的飞书群时，点「创建飞书群」：以本群名称新建飞书群并自动绑定，你是群主，已绑定飞书账号的成员和有飞书应用的 Bot 一并拉入（需要你已绑定飞书账号，主应用已开通 `im:chat:create`）。
 3. 列表中显示群里各 Bot 的状态，没进群的 Bot 点「拉入飞书群」即可；显示「未绑定飞书应用」的 Bot，需要先按上文绑定它的 Bot 应用。
 4. 之后成员在飞书群里 @Bot 就能触发运行。成员需要先用飞书登录过共工（或在个人设置里绑定飞书），并且是对应共工群的成员。
 

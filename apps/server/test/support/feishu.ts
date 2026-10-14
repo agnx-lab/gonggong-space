@@ -46,6 +46,16 @@ export class FakeFeishu {
   readonly recalls: { appId: string; messageId: string; userToken?: string }[] = []
   readonly botsAdded: { appId: string; chatId: string; botAppId: string }[] = []
   readonly usersAdded: { appId: string; chatId: string; unionIds: string[] }[] = []
+  readonly chatsCreated: {
+    appId: string
+    chatId: string
+    name: string
+    ownerUnionId: string
+    unionIds: string[]
+    botAppIds: string[]
+  }[] = []
+  /** `createChat` fails with this Feishu code when set (99991672: a scope is missing). */
+  createChatError: number | null = null
   /** `addUsers` fails with this message when set (e.g. only owners and admins may add members). */
   addUsersError: string | null = null
   /** Images uploaded per app; the key is `img_<n>`. */
@@ -418,6 +428,18 @@ export class FakeFeishu {
     addBot: async (app, chatId, botAppId) => {
       this.check(app.appId)
       this.botsAdded.push({ appId: app.appId, chatId, botAppId })
+    },
+    createChat: async (app, o) => {
+      this.check(app.appId)
+      if (this.createChatError) throw new FeishuError(this.createChatError, 'Access denied')
+      const chatId = this.next('oc')
+      this.chatsCreated.push({ appId: app.appId, chatId, ...o })
+      this.chats.set(app.appId, [
+        ...(this.chats.get(app.appId) ?? []),
+        { chatId, name: o.name, avatar: null },
+      ])
+      this.members.set(chatId, [o.ownerUnionId, ...o.unionIds])
+      return chatId
     },
     addUsers: async (app, chatId, unionIds) => {
       this.check(app.appId)

@@ -86,6 +86,8 @@ export const GroupFeishuView = z.object({
   /** The main app's chats not bound to another group, to pick from. */
   chats: z.array(z.object({ chatId: z.string(), name: z.string() })),
   bots: z.array(GroupFeishuBotDto),
+  /** Group members and whether they linked Feishu (only those are pulled into a created chat). */
+  members: z.array(z.object({ userId: z.string(), name: z.string(), linked: z.boolean() })),
 })
 export type GroupFeishuView = z.infer<typeof GroupFeishuView>
 
