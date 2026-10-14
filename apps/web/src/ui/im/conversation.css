@@ -127,3 +127,8 @@
   background: var(--badge-muted);
   flex: none;
 }
+
+.pn-conv__flag {
+  flex: none;
+  color: var(--system-orange);
+}

@@ -369,6 +369,10 @@ export const groupMembers = pgTable(
     muted: boolean('muted').notNull().default(false),
     pinned: boolean('pinned').notNull().default(false),
     foldRuns: boolean('fold_runs').notNull().default(false),
+    /** 完成: the group's last seq when this member marked it done; a later message brings it back. */
+    doneSeq: bigint('done_seq', { mode: 'number' }),
+    /** 标记 */
+    flagged: boolean('flagged').notNull().default(false),
     /** The notice this member closed for themselves; a newer notice shows again. */
     hiddenNoticeId: uuid('hidden_notice_id'),
     lastReadSeq: bigint('last_read_seq', { mode: 'number' }).notNull().default(0),

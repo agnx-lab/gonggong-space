@@ -595,6 +595,10 @@ export const GroupDto = z.object({
   lastI18n: I18nText.optional(),
   /** The requesting user's own prefs. */
   pinned: z.boolean(),
+  /** 完成: the caller marked it done up to this seq; done while `lastSeq` has not passed it. Always sent by the server. */
+  doneSeq: z.number().int().nullable().optional(),
+  /** 标记 by the caller; always sent by the server. */
+  flagged: z.boolean().optional(),
   muted: z.boolean(),
   foldRuns: z.boolean(),
   /** Bot turns live here (running, or waiting on an approval or answer); non-empty tags the conversation. */
@@ -1217,7 +1221,15 @@ export const UpdateGroupReq = z.object({
 export type UpdateGroupReq = z.infer<typeof UpdateGroupReq>
 /** PUT /api/groups/:id/prefs — only for the caller. */
 export const GroupPrefsReq = z
-  .object({ muted: z.boolean(), pinned: z.boolean(), foldRuns: z.boolean(), noticeHidden: z.boolean() })
+  .object({
+    muted: z.boolean(),
+    pinned: z.boolean(),
+    foldRuns: z.boolean(),
+    noticeHidden: z.boolean(),
+    /** 完成 up to the latest message, or back to the list. */
+    done: z.boolean(),
+    flagged: z.boolean(),
+  })
   .partial()
 export type GroupPrefsReq = z.infer<typeof GroupPrefsReq>
 

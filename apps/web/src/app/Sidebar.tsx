@@ -101,6 +101,8 @@ function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabS
   const onMenu = (v: string) => {
     if (v === 'pin') void attempt(() => groupsApi.prefs(g.id, { pinned: !g.pinned }))
     else if (v === 'mute') void attempt(() => groupsApi.prefs(g.id, { muted: !g.muted }))
+    else if (v === 'done') void attempt(() => groupsApi.prefs(g.id, { done: !isDone(g) }))
+    else if (v === 'flag') void attempt(() => groupsApi.prefs(g.id, { flagged: !g.flagged }))
     else if (v === 'read')
       void attempt(async () =>
         useWorkspace
@@ -126,6 +128,8 @@ function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabS
         { label: g.pinned ? t('取消置顶') : t('置顶'), value: 'pin', icon: 'pin' },
         { label: g.muted ? t('取消免打扰') : t('消息免打扰'), value: 'mute', icon: 'bell-slash' },
         { label: t('清除未读'), value: 'read', icon: 'check', disabled: !g.unread },
+        { label: isDone(g) ? t('移回列表') : t('完成'), value: 'done', icon: 'checkmark-circle' },
+        { label: g.flagged ? t('取消标记') : t('标记'), value: 'flag', icon: 'flag' },
         { label: dm ? t('私聊设置') : t('打开群信息'), value: 'info', icon: 'info' },
       ]}
       onSelect={onMenu}
@@ -153,6 +157,7 @@ function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabS
             mention: g.mentioned,
             muted: g.muted,
             pinned: g.pinned,
+            flagged: g.flagged,
             live: g.liveRunIds.length > 0,
           }}
         />
@@ -211,6 +216,9 @@ function SetupGuide({
     </section>
   )
 }
+
+/** 完成: marked done and no message since; a new one brings it back to its list. */
+const isDone = (g: GroupDto) => g.doneSeq != null && g.lastSeq <= g.doneSeq
 
 /** Pinned first; otherwise the server's order (creation time). */
 const byPin = (list: GroupDto[]) => [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned))
@@ -332,22 +340,28 @@ export function Sidebar({
   // While the main area shows the first-run welcome, "还没有…" in every section would only repeat it.
   const empty = (text: string) => (loaded && guide ? <div className="sidebar__empty">{text}</div> : null)
   const inGroup = groups.some((g) => g.kind === 'group')
+  const [onlyFlagged, setOnlyFlagged] = useState(false)
+  const [showDone, setShowDone] = useState(false)
+  const anyFlagged = groups.some((g) => g.flagged)
+  const shown = groups.filter((g) => !(onlyFlagged && anyFlagged) || g.flagged)
+  const done = shown.filter(isDone)
+  const open = shown.filter((g) => !isDone(g))
   const lists = [
     {
       label: t('群#nav'),
-      items: byPin(groups.filter((g) => g.kind === 'group')),
+      items: byPin(open.filter((g) => g.kind === 'group')),
       empty: t('还没有加入任何群'),
     },
     {
       label: t('私聊#nav'),
       add: onNewDm,
       addTitle: t('新建私聊'),
-      items: byPin(groups.filter((g) => g.kind === 'dm')),
+      items: byPin(open.filter((g) => g.kind === 'dm')),
       empty: t('还没有私聊'),
     },
   ]
   // One tab stop for all conversation rows (the open one, else the first); ↑↓ Home End move and open.
-  const rows = lists.flatMap((l) => l.items)
+  const rows = [...lists.flatMap((l) => l.items), ...(showDone ? done : [])]
   const stop = rows.find((g) => pathname === `/g/${g.id}`)?.id ?? rows[0]?.id
   return (
     <div className="sidebar">
@@ -363,6 +377,19 @@ export function Sidebar({
             onNewGroup={onNewGroup}
           />
         ) : null}
+        {anyFlagged ? (
+          <div className="sidebar__filter">
+            <Button
+              size="small"
+              variant={onlyFlagged ? 'primary' : 'plain'}
+              aria-pressed={onlyFlagged}
+              onClick={() => setOnlyFlagged(!onlyFlagged)}
+            >
+              <Icon name="flag" size={12} />
+              {t('只看已标记')}
+            </Button>
+          </div>
+        ) : null}
         {lists.map((l) => (
           <section key={l.label}>
             <SectionHead label={l.label} onAdd={l.add} addTitle={l.addTitle} />
@@ -375,6 +402,26 @@ export function Sidebar({
             </div>
           </section>
         ))}
+        {done.length ? (
+          <section>
+            <button
+              type="button"
+              className="sidebar__head sidebar__fold"
+              aria-expanded={showDone}
+              onClick={() => setShowDone(!showDone)}
+            >
+              <Icon name={showDone ? 'chevron-down' : 'chevron-right'} size={11} />
+              {t('已完成 · {n}', { n: done.length })}
+            </button>
+            {showDone ? (
+              <div className="sidebar__list">
+                {done.map((g) => (
+                  <GroupRow key={g.id} g={g} current={pathname === `/g/${g.id}`} tabStop={g.id === stop} />
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
         <section>
           <SectionHead label={t('我的 Bot')} onAdd={onNewBot} addTitle={onNewBot && t('新建 Bot…')} />
           <div className="sidebar__list">

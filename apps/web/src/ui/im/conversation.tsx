@@ -30,6 +30,8 @@ export interface Conversation {
   draft?: string
   /** An agent is at work here: 共字君 runs in a tag beside the name. */
   live?: boolean
+  /** 标记: a flag beside the name. */
+  flagged?: boolean
 }
 
 const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
@@ -67,6 +69,7 @@ export function ConversationContent({ item: it }: { item: Conversation }) {
       <span className="pn-conv__body">
         <span className="pn-conv__line">
           <span className="pn-conv__name">{it.name}</span>
+          {it.flagged && <Icon name="flag" size={12} label={t('已标记')} className="pn-conv__flag" />}
           {it.tags?.map((t) => (
             <Tag key={t.label} tone={t.tone}>
               {t.label}

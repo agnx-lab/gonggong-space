@@ -322,6 +322,40 @@ describe('sidebar', () => {
     expect(calls.some((c) => c.method === 'POST' && c.path === '/groups/g1/read')).toBe(true)
   })
 
+  it('folds done conversations until a new message, flags others and filters to the flagged', async () => {
+    const calls = mockApi({
+      ...baseRoutes([
+        group({ doneSeq: 4 }),
+        group({ id: 'g2', name: '发版', flagged: true }),
+        group({ id: 'g3', name: '杂项' }),
+      ]),
+      'PUT /groups/g3/prefs': (body) => group({ id: 'g3', name: '杂项', ...(body as object) }),
+    })
+    renderAt('/')
+    const nav = screen.getByRole('navigation', { name: '会话列表' })
+    await within(nav).findByRole('link', { name: /发版/ })
+    expect(within(nav).queryByRole('link', { name: /退款 v2 迁移/ })).toBeNull()
+    fireEvent.click(within(nav).getByRole('button', { name: '已完成 · 1' }))
+    expect(within(nav).getByRole('link', { name: /退款 v2 迁移/ })).toBeTruthy()
+    expect(within(within(nav).getByRole('link', { name: /发版/ })).getByLabelText('已标记')).toBeTruthy()
+
+    const row = within(nav).getByRole('link', { name: /杂项/ })
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: '完成' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === '/groups/g3/prefs')?.body).toEqual({ done: true }),
+    )
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: '标记' }))
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path === '/groups/g3/prefs').at(-1)?.body).toEqual({ flagged: true }),
+    )
+
+    fireEvent.click(within(nav).getByRole('button', { name: '只看已标记' }))
+    expect(within(nav).queryByRole('link', { name: /退款 v2 迁移/ })).toBeNull()
+    expect(within(nav).getByRole('link', { name: /发版/ })).toBeTruthy()
+  })
+
   it('welcomes a new user in the main area with the three first-run steps', async () => {
     mockApi({ ...baseRoutes([]), 'GET /bots': () => [] })
     renderAt('/')

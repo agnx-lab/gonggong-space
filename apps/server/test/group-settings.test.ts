@@ -251,6 +251,23 @@ describe('personal prefs', () => {
     expect((await w.as.outsider.put(`/api/groups/${w.g.id}/prefs`, { pinned: true })).status).toBe(404)
     expect((await w.as.li.put(`/api/groups/${w.g.id}/prefs`, { pinned: 'yes' })).status).toBe(400)
   })
+
+  it('marks a group done up to its latest message and flags it, for me only', async () => {
+    const w = await world()
+    await t.db.insert(messages).values({ groupId: w.g.id, kind: 'user', authorUserId: w.wang.id, body: '早' })
+    const done = await w.as.li.put<GroupDto>(`/api/groups/${w.g.id}/prefs`, { done: true, flagged: true })
+    expect(done.body.lastSeq).toBeGreaterThan(0)
+    expect(done.body).toMatchObject({ doneSeq: done.body.lastSeq, flagged: true })
+    const wang = (await w.as.wang.get<GroupDto>(`/api/groups/${w.g.id}`)).body
+    expect(wang).toMatchObject({ doneSeq: null, flagged: false })
+    await t.db
+      .insert(messages)
+      .values({ groupId: w.g.id, kind: 'user', authorUserId: w.wang.id, body: '还在吗' })
+    const later = (await w.as.li.get<GroupDto>(`/api/groups/${w.g.id}`)).body
+    expect(later.lastSeq).toBeGreaterThan(later.doneSeq ?? 0)
+    const undone = await w.as.li.put<GroupDto>(`/api/groups/${w.g.id}/prefs`, { done: false })
+    expect(undone.body.doneSeq).toBeNull()
+  })
 })
 
 describe('admins', () => {

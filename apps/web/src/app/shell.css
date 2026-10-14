@@ -808,3 +808,16 @@ a.sidebar__open {
     grid-template-columns: 1fr;
   }
 }
+.sidebar__fold {
+  justify-content: flex-start;
+  gap: var(--space-4);
+  width: 100%;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.sidebar__filter {
+  display: flex;
+  padding: var(--space-8) var(--space-12) 0;
+}

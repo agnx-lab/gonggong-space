@@ -73,4 +73,9 @@ export default {
   取消置顶: 'Unpin',
   取消免打扰: 'Unmute',
   清除未读: 'Mark as read',
+  移回列表: 'Move back to list',
+  取消标记: 'Unflag',
+  标记: 'Flag',
+  只看已标记: 'Flagged only',
+  '已完成 · {n}': 'Done · {n}',
 } satisfies Record<string, string>

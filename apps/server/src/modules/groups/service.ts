@@ -213,6 +213,8 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
           : preview(last.kind, last.userName ?? last.botName, last.body),
       ...(lastI18n && { lastI18n }),
       pinned: me.pinned,
+      doneSeq: me.doneSeq,
+      flagged: me.flagged,
       muted: me.muted,
       foldRuns: me.foldRuns,
       liveRunIds: live.filter((r) => r.groupId === g.id).map((r) => r.id),
@@ -242,6 +244,8 @@ export async function readerGroupDto(ctx: Ctx, userId: string, groupId: string):
     mentioned: false,
     noticeHidden: false,
     pinned: false,
+    doneSeq: null,
+    flagged: false,
     muted: false,
     foldRuns: false,
   }

@@ -1,8 +1,8 @@
 import { GroupParams, GroupPrefsReq, UpdateGroupReq } from '@gonggong/protocol'
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, max } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { Ctx } from '../../context.js'
-import { groupMembers, groupNotices, groups, users } from '../../db/schema.js'
+import { groupMembers, groupNotices, groups, messages, users } from '../../db/schema.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { assertNotDemo } from '../admin/params.js'
@@ -172,11 +172,19 @@ export function groupSettingsRoutes(ctx: Ctx) {
     app.put<P>('/api/groups/:id/prefs', async (req) => {
       const me = await requireUser(ctx, req)
       const { group } = await requireMember(ctx, req.params.id, me.id)
-      const { noticeHidden, ...prefs } = GroupPrefsReq.parse(req.body)
-      const body =
-        noticeHidden === undefined
-          ? prefs
-          : { ...prefs, hiddenNoticeId: noticeHidden ? group.noticeId : null }
+      const { noticeHidden, done, ...prefs } = GroupPrefsReq.parse(req.body)
+      const [last] =
+        done === true
+          ? await ctx.db
+              .select({ seq: max(messages.seq) })
+              .from(messages)
+              .where(eq(messages.groupId, group.id))
+          : []
+      const body = {
+        ...prefs,
+        ...(noticeHidden !== undefined && { hiddenNoticeId: noticeHidden ? group.noticeId : null }),
+        ...(done !== undefined && { doneSeq: done ? (last?.seq ?? 0) : null }),
+      }
       if (Object.keys(body).length)
         await ctx.db
           .update(groupMembers)

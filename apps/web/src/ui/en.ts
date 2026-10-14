@@ -65,6 +65,7 @@ export default {
   转发: 'Forward',
   拷贝: 'Copy',
   置顶: 'Pin',
+  已标记: 'Flagged',
   标记为待办: 'Mark as to-do',
   多选: 'Select',
   编辑: 'Edit',
