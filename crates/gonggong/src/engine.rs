@@ -513,7 +513,13 @@ impl Inner {
                 .env("GIT_COMMITTER_EMAIL", &g.email),
             None => base,
         };
-        let cli = agents::locate(&self.config.home, bot.agent_kind, local).map(|p| p.to_string_lossy().into_owned());
+        let cli = agents::locate(&self.config.home, bot.agent_kind, local);
+        if let (AgentKind::Codex, Some(path)) = (bot.agent_kind, &cli)
+            && let Some(problem) = agents::codex_problem(path)
+        {
+            anyhow::bail!(agents::codex_unusable(&problem));
+        }
+        let cli = cli.map(|p| p.to_string_lossy().into_owned());
         let (provider, extra_env) = match selection {
             Selection::Official(o) => (None, o.process_env()),
             Selection::Provider(p) => (Some(p.as_ref()), p.process_env()),

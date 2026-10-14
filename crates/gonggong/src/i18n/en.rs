@@ -548,4 +548,13 @@ pub(super) const EN: &[(&str, &str)] = &[
     ("无法下载团队 skill {name}：{e}", "Can't download team skill {name}: {e}"),
     ("文件路径不合法：{path}", "Invalid file path: {path}"),
     ("已跳过团队 skill {names}：仓库里已有同名 skill", "Skipped team skill {names}: the repo has a skill of that name"),
+    ("找不到 Codex 命令 {path}", "Codex command not found: {path}"),
+    (
+        "Codex 安装不完整：缺少本机程序（{target}）",
+        "Codex install is incomplete: its native program ({target}) is missing",
+    ),
+    (
+        "Codex 无法启动：{problem}。请重新安装：pnpm add -g @openai/codex（或 npm install -g @openai/codex），或在「设置 → Agent 工具」里改用共工托管安装",
+        "Codex can't start: {problem}. Reinstall it with pnpm add -g @openai/codex (or npm install -g @openai/codex), or switch to the Gonggong-managed install under Settings → Agent tools",
+    ),
 ];

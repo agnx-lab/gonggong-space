@@ -1,6 +1,7 @@
 use crate::engine::ADAPTERS;
 use crate::local::{LocalSettings, load_catalogs};
 use crate::protocol::{AgentInfo, AgentKind};
+use crate::t;
 use std::path::{Path, PathBuf};
 
 pub fn binary(kind: AgentKind) -> &'static str {
@@ -64,6 +65,53 @@ pub fn locate(home: &Path, kind: AgentKind, local: &LocalSettings) -> Option<Pat
     let managed =
         || file_names(binary(kind)).into_iter().map(|n| crate::tools::tools_bin(home).join(n)).find(|p| p.is_file());
     local.agent(kind).path.map(PathBuf::from).or_else(managed).or_else(|| find(binary(kind)))
+}
+
+/// The Rust target the npm `@openai/codex` package names its native binary after (see its `bin/codex.js`).
+fn codex_target() -> Option<(&'static str, &'static str)> {
+    Some(match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => ("aarch64-apple-darwin", "@openai/codex-darwin-arm64"),
+        ("macos", "x86_64") => ("x86_64-apple-darwin", "@openai/codex-darwin-x64"),
+        ("linux", "aarch64") => ("aarch64-unknown-linux-musl", "@openai/codex-linux-arm64"),
+        ("linux", "x86_64") => ("x86_64-unknown-linux-musl", "@openai/codex-linux-x64"),
+        ("windows", "aarch64") => ("aarch64-pc-windows-msvc", "@openai/codex-win32-arm64"),
+        ("windows", "x86_64") => ("x86_64-pc-windows-msvc", "@openai/codex-win32-x64"),
+        _ => return None,
+    })
+}
+
+/// Why the Codex CLI at `cli` cannot start, if it cannot: the file is gone, or it is the npm package's launcher
+/// whose native binary is missing (a broken or half-removed install fails later with a bare `spawn … ENOENT`).
+pub fn codex_problem(cli: &Path) -> Option<String> {
+    let Ok(real) = std::fs::canonicalize(cli) else {
+        return Some(t!("找不到 Codex 命令 {path}", path = cli.display()));
+    };
+    if real.extension().is_none_or(|e| e != "js") {
+        return None;
+    }
+    let (triple, platform) = codex_target()?;
+    let pkg = real.parent()?.parent()?;
+    let exe = if cfg!(windows) { "codex.exe" } else { "codex" };
+    let vendors = pkg
+        .ancestors()
+        .flat_map(|a| {
+            let nested = a.join("node_modules").join(platform);
+            let sibling = (a.file_name() == Some("node_modules".as_ref())).then(|| a.join(platform));
+            [Some(nested), sibling]
+        })
+        .flatten()
+        .chain([pkg.to_path_buf()])
+        .map(|p| p.join("vendor").join(triple));
+    let found = vendors.flat_map(|v| [v.join("bin").join(exe), v.join("codex").join(exe)]).any(|p| p.is_file());
+    (!found).then(|| t!("Codex 安装不完整：缺少本机程序（{target}）", target = triple))
+}
+
+/// The error a Codex session reports when its CLI cannot start, with how to fix the install.
+pub fn codex_unusable(problem: &str) -> String {
+    t!(
+        "Codex 无法启动：{problem}。请重新安装：pnpm add -g @openai/codex（或 npm install -g @openai/codex），或在「设置 → Agent 工具」里改用共工托管安装",
+        problem = problem
+    )
 }
 
 pub fn find(bin: &str) -> Option<PathBuf> {
@@ -189,6 +237,40 @@ pub fn parse_version(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{file_names, parse_version};
+
+    #[test]
+    fn codex_without_its_native_binary_is_reported_before_starting() {
+        use super::{codex_problem, codex_target};
+        let Some((triple, platform)) = codex_target() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let modules = dir.path().join("node_modules");
+        let pkg = modules.join("@openai/codex");
+        std::fs::create_dir_all(pkg.join("bin")).unwrap();
+        let cli = pkg.join("bin/codex.js");
+        std::fs::write(&cli, "").unwrap();
+        assert!(codex_problem(&dir.path().join("gone")).unwrap().contains("gone"));
+        assert!(codex_problem(&cli).unwrap().contains(triple));
+
+        let exe = if cfg!(windows) { "codex.exe" } else { "codex" };
+        let native = modules.join(platform).join("vendor").join(triple).join("bin");
+        std::fs::create_dir_all(&native).unwrap();
+        std::fs::write(native.join(exe), "").unwrap();
+        assert_eq!(codex_problem(&cli), None, "the platform package next to it");
+        std::fs::remove_dir_all(modules.join(platform)).unwrap();
+
+        // npm installs it nested in the package.
+        let nested = pkg.join("node_modules").join(platform).join("vendor").join(triple).join("bin");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join(exe), "").unwrap();
+        assert_eq!(codex_problem(&cli), None, "nested");
+        std::fs::remove_dir_all(pkg.join("node_modules")).unwrap();
+
+        // Older releases keep it in the package itself.
+        let old = pkg.join("vendor").join(triple).join("codex");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join(exe), "").unwrap();
+        assert_eq!(codex_problem(&cli), None);
+    }
 
     #[cfg(unix)]
     #[test]
