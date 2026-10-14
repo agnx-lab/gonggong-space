@@ -38,6 +38,8 @@ export const groupsApi = {
   /** null follows the bot's own tier; the new state arrives as `group.botState`. */
   setBotTier: (id: string, botId: string, tier: Tier | null) =>
     api.put(`/groups/${id}/bots/${botId}/tier`, { tier }),
+  setBotExtraDirs: (id: string, botId: string, dirs: string[]) =>
+    api.put(`/groups/${id}/bots/${botId}/extra-dirs`, { dirs }),
   removeBot: (id: string, botId: string) => api.del<GroupDto>(`/groups/${id}/bots/${botId}`).then(apply),
   /** Partition → force with `baseBotId`'s tree as the first version (§3.5). */
   enableSync: (id: string, baseBotId: string) =>

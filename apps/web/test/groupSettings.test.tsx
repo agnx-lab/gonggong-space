@@ -616,6 +616,50 @@ describe('group settings inspector', () => {
     expect(calls.find((c) => c.method === 'DELETE')?.path).toBe('/groups/g1/bots/b2')
   })
 
+  it('lets the bot owner set its additional directories in this group', async () => {
+    const state = {
+      botId: 'b1',
+      workspace: 'managed',
+      state: 'ready',
+      path: null,
+      git: null,
+      error: null,
+      reason: null,
+      tier: null,
+      model: null,
+      effort: null,
+      context: null,
+      extraDirs: ['/Users/wl/sdk'],
+    }
+    const calls = mockApi(
+      routes([group()], {
+        'GET /groups/g1/bot-states': [state],
+        'PUT /groups/g1/bots/b1/extra-dirs': undefined,
+      }),
+    )
+    renderAt('/g/g1')
+    const d = await openDrawer()
+    fireEvent.click(within(d).getByRole('button', { name: /^Bot/ }))
+    const mine = within(d).getByText('小王的 Claude').closest('.gs-bot') as HTMLElement
+    const theirs = within(d).getByText('老李的 Codex').closest('.gs-bot') as HTMLElement
+    expect(within(theirs).queryByRole('button', { name: /附加目录/ })).toBeNull()
+    fireEvent.click(await within(mine).findByRole('button', { name: '附加目录 1' }))
+    const dialog = await screen.findByRole('dialog', { name: '小王的 Claude 的附加目录' })
+    expect(within(dialog).getByText(/不参与强制同步/)).toBeTruthy()
+    const field = within(dialog).getByRole('textbox')
+    expect((field as HTMLTextAreaElement).value).toBe('/Users/wl/sdk')
+    fireEvent.change(field, { target: { value: '/Users/wl/sdk\n\n  /Users/wl/docs  \n' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PUT')).toEqual({
+        method: 'PUT',
+        path: '/groups/g1/bots/b1/extra-dirs',
+        body: { dirs: ['/Users/wl/sdk', '/Users/wl/docs'] },
+      }),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '小王的 Claude 的附加目录' })).toBeNull())
+  })
+
   it('flips a pref at once and rolls it back when saving fails', async () => {
     mockApi(routes([group()], { 'PUT /groups/g1/prefs': () => apiError(500, 'internal', '保存失败') }))
     renderAt('/g/g1')
@@ -664,6 +708,7 @@ describe('group settings inspector', () => {
       git: null,
       error: null,
       tier,
+      extraDirs: [],
     })
     const calls = mockApi(
       routes([group({ botIds: ['b1', 'b2', 'b3'] })], {

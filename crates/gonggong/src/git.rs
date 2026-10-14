@@ -121,23 +121,51 @@ async fn probe(dir: &Path) -> Result<Probe, String> {
     Ok(Probe { branch, ahead, behind, dirty })
 }
 
-/// The root's position plus every other repo's; Err when the workspace holds no repo at all.
-pub async fn status(dir: &Path, workspace: WorkspaceKind) -> Result<GitStatus, String> {
-    let found = discover(dir).await;
-    if found.is_empty() {
-        return Err(not_git().into());
-    }
+/// The root's position plus every other repo's, those of the additional directories `extras` as `extra` repos under
+/// their absolute paths; Err when none of them holds a repo.
+pub async fn status(dir: &Path, extras: &[PathBuf], workspace: WorkspaceKind) -> Result<GitStatus, String> {
     let mut repos = vec![];
-    for r in found.into_iter().filter(|r| r.kind != RepoKind::Root) {
-        let p = probe(&dir.join(&r.path)).await?;
-        let (branch, ahead, behind, dirty) = (p.branch, p.ahead, p.behind, p.dirty);
-        repos.push(RepoStatus { path: r.path, kind: r.kind, branch, ahead, behind, dirty });
+    let mut any = false;
+    for (root, label) in roots(dir, extras) {
+        for r in discover(&root).await {
+            any = true;
+            if label.is_empty() && r.kind == RepoKind::Root {
+                continue;
+            }
+            let p = probe(&root.join(&r.path)).await?;
+            let (branch, ahead, behind, dirty) = (p.branch, p.ahead, p.behind, p.dirty);
+            let (path, kind) = (under(&label, &r.path), extra_kind(&label, r.kind));
+            repos.push(RepoStatus { path, kind, branch, ahead, behind, dirty });
+        }
+    }
+    if !any {
+        return Err(not_git().into());
     }
     if !is_repo(dir) {
         return Ok(GitStatus { branch: None, ahead: None, behind: None, dirty: false, workspace, repos });
     }
     let p = probe(dir).await?;
     Ok(GitStatus { branch: p.branch, ahead: p.ahead, behind: p.behind, dirty: p.dirty, workspace, repos })
+}
+
+/// The workspace (label '') and each additional directory, labelled with its absolute path.
+fn roots(dir: &Path, extras: &[PathBuf]) -> Vec<(PathBuf, String)> {
+    let extras = extras.iter().map(|e| (e.clone(), e.to_string_lossy().into_owned()));
+    std::iter::once((dir.to_path_buf(), String::new())).chain(extras).collect()
+}
+
+/// A repo path below a root's label.
+fn under(label: &str, path: &str) -> String {
+    match (label, path) {
+        ("", p) => p.to_string(),
+        (l, "") => l.to_string(),
+        (l, p) => format!("{l}/{p}"),
+    }
+}
+
+/// The root repo of an additional directory is reported as `extra`.
+fn extra_kind(label: &str, kind: RepoKind) -> RepoKind {
+    if !label.is_empty() && kind == RepoKind::Root { RepoKind::Extra } else { kind }
 }
 
 /// A repo of the workspace; `path` is relative to its root, '/'-separated ('' = the root).
@@ -347,56 +375,103 @@ enum Scope<'a> {
 
 /// What changed since the snapshot.
 pub async fn patch_since(dir: &Path, snap: &Snapshot) -> Result<Diff, String> {
-    diff(dir, Scope::Turn(snap)).await
+    diff(vec![(dir.to_path_buf(), String::new(), Scope::Turn(snap))]).await
+}
+
+/// A git root whose changes a turn tracks: the workspace (label '') or an additional directory, labelled with its
+/// absolute path, which prefixes its repos' paths in patches.
+#[derive(Clone)]
+pub struct Tracked {
+    pub dir: PathBuf,
+    pub label: String,
+    pub snap: Snapshot,
+}
+
+/// Snapshots the workspace and each additional directory that is a git repo.
+pub async fn track(dir: &Path, extras: &[PathBuf]) -> Vec<Tracked> {
+    let mut tracked = vec![];
+    for (dir, label) in roots(dir, extras).into_iter().filter(|(d, _)| is_repo(d)) {
+        match snapshot(&dir).await {
+            Ok(snap) => tracked.push(Tracked { dir, label, snap }),
+            Err(e) => tracing::warn!("git snapshot of {} failed: {e}", dir.display()),
+        }
+    }
+    tracked
+}
+
+/// What changed in every tracked root since its snapshot, one patch.
+pub async fn turn_patch(tracked: &[Tracked]) -> Result<Diff, String> {
+    diff(tracked.iter().map(|t| (t.dir.clone(), t.label.clone(), Scope::Turn(&t.snap))).collect()).await
+}
+
+pub async fn turn_changed(tracked: &[Tracked]) -> Result<usize, String> {
+    let mut n = 0;
+    for t in tracked {
+        n += changed_since(&t.dir, &t.snap).await?;
+    }
+    Ok(n)
+}
+
+/// [`discard`] in every tracked root.
+pub async fn turn_discard(tracked: &[Tracked]) -> Result<usize, String> {
+    let mut n = 0;
+    for t in tracked {
+        n += discard(&t.dir, &t.snap).await?;
+    }
+    Ok(n)
 }
 
 /// Everything not committed yet: each repo's HEAD (or the empty tree before its first commit) against its work tree.
-pub async fn uncommitted_patch(dir: &Path) -> Result<Diff, String> {
-    diff(dir, Scope::Uncommitted).await
+pub async fn uncommitted_patch(dir: &Path, extras: &[PathBuf]) -> Result<Diff, String> {
+    diff(roots(dir, extras).into_iter().map(|(d, l)| (d, l, Scope::Uncommitted)).collect()).await
 }
 
 /// Each repo's branch changes against its own main branch, uncommitted ones included; a repo on its main (or
 /// detached, or without one) contributes nothing.
-pub async fn base_patch(dir: &Path) -> Result<Diff, String> {
-    diff(dir, Scope::Base).await
+pub async fn base_patch(dir: &Path, extras: &[PathBuf]) -> Result<Diff, String> {
+    diff(roots(dir, extras).into_iter().map(|(d, l)| (d, l, Scope::Base)).collect()).await
 }
 
-/// Each repo diffed on its own, outer before inner, paths prefixed with the repo's path; a parent leaves its
-/// submodules' commit pointers out. Stops reading once the patch is sure to be capped.
-async fn diff(dir: &Path, scope: Scope<'_>) -> Result<Diff, String> {
-    let found = discover(dir).await;
-    if found.is_empty() {
-        return Err(not_git().into());
-    }
+/// Each repo of each root diffed on its own, outer before inner, paths prefixed with the repo's path below the root's
+/// label; a parent leaves its submodules' commit pointers out. Stops reading once the patch is sure to be capped.
+async fn diff(roots: Vec<(PathBuf, String, Scope<'_>)>) -> Result<Diff, String> {
     let mut patch = String::new();
     let mut repos = vec![];
     // Patch length once each repo's share is in (0: nothing to compare, usize::MAX: no room was left for it).
     let mut ends = vec![];
-    for r in found {
-        let rdir = dir.join(&r.path);
-        let branch = branch(&rdir).await;
-        let (from, base) = match &scope {
-            Scope::Turn(snap) => match find(snap, &r.path) {
-                Some(s) => (s.base.clone(), None),
-                None => (Some(EMPTY_TREE.into()), None),
-            },
-            Scope::Uncommitted => (Some(head(&rdir).await.unwrap_or_else(|| EMPTY_TREE.into())), None),
-            Scope::Base => match main_of(&rdir, branch.as_deref()).await {
-                Some(main) => (Some(git(&rdir, &["merge-base", "HEAD", &main]).await?.trim().to_string()), Some(main)),
-                None => (None, None),
-            },
-        };
-        let room = (PATCH_MAX_BYTES + 1).saturating_sub(patch.len());
-        ends.push(match from {
-            None => 0,
-            Some(_) if room == 0 => usize::MAX,
-            Some(from) => {
-                let prefix = if r.path.is_empty() { String::new() } else { format!("{}/", r.path) };
-                diff_repo(&rdir, &prefix, &from, room, &mut patch).await?;
-                patch.len()
-            }
-        });
-        repos.push(DiffRepo { path: r.path, kind: r.kind, branch, base, truncated: false });
+    for (dir, label, scope) in roots {
+        for r in discover(&dir).await {
+            let rdir = dir.join(&r.path);
+            let branch = branch(&rdir).await;
+            let (from, base) = match &scope {
+                Scope::Turn(snap) => match find(snap, &r.path) {
+                    Some(s) => (s.base.clone(), None),
+                    None => (Some(EMPTY_TREE.into()), None),
+                },
+                Scope::Uncommitted => (Some(head(&rdir).await.unwrap_or_else(|| EMPTY_TREE.into())), None),
+                Scope::Base => match main_of(&rdir, branch.as_deref()).await {
+                    Some(main) => {
+                        (Some(git(&rdir, &["merge-base", "HEAD", &main]).await?.trim().to_string()), Some(main))
+                    }
+                    None => (None, None),
+                },
+            };
+            let path = under(&label, &r.path);
+            let room = (PATCH_MAX_BYTES + 1).saturating_sub(patch.len());
+            ends.push(match from {
+                None => 0,
+                Some(_) if room == 0 => usize::MAX,
+                Some(from) => {
+                    let prefix = if path.is_empty() { String::new() } else { format!("{path}/") };
+                    diff_repo(&rdir, &prefix, &from, room, &mut patch).await?;
+                    patch.len()
+                }
+            });
+            repos.push(DiffRepo { path, kind: extra_kind(&label, r.kind), branch, base, truncated: false });
+        }
+    }
+    if repos.is_empty() {
+        return Err(not_git().into());
     }
     if patch.is_empty() {
         return Ok(Diff { patch: None, repos });
@@ -651,12 +726,12 @@ mod tests {
         let r = Remote::new();
         let w = r.clone_to("w");
         r.commit("a.txt", "a");
-        assert_eq!(status(&w, WorkspaceKind::Managed).await.unwrap().behind, Some(0));
+        assert_eq!(status(&w, &[], WorkspaceKind::Managed).await.unwrap().behind, Some(0));
         run(&w, &["fetch", "-q"]);
-        let s = status(&w, WorkspaceKind::Managed).await.unwrap();
+        let s = status(&w, &[], WorkspaceKind::Managed).await.unwrap();
         assert_eq!((s.branch.as_deref(), s.ahead, s.behind), (Some("main"), Some(0), Some(1)));
         run(&w, &["checkout", "-q", "--detach"]);
-        let s = status(&w, WorkspaceKind::Managed).await.unwrap();
+        let s = status(&w, &[], WorkspaceKind::Managed).await.unwrap();
         assert_eq!((s.branch, s.ahead, s.behind), (None, None, None));
     }
 
@@ -666,9 +741,9 @@ mod tests {
         let w = r.clone_to("w");
         fs::create_dir_all(w.join(".gonggong")).unwrap();
         fs::write(w.join(".gonggong/state"), "x").unwrap();
-        assert!(!status(&w, WorkspaceKind::Cd).await.unwrap().dirty);
+        assert!(!status(&w, &[], WorkspaceKind::Cd).await.unwrap().dirty);
         fs::write(w.join("new.txt"), "x").unwrap();
-        assert!(status(&w, WorkspaceKind::Cd).await.unwrap().dirty);
+        assert!(status(&w, &[], WorkspaceKind::Cd).await.unwrap().dirty);
     }
 
     #[tokio::test]
@@ -709,10 +784,10 @@ mod tests {
     async fn uncommitted_patch_covers_edits_and_untracked_files() {
         let r = Remote::new();
         let w = r.clone_to("w");
-        assert_eq!(uncommitted_patch(&w).await.unwrap().patch, None);
+        assert_eq!(uncommitted_patch(&w, &[]).await.unwrap().patch, None);
         fs::write(w.join("README.md"), "changed\n").unwrap();
         fs::write(w.join("new.txt"), "untracked\n").unwrap();
-        let p = uncommitted_patch(&w).await.unwrap().patch.unwrap();
+        let p = uncommitted_patch(&w, &[]).await.unwrap().patch.unwrap();
         assert!(p.contains("diff --git a/README.md b/README.md") && p.contains("+changed"));
         assert!(p.contains("b/new.txt") && p.contains("+untracked"));
     }
@@ -722,7 +797,7 @@ mod tests {
         let r = Remote::new();
         let w = r.clone_to("w");
         fs::write(w.join("计划.md"), "中文\n").unwrap();
-        let p = uncommitted_patch(&w).await.unwrap().patch.unwrap();
+        let p = uncommitted_patch(&w, &[]).await.unwrap().patch.unwrap();
         assert!(p.contains("diff --git a/计划.md b/计划.md"), "{p}");
     }
 
@@ -730,7 +805,7 @@ mod tests {
     async fn base_patch_compares_a_branch_with_main_and_is_none_on_main() {
         let r = Remote::new();
         let w = r.clone_to("w");
-        let on_main = base_patch(&w).await.unwrap();
+        let on_main = base_patch(&w, &[]).await.unwrap();
         assert_eq!(on_main, Diff { patch: None, repos: vec![root(Some("main"), None)] });
 
         run(&w, &["checkout", "-q", "-b", "feat/x"]);
@@ -741,7 +816,7 @@ mod tests {
         // Main moving on upstream must not show up as a removal on the branch (merge base).
         r.commit("later.txt", "later");
         run(&w, &["fetch", "-q"]);
-        let b = base_patch(&w).await.unwrap();
+        let b = base_patch(&w, &[]).await.unwrap();
         assert_eq!(b.repos, vec![root(Some("feat/x"), Some("origin/main"))]);
         let p = b.patch.unwrap();
         assert!(p.contains("b/feature.txt") && p.contains("b/wip.txt"));
@@ -758,7 +833,7 @@ mod tests {
         run(&w, &["add", "-A"]);
         run(&w, &["commit", "-q", "-m", "hello"]);
         assert_eq!(changed_since(&w, &snap).await.unwrap(), 1);
-        assert_eq!(status(&w, WorkspaceKind::Managed).await.unwrap().branch.as_deref(), Some("feat/hello"));
+        assert_eq!(status(&w, &[], WorkspaceKind::Managed).await.unwrap().branch.as_deref(), Some("feat/hello"));
     }
 
     #[tokio::test]
@@ -857,7 +932,7 @@ mod tests {
         assert_eq!(discard(&w, &snap).await.unwrap(), 2);
         assert_eq!(read(&w, "README.md").as_deref(), Some("hi\n"));
         assert!(!w.join("c.txt").exists());
-        assert_eq!(status(&w, WorkspaceKind::Managed).await.unwrap().ahead, Some(1));
+        assert_eq!(status(&w, &[], WorkspaceKind::Managed).await.unwrap().ahead, Some(1));
     }
 
     #[tokio::test]
@@ -867,19 +942,74 @@ mod tests {
         r.add_submodule(&w, "lib", "my lib");
         fs::write(w.join("my lib/a.txt"), "a\nedited\n").unwrap();
         fs::write(w.join("my lib/n.txt"), "new\n").unwrap();
-        let p = uncommitted_patch(&w).await.unwrap().patch.unwrap();
+        let p = uncommitted_patch(&w, &[]).await.unwrap().patch.unwrap();
         assert!(p.contains("diff --git a/my lib/a.txt b/my lib/a.txt\n") && p.contains("+edited\n"), "{p}");
         assert!(p.contains("b/my lib/n.txt") && p.contains("+new\n"), "{p}");
 
         // A submodule's uncommitted work starts at its own HEAD, not at the commit the parent records.
         run(&w.join("my lib"), &["add", "-A"]);
         run(&w.join("my lib"), &["commit", "-q", "-m", "sub"]);
-        let d = uncommitted_patch(&w).await.unwrap();
+        let d = uncommitted_patch(&w, &[]).await.unwrap();
         assert_eq!(d.patch, None, "the bumped pointer is no content change");
         fs::write(w.join("my lib/n.txt"), "new\nwip\n").unwrap();
-        let p = uncommitted_patch(&w).await.unwrap().patch.unwrap();
+        let p = uncommitted_patch(&w, &[]).await.unwrap().patch.unwrap();
         assert!(p.contains("diff --git a/my lib/n.txt b/my lib/n.txt\n") && p.contains(" new\n+wip\n"), "{p}");
         assert!(!p.contains("a.txt") && !p.contains("Subproject commit"), "{p}");
+    }
+
+    #[tokio::test]
+    async fn turns_track_additional_directories_under_their_absolute_paths() {
+        let r = Remote::new();
+        let w = r.clone_to("w");
+        let e = r.clone_to("sdk");
+        let plain = r.root.path().join("notes");
+        fs::create_dir_all(&plain).unwrap();
+        let tracked = track(&w, &[e.clone(), plain.clone()]).await;
+        let labels: Vec<_> = tracked.iter().map(|t| t.label.clone()).collect();
+        assert_eq!(labels, vec![String::new(), e.to_string_lossy().into_owned()]);
+
+        fs::write(w.join("README.md"), "hi\nmain\n").unwrap();
+        fs::write(e.join("sdk.txt"), "sdk\n").unwrap();
+        fs::write(plain.join("n.txt"), "untracked dir\n").unwrap();
+        assert_eq!(turn_changed(&tracked).await.unwrap(), 2);
+        let d = turn_patch(&tracked).await.unwrap();
+        let ep = e.to_string_lossy();
+        assert_eq!(d.repos, vec![root(Some("main"), None), repo(&ep, RepoKind::Extra, Some("main"), None)]);
+        let p = d.patch.unwrap();
+        assert!(p.contains("diff --git a/README.md b/README.md\n"), "{p}");
+        assert!(p.contains(&format!("diff --git a/{ep}/sdk.txt b/{ep}/sdk.txt\n")), "{p}");
+
+        assert_eq!(turn_discard(&tracked).await.unwrap(), 2);
+        assert!(!e.join("sdk.txt").exists());
+        assert_eq!(fs::read_to_string(w.join("README.md")).unwrap(), "hi\n");
+    }
+
+    #[tokio::test]
+    async fn additional_directories_join_status_and_scoped_patches() {
+        let r = Remote::new();
+        let e = r.clone_to("sdk");
+        let ep = e.to_string_lossy().into_owned();
+        fs::write(e.join("sdk.txt"), "sdk\n").unwrap();
+        // A repo-less workspace still reports the repos of its additional directories.
+        let ws = tempfile::tempdir().unwrap();
+        let s = status(ws.path(), std::slice::from_ref(&e), WorkspaceKind::Managed).await.unwrap();
+        let sdk = RepoStatus {
+            path: ep.clone(),
+            kind: RepoKind::Extra,
+            branch: Some("main".into()),
+            ahead: Some(0),
+            behind: Some(0),
+            dirty: true,
+        };
+        assert_eq!((s.branch, s.repos), (None, vec![sdk]));
+        let d = uncommitted_patch(ws.path(), std::slice::from_ref(&e)).await.unwrap();
+        assert_eq!(d.repos, vec![repo(&ep, RepoKind::Extra, Some("main"), None)]);
+        assert!(d.patch.unwrap().contains(&format!("b/{ep}/sdk.txt")));
+
+        let w = r.clone_to("w");
+        let s = status(&w, std::slice::from_ref(&e), WorkspaceKind::Managed).await.unwrap();
+        assert_eq!((s.branch.as_deref(), s.repos.len(), s.repos[0].kind), (Some("main"), 1, RepoKind::Extra));
+        assert_eq!(base_patch(&w, &[e]).await.unwrap().patch, None);
     }
 
     fn root(branch: Option<&str>, base: Option<&str>) -> DiffRepo {
@@ -912,7 +1042,7 @@ mod tests {
         run(&sub, &["commit", "-q", "-m", "b"]);
         fs::write(sub.join("a.txt"), "a\nwip\n").unwrap();
         // The root sits on its main: it adds nothing, but must not blank the submodule's changes.
-        let d = base_patch(&w).await.unwrap();
+        let d = base_patch(&w, &[]).await.unwrap();
         let main = main_branch(&sub).await;
         assert_eq!(
             d.repos,
@@ -924,7 +1054,7 @@ mod tests {
         assert!(!p.contains("Subproject commit"), "{p}");
 
         run(&sub, &["checkout", "-q", "-f", "main"]);
-        assert_eq!(base_patch(&w).await.unwrap().patch, None);
+        assert_eq!(base_patch(&w, &[]).await.unwrap().patch, None);
     }
 
     #[tokio::test]
@@ -956,8 +1086,8 @@ mod tests {
     async fn non_git_roots_diff_and_report_their_nested_repos() {
         let ws = tempfile::tempdir().unwrap();
         let ws = ws.path();
-        assert_eq!(uncommitted_patch(ws).await.unwrap_err(), not_git());
-        assert_eq!(status(ws, WorkspaceKind::Cd).await.unwrap_err(), not_git());
+        assert_eq!(uncommitted_patch(ws, &[]).await.unwrap_err(), not_git());
+        assert_eq!(status(ws, &[], WorkspaceKind::Cd).await.unwrap_err(), not_git());
         init(&ws.join("a"));
         init(&ws.join("b"));
         fs::write(ws.join("a/a.txt"), "a\nmore\n").unwrap();
@@ -966,18 +1096,18 @@ mod tests {
         run(&ws.join("b"), &["add", "-A"]);
         run(&ws.join("b"), &["commit", "-q", "-m", "n"]);
 
-        let d = uncommitted_patch(ws).await.unwrap();
+        let d = uncommitted_patch(ws, &[]).await.unwrap();
         let p = d.patch.unwrap();
         assert!(p.contains("diff --git a/a/a.txt b/a/a.txt\n") && !p.contains("new.txt"), "{p}");
         let a = repo("a", RepoKind::Nested, Some("main"), None);
         assert_eq!(d.repos, vec![a.clone(), repo("b", RepoKind::Nested, Some("feat/x"), None)]);
 
-        let d = base_patch(ws).await.unwrap();
+        let d = base_patch(ws, &[]).await.unwrap();
         let p = d.patch.unwrap();
         assert!(p.contains("diff --git a/b/new.txt b/b/new.txt\n") && !p.contains("a/a.txt"), "{p}");
         assert_eq!(d.repos, vec![a, repo("b", RepoKind::Nested, Some("feat/x"), Some("main"))]);
 
-        let s = status(ws, WorkspaceKind::Cd).await.unwrap();
+        let s = status(ws, &[], WorkspaceKind::Cd).await.unwrap();
         let st = |path: &str, branch: &str, dirty| RepoStatus {
             path: path.into(),
             kind: RepoKind::Nested,
@@ -1004,7 +1134,7 @@ mod tests {
         r.add_submodule(&w, "lib", "lib");
         run(&w.join("lib"), &["checkout", "-q", "-b", "feat/y"]);
         fs::write(w.join("lib/n.txt"), "n\n").unwrap();
-        let s = status(&w, WorkspaceKind::Managed).await.unwrap();
+        let s = status(&w, &[], WorkspaceKind::Managed).await.unwrap();
         assert_eq!((s.branch.as_deref(), s.dirty), (Some("main"), true));
         let lib = RepoStatus {
             path: "lib".into(),
@@ -1027,7 +1157,7 @@ mod tests {
         fs::write(ws.join("a/a.txt"), "small\n").unwrap();
         fs::write(ws.join("b/big.txt"), "x\n".repeat(PATCH_MAX_BYTES)).unwrap();
         fs::write(ws.join("c/a.txt"), "small\n").unwrap();
-        let d = uncommitted_patch(ws).await.unwrap();
+        let d = uncommitted_patch(ws, &[]).await.unwrap();
         assert!(d.patch.unwrap().ends_with(patch_truncated()));
         let truncated: Vec<_> = d.repos.iter().map(|r| (r.path.as_str(), r.truncated)).collect();
         assert_eq!(truncated, [("a", false), ("b", true), ("c", true)]);
@@ -1099,7 +1229,7 @@ mod tests {
         fs::write(w.join("big.txt"), "x\n".repeat(4 << 20)).unwrap();
         let out = git_capped(&w, &["diff", "--no-index", "--", "/dev/null", "big.txt"], 1000).await.unwrap();
         assert_eq!(out.len(), 1000);
-        let p = uncommitted_patch(&w).await.unwrap().patch.unwrap();
+        let p = uncommitted_patch(&w, &[]).await.unwrap().patch.unwrap();
         assert!(p.len() <= PATCH_MAX_BYTES && p.ends_with(patch_truncated()), "{}", p.len());
     }
 

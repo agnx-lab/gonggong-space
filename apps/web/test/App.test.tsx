@@ -139,6 +139,7 @@ describe('chat shell', () => {
           model: null,
           effort: null,
           context: null,
+          extraDirs: [],
         },
       }),
     )

@@ -52,7 +52,7 @@ fn start(run_id: &str, text: &str) -> RunStart {
             always_allow: vec![],
             git: None,
         },
-        workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false },
+        workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false, extra_dirs: vec![] },
         resume_session_id: None,
         new_session_reason: None,
         mcp_servers: vec![],
@@ -448,6 +448,43 @@ async fn repo_workspace_is_left_alone_before_the_turn_and_reports_git_changes() 
 }
 
 #[tokio::test]
+async fn additional_directories_reach_the_session_and_their_changes_are_reported() {
+    let mut r = rig(Duration::from_secs(60));
+    let _remote = repo_workspace(&r);
+    let extra = tempfile::tempdir().unwrap();
+    let sdk = extra.path().join("sdk");
+    git(extra.path(), &["init", "-q", "-b", "main", sdk.to_str().unwrap()]);
+    let sdk_path = sdk.to_string_lossy().into_owned();
+    let with_extra = |s: RunStart| RunStart {
+        workspace: WorkspaceSpec { extra_dirs: vec![sdk_path.clone()], ..s.workspace.clone() },
+        ..s
+    };
+    r.run(with_extra(start("r1", "mock:echo")));
+    let (_, done) = r.finish("r1").await;
+    assert_eq!(echo(&done)["additionalDirectories"], serde_json::json!([sdk_path]));
+
+    let sh = format!("mock:sh echo a > a.txt && echo s > {sdk_path}/s.txt");
+    r.run(with_extra(follow_up("r2", &sh, &done)));
+    let (_, done) = r.finish("r2").await;
+    assert_eq!(done.outcome, RunOutcome::Completed, "{:?}", done.error);
+    assert_eq!(done.files_changed, 2);
+    let repos: Vec<_> = done.repos.iter().map(|r| (r.path.as_str(), r.kind)).collect();
+    assert_eq!(repos, [("", RepoKind::Root), (sdk_path.as_str(), RepoKind::Extra)]);
+    let patch = done.patch.unwrap();
+    assert!(patch.contains(&format!("b/{sdk_path}/s.txt")), "{patch}");
+    assert_eq!(done.git.unwrap().repos.iter().map(|r| r.kind).collect::<Vec<_>>(), [RepoKind::Extra]);
+
+    // A directory that is gone fails the run before the agent starts.
+    let gone = extra.path().join("gone").to_string_lossy().into_owned();
+    let mut s = start("r3", "mock:echo");
+    s.workspace.extra_dirs = vec![gone.clone()];
+    r.run(s);
+    let (_, done) = r.finish("r3").await;
+    assert_eq!(done.outcome, RunOutcome::Failed);
+    assert_eq!(done.error.as_deref(), Some(format!("附加目录不存在或不是目录：{gone}").as_str()));
+}
+
+#[tokio::test]
 async fn reports_the_live_turns_diff_and_the_workspaces_uncommitted_changes() {
     let mut r = rig(Duration::from_secs(60));
     let _remote = repo_workspace(&r);
@@ -456,7 +493,7 @@ async fn reports_the_live_turns_diff_and_the_workspaces_uncommitted_changes() {
             request_id: format!("{scope:?}"),
             group_id: "g1".into(),
             bot_id: "b1".into(),
-            workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false },
+            workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false, extra_dirs: vec![] },
             scope,
             run_id: run_id.map(String::from),
         })
@@ -732,7 +769,7 @@ async fn lists_files_of_the_bot_workspace() {
             request_id: request_id.into(),
             group_id: "g1".into(),
             bot_id: "b1".into(),
-            workspace: WorkspaceSpec { repo: None, cd_path, protect_base: false },
+            workspace: WorkspaceSpec { repo: None, cd_path, protect_base: false, extra_dirs: vec![] },
             query: "".into(),
             limit: 10,
         })
@@ -761,7 +798,7 @@ async fn browses_and_reads_the_bot_workspace_read_only() {
     let mut r = rig(Duration::from_secs(60));
     let _remote = repo_workspace(&r);
     std::fs::write(r.workspace().join("notes.md"), "# 笔记\n").unwrap();
-    let workspace = WorkspaceSpec { repo: None, cd_path: None, protect_base: false };
+    let workspace = WorkspaceSpec { repo: None, cd_path: None, protect_base: false, extra_dirs: vec![] };
     r.send(ServerToDaemon::FilesTree(FilesTree {
         request_id: "t1".into(),
         group_id: "g1".into(),

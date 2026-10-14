@@ -31,6 +31,7 @@ it('updates a workspace state and pushes it to group members only', async () => 
       model: null,
       effort: null,
       context: null,
+      extraDirs: [],
     },
   ])
   const git = { branch: 'main', ahead: 0, behind: 0, dirty: false, workspace: 'managed' as const, repos: [] }
@@ -51,6 +52,7 @@ it('updates a workspace state and pushes it to group members only', async () => 
         model: null,
         effort: null,
         context: null,
+        extraDirs: [],
       },
     },
   ])

@@ -270,6 +270,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
         : null,
       cdPath: gb.cdPath,
       protectBase,
+      extraDirs: gb.extraDirs,
     },
     resumeSessionId,
     newSessionReason: gb.newSessionReason,

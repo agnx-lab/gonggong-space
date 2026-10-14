@@ -374,6 +374,7 @@ describe('run engine', () => {
         model: null,
         effort: null,
         context: null,
+        extraDirs: [],
       },
     })
     const [gb] = await t.db

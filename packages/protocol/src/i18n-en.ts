@@ -55,6 +55,9 @@ export const protocolEn = {
   '{user} 将 {bot} 在本群的模型设为 {model}': '{user} set the model of {bot} in this group to {model}',
   '{user} 将 {bot} 在本群的模型设为 {model} · {effort}':
     '{user} set the model of {bot} in this group to {model} · {effort}',
+  '{user} 将 {bot} 在本群的附加目录设为 {dirs}':
+    '{user} set the additional directories of {bot} in this group to {dirs}',
+  '{user} 清空了 {bot} 在本群的附加目录': '{user} cleared the additional directories of {bot} in this group',
   '{user} 将 {bot} 在本群的模型恢复为跟随 Bot 默认':
     "{user} reset the model of {bot} in this group to follow the Bot's default",
   '{user} /stop · 停止 {bots} 的 {n} 个轮次{chain}':

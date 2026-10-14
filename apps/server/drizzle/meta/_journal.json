@@ -407,6 +407,13 @@
       "when": 1791966556024,
       "tag": "0057_avatars",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791971081144,
+      "tag": "0058_group_bot_extra_dirs",
+      "breakpoints": true
     }
   ]
 }

@@ -18,7 +18,10 @@ function Commits({ icon, name, n }: { icon: IconName; name: string; n: number })
   )
 }
 
-/** Submodules / nested repos of a bot workspace: a count that opens the list, each entry opening its diff. */
+/**
+ * Submodules / nested repos of a bot workspace and the repos of its additional directories: a count that opens the
+ * list, each entry opening its diff.
+ */
 function SubRepos({ botId, name, repos }: { botId: string; name: string; repos: RepoStatus[] }) {
   const changed = repos.filter((r) => r.dirty || !!r.ahead).length
   return (
@@ -52,6 +55,7 @@ function SubRepos({ botId, name, repos }: { botId: string; name: string; repos: 
               }}
             >
               <span className="git-subs__path">{r.path}</span>
+              {r.kind === 'extra' ? <span className="diff__repo-tag">{t('附加目录#one')}</span> : null}
               <span className="git-bar__branch">{r.branch ?? t('游离')}</span>
               {r.behind ? (
                 <Commits icon="arrow-down" name={t('落后 {n} 个提交', { n: r.behind })} n={r.behind} />
@@ -209,6 +213,7 @@ export function GitBar({ group }: { group: GroupDto }) {
               model: null,
               effort: null,
               context: null,
+              extraDirs: [],
             }
           }
         />

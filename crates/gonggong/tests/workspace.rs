@@ -338,7 +338,7 @@ async fn git_status_tracks_ahead_behind_dirty_and_missing_upstream() {
     remote.commit("c.txt", "c");
     git(&dir, &["fetch", "-q"]);
     std::fs::write(dir.join("new.txt"), "x").unwrap();
-    let s = git::status(&dir, WorkspaceKind::Managed).await.unwrap();
+    let s = git::status(&dir, &[], WorkspaceKind::Managed).await.unwrap();
     assert_eq!(
         s,
         GitStatus {
@@ -352,7 +352,7 @@ async fn git_status_tracks_ahead_behind_dirty_and_missing_upstream() {
     );
 
     git(&dir, &["checkout", "-q", "-b", "feat/x"]);
-    let s = git::status(&dir, WorkspaceKind::Cd).await.unwrap();
+    let s = git::status(&dir, &[], WorkspaceKind::Cd).await.unwrap();
     assert_eq!((s.branch.as_deref(), s.ahead, s.behind), (Some("feat/x"), None, None));
 }
 
@@ -381,6 +381,7 @@ async fn runs_use_the_managed_clone_recreating_it_if_deleted_or_the_cd_directory
             repo: Some(remote.spec("rp")),
             cd_path: cd.map(|p| p.to_string_lossy().into_owned()),
             protect_base: false,
+            extra_dirs: vec![],
         },
         resume_session_id: None,
         new_session_reason: Some("requested".into()),
@@ -454,7 +455,12 @@ fn run_start(run_id: &str, group: &str, cd: &Path) -> RunStart {
             always_allow: vec![],
             git: None,
         },
-        workspace: WorkspaceSpec { repo: None, cd_path: Some(cd.to_string_lossy().into_owned()), protect_base: false },
+        workspace: WorkspaceSpec {
+            repo: None,
+            cd_path: Some(cd.to_string_lossy().into_owned()),
+            protect_base: false,
+            extra_dirs: vec![],
+        },
         resume_session_id: None,
         new_session_reason: None,
         prompt: RunPrompt {

@@ -182,7 +182,7 @@ impl Workspaces {
                 match check_cd(&dir, req.repo.as_ref().filter(|_| !req.force)).await {
                     Ok(()) => {
                         // A non-git dir still reports the repos below it.
-                        let status = git::status(&dir, WorkspaceKind::Cd).await.ok();
+                        let status = git::status(&dir, &[], WorkspaceKind::Cd).await.ok();
                         let remotes = if git::is_repo(&dir) { remotes(&dir).await } else { vec![] };
                         Ok((dir, status, remotes))
                     }
@@ -228,7 +228,7 @@ impl Workspaces {
         let dir = managed_path(&self.home, group, bot, repo.map(|r| &*r.id));
         prepare(&dir, repo, on_clone).await?;
         let git = match repo {
-            Some(_) => git::status(&dir, WorkspaceKind::Managed).await.ok(),
+            Some(_) => git::status(&dir, &[], WorkspaceKind::Managed).await.ok(),
             None => None,
         };
         Ok((dir, git, vec![]))

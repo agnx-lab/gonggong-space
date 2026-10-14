@@ -25,6 +25,7 @@ export const botStateDto = (r: Row): GroupBotStateDto => ({
   model: r.model,
   effort: r.effort,
   context: (r.contextUsage as ContextUsage | null) ?? null,
+  extraDirs: r.extraDirs,
 })
 
 export async function listBotStates(ctx: Ctx, groupId: string) {
@@ -54,6 +55,9 @@ export async function updateBotState(
       | 'model'
       | 'effort'
       | 'contextUsage'
+      | 'extraDirs'
+      | 'sessionId'
+      | 'newSessionReason'
     >
   >,
 ) {

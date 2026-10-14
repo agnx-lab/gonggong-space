@@ -112,6 +112,27 @@ describe('DiffPane grouped by repo', () => {
     expect(screen.getByRole('button', { name: /x\.ts\s*lib\/src/ })).toBeTruthy()
   })
 
+  it('groups the changes of an additional directory under its absolute path', () => {
+    const patch = [
+      'diff --git a/README.md b/README.md',
+      '@@ -1 +1 @@',
+      '-old',
+      '+root change',
+      'diff --git a//Users/wl/sdk/src/s.ts b//Users/wl/sdk/src/s.ts',
+      '@@ -0,0 +1 @@',
+      '+sdk change',
+      '',
+    ].join('\n')
+    const repos = [repo(''), repo('/Users/wl/sdk', { kind: 'extra' })]
+    expect(groupByRepo(parsePatch(patch), repos).map((g) => g.files.map((f) => f.path))).toEqual([
+      ['README.md'],
+      ['/Users/wl/sdk/src/s.ts'],
+    ])
+    render(<Pane diff={diffOf(repos, patch)} />)
+    expect(header(/^\/Users\/wl\/sdk/).textContent).toBe('/Users/wl/sdk附加目录main1 个文件+1−0')
+    expect(within(screen.getByRole('button', { name: /^s\.ts/ })).getByText('src')).toBeTruthy()
+  })
+
   it('shows a collapsible header per repo with branch, counts and repo-relative paths', () => {
     const repos = [
       repo('', { branch: 'feat/x', base: 'main' }),

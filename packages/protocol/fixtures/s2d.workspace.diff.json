@@ -3,7 +3,7 @@
   "requestId": "q1",
   "groupId": "g1",
   "botId": "b1",
-  "workspace": { "repo": null, "cdPath": "/Users/wl/pay" },
+  "workspace": { "repo": null, "cdPath": "/Users/wl/pay", "extraDirs": ["/Users/wl/pay-sdk"] },
   "scope": "turn",
   "runId": "r1"
 }

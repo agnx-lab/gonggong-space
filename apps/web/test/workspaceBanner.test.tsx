@@ -35,6 +35,7 @@ const unbound = (error: string | null = null) => ({
       model: null,
       effort: null,
       context: null,
+      extraDirs: [] as string[],
     } as const,
   },
 })
@@ -225,6 +226,7 @@ describe('workspace banner', () => {
         model: null,
         effort: null,
         context: null,
+        extraDirs: [] as string[],
       }) as const
     useWorkspace.setState({
       bots: [bot(), bot({ id: 'b2', name: '小王的 Codex' })],
@@ -280,6 +282,7 @@ describe('workspace banner', () => {
         model: null,
         effort: null,
         context: null,
+        extraDirs: [] as string[],
       } as const,
     },
   }

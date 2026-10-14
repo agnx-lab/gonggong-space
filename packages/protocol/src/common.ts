@@ -47,7 +47,8 @@ export const ContextUsage = z.object({ used: z.number().int(), size: z.number().
 export type ContextUsage = z.infer<typeof ContextUsage>
 
 /** Where a repo sits in a workspace: the root itself, a git submodule, or an independent repo found below a non-git root. */
-export const RepoKind = z.enum(['root', 'submodule', 'nested'])
+/** `extra`: an additional directory of the session (its repo's `path` is the directory's absolute path). */
+export const RepoKind = z.enum(['root', 'submodule', 'nested', 'extra'])
 export type RepoKind = z.infer<typeof RepoKind>
 
 /** Git state of one repo inside a workspace other than the root; `path` is relative to the workspace root. */

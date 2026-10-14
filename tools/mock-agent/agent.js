@@ -61,6 +61,7 @@ async function mcp(url, method, params, signal) {
 function open(sessionId, params) {
   sessions.set(sessionId, {
     cwd: params.cwd,
+    additionalDirectories: params.additionalDirectories ?? [],
     systemPrompt: params._meta?.systemPrompt?.append ?? null,
     settings: params._meta?.claudeCode?.options?.settings ?? null,
     plugins: params._meta?.claudeCode?.options?.plugins ?? null,
@@ -96,6 +97,7 @@ async function prompt({ sessionId, prompt: blocks }, client) {
       JSON.stringify({
         pid: process.pid,
         cwd: s.cwd,
+        additionalDirectories: s.additionalDirectories,
         mode: s.mode,
         model: s.model,
         effort: s.effort,

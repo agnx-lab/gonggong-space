@@ -206,7 +206,7 @@ impl Rig {
                 always_allow: vec![],
                 git: None,
             },
-            workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false },
+            workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false, extra_dirs: vec![] },
             resume_session_id: None,
             new_session_reason: None,
             mcp_servers: vec![],

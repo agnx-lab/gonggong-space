@@ -58,7 +58,7 @@ export function workspaceDiffRoutes(ctx: Ctx) {
         const machineId = onlineMachine(ctx, bot.machineId)
         if (!machineId) return fail('conflict', OFFLINE)
         const [gb] = await ctx.db
-          .select({ cdPath: groupBots.cdPath })
+          .select({ cdPath: groupBots.cdPath, extraDirs: groupBots.extraDirs })
           .from(groupBots)
           .where(and(eq(groupBots.groupId, group.id), eq(groupBots.botId, bot.id)))
         const repo = await currentRepo(ctx, group.id)
@@ -67,7 +67,7 @@ export function workspaceDiffRoutes(ctx: Ctx) {
           requestId: randomUUID(),
           groupId: group.id,
           botId: bot.id,
-          workspace: { repo, cdPath: gb?.cdPath ?? null },
+          workspace: { repo, cdPath: gb?.cdPath ?? null, extraDirs: gb?.extraDirs ?? [] },
           scope,
           runId: runId ?? null,
         } as const

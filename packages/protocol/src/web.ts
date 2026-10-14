@@ -462,6 +462,11 @@ export const INLINE_FILE_MIMES = [
 export const GroupBotTierReq = z.object({ tier: Tier.nullable() })
 /** PUT /api/groups/:id/bots/:botId/config (bot owner or group admin; anyone in a DM): nulls follow the bot. */
 export const GroupBotConfigReq = z.object({ model: z.string().nullable(), effort: z.string().nullable() })
+export const EXTRA_DIRS_MAX = 10
+/** PUT /api/groups/:id/bots/:botId/extra-dirs (bot owner only): the full list, [] clears it. */
+export const GroupBotExtraDirsReq = z.object({
+  dirs: z.array(z.string().trim().min(1).max(1024)).max(EXTRA_DIRS_MAX),
+})
 /** A one-shot pick for one message; an absent field follows the defaults, null = the adapter's default. */
 export const RunConfigPick = z.object({
   model: z.string().nullable().optional(),
@@ -1599,6 +1604,8 @@ export const GroupBotStateDto = z.object({
   effort: z.string().nullable(),
   /** Context occupancy of the bot's current session here; null before its first report or after /new. */
   context: ContextUsage.nullable(),
+  /** Additional directories (absolute paths on the owner's machine) the bot also works in here; not shared by sync. */
+  extraDirs: z.array(z.string()),
 })
 export type GroupBotStateDto = z.infer<typeof GroupBotStateDto>
 

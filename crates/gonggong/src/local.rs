@@ -35,6 +35,8 @@ pub struct Rules {
     pub always_allow: Vec<String>,
     /// The group's base branch when its 禁止直推基准分支 policy is on: pushing to it always asks.
     pub protect: Option<String>,
+    /// The session's additional directories: within the workspace too, like `cwd`.
+    pub extra_dirs: Vec<PathBuf>,
 }
 
 impl From<&RunBot> for Rules {
@@ -44,6 +46,7 @@ impl From<&RunBot> for Rules {
             allowlist: bot.allowlist.clone(),
             always_allow: bot.always_allow.clone(),
             protect: None,
+            extra_dirs: vec![],
         }
     }
 }
@@ -51,7 +54,8 @@ impl From<&RunBot> for Rules {
 impl From<&RunStart> for Rules {
     fn from(start: &RunStart) -> Self {
         let protect = start.workspace.repo.as_ref().filter(|_| start.workspace.protect_base).map(|r| r.branch.clone());
-        Self { protect, ..Self::from(&start.bot) }
+        let extra_dirs = start.workspace.extra_dirs.iter().map(PathBuf::from).collect();
+        Self { protect, extra_dirs, ..Self::from(&start.bot) }
     }
 }
 
@@ -123,10 +127,11 @@ impl Rules {
             return Decision::Ask;
         }
         let trusted = self.always_allow.iter().chain(always);
+        let roots = self.roots(cwd);
         let local = match self.approval {
             Approval::All => true,
-            Approval::Allowlist => allowed(self.allowlist.iter().chain(trusted), command, title, cwd),
-            Approval::Ask => allowed(trusted, command, title, cwd),
+            Approval::Allowlist => allowed(self.allowlist.iter().chain(trusted), command, title, &roots),
+            Approval::Ask => allowed(trusted, command, title, &roots),
         };
         if local { Decision::Local } else { Decision::Ask }
     }
@@ -135,7 +140,16 @@ impl Rules {
 impl Rules {
     /// `remember` that also never trusts a push to the protected base branch.
     pub fn remember(&self, command: Option<&str>, title: &str, cwd: &Path) -> Vec<String> {
-        if command.is_some_and(|c| self.pushes_base(c, cwd)) { vec![] } else { remember(command, title, cwd) }
+        if command.is_some_and(|c| self.pushes_base(c, cwd)) {
+            vec![]
+        } else {
+            remember(command, title, &self.roots(cwd))
+        }
+    }
+
+    /// The directories a `cd` may go to: the workspace and the additional ones.
+    fn roots<'a>(&'a self, cwd: &'a Path) -> Vec<&'a Path> {
+        std::iter::once(cwd).chain(self.extra_dirs.iter().map(PathBuf::as_path)).collect()
     }
 
     /// A `git push` that may update the protected base branch: named as a destination, `--all`/`--mirror`, or a
@@ -183,10 +197,10 @@ fn current_branch(cwd: &Path) -> Option<String> {
     head.trim().strip_prefix("ref: refs/heads/").map(String::from)
 }
 
-fn allowed<'a>(rules: impl Iterator<Item = &'a String>, command: Option<&str>, title: &str, cwd: &Path) -> bool {
+fn allowed<'a>(rules: impl Iterator<Item = &'a String>, command: Option<&str>, title: &str, roots: &[&Path]) -> bool {
     let (tools, prefixes): (Vec<&String>, Vec<&String>) = rules.partition(|r| r.starts_with(TOOL));
     match command {
-        Some(c) => allowlisted(prefixes, c, cwd),
+        Some(c) => allowlisted(prefixes, c, roots),
         None => tools.iter().any(|r| r[TOOL.len()..] == *title),
     }
 }
@@ -202,19 +216,19 @@ const READ_ONLY: &[&str] =
     &["cat", "head", "tail", "wc", "grep", "ls", "pwd", "echo", "git status", "git diff", "git log", "git show"];
 
 /// Every command of a chain or pipeline starts with a trusted prefix at a word boundary, or is harmless on its own:
-/// a read-only command or a `cd` within `cwd`. Anything the shell could substitute or write elsewhere is never allowed
+/// a read-only command or a `cd` within one of `roots`. Anything the shell could substitute or write elsewhere is never allowed
 /// (see `commands`).
-fn allowlisted<'a>(prefixes: impl IntoIterator<Item = &'a String>, command: &str, cwd: &Path) -> bool {
+fn allowlisted<'a>(prefixes: impl IntoIterator<Item = &'a String>, command: &str, roots: &[&Path]) -> bool {
     let Some(commands) = commands(command) else { return false };
     let prefixes: Vec<String> = prefixes.into_iter().map(|p| normalize(p)).collect();
     commands.iter().all(|words| {
         let line = words.join(" ");
-        starts_with_any(&line, prefixes.iter().map(String::as_str)) || harmless(&line, words, cwd)
+        starts_with_any(&line, prefixes.iter().map(String::as_str)) || harmless(&line, words, roots)
     })
 }
 
-fn harmless(line: &str, words: &[String], cwd: &Path) -> bool {
-    read_only(line, words) || cd_within(words, cwd)
+fn harmless(line: &str, words: &[String], roots: &[&Path]) -> bool {
+    read_only(line, words) || cd_within(words, roots)
 }
 
 fn starts_with_any<'a>(line: &str, prefixes: impl IntoIterator<Item = &'a str>) -> bool {
@@ -228,22 +242,22 @@ fn read_only(line: &str, words: &[String]) -> bool {
     starts_with_any(line, READ_ONLY.iter().copied()) && !words.iter().any(|w| w.starts_with("--output"))
 }
 
-/// `cd <dir>` with a literal path inside `cwd`.
-fn cd_within(words: &[String], cwd: &Path) -> bool {
+/// `cd <dir>` with a literal path inside one of `roots`.
+fn cd_within(words: &[String], roots: &[&Path]) -> bool {
     let [cd, dir] = words else { return false };
     let path = Path::new(dir);
     cd == "cd"
         && !dir.contains(['~', '$', '"', '\'', '\\', '*', '?', '[', '{'])
         && !dir.starts_with('-')
         && path.components().all(|c| c != std::path::Component::ParentDir)
-        && (path.is_relative() || path.starts_with(cwd))
+        && (path.is_relative() || roots.iter().any(|r| path.starts_with(r)))
 }
 
 /// What an allow_always answer to a request trusts from now on (plan A2/A3); nothing for the floor.
-pub fn remember(command: Option<&str>, title: &str, cwd: &Path) -> Vec<String> {
+pub fn remember(command: Option<&str>, title: &str, roots: &[&Path]) -> Vec<String> {
     match command {
         Some(c) if floor_hit(c) => vec![],
-        Some(c) => remembered(c, cwd),
+        Some(c) => remembered(c, roots),
         None => vec![format!("{TOOL}{title}")],
     }
 }
@@ -257,11 +271,11 @@ const EXACT: &[&str] = &[
 
 /// The smallest prefix of each command that is not harmless: up to 3 plain words (`npm run build`), or the whole
 /// command if it has fewer than 2 before other words, or runs an `EXACT` program.
-pub fn remembered(command: &str, cwd: &Path) -> Vec<String> {
+pub fn remembered(command: &str, roots: &[&Path]) -> Vec<String> {
     let mut rules: Vec<String> = Vec::new();
     for words in commands(command).unwrap_or_default() {
         let line = words.join(" ");
-        if harmless(&line, &words, cwd) {
+        if harmless(&line, &words, roots) {
             continue;
         }
         let plain: Vec<&str> = words.iter().map(String::as_str).take_while(|w| plain_word(w)).take(3).collect();
@@ -545,7 +559,7 @@ mod tests {
     }
 
     fn bot(approval: Approval, allowlist: &[&str]) -> Rules {
-        Rules { approval, allowlist: strings(allowlist), always_allow: vec![], protect: None }
+        Rules { approval, allowlist: strings(allowlist), always_allow: vec![], protect: None, extra_dirs: vec![] }
     }
 
     #[test]
@@ -678,6 +692,17 @@ mod tests {
     }
 
     #[test]
+    fn additional_directories_count_as_the_workspace() {
+        let cwd = Path::new("/w");
+        let rules = Rules { extra_dirs: vec!["/sdk".into()], ..bot(Approval::Allowlist, &["go build"]) };
+        assert_eq!(rules.decide(Tier::Workspace, Some("cd /sdk/src && go build"), "t", cwd, &[]), Decision::Local);
+        assert_eq!(rules.decide(Tier::Workspace, Some("cd /w && go build"), "t", cwd, &[]), Decision::Local);
+        assert_eq!(rules.decide(Tier::Workspace, Some("cd /sdkx && go build"), "t", cwd, &[]), Decision::Ask);
+        assert_eq!(rules.remember(Some("cd /sdk && pnpm lint"), "t", cwd), ["pnpm lint"]);
+        assert_eq!(bot(Approval::Ask, &[]).remember(Some("cd /sdk && pnpm lint"), "t", cwd), ["cd /sdk", "pnpm lint"]);
+    }
+
+    #[test]
     fn pushing_to_a_protected_base_branch_always_asks() {
         use Decision::*;
         let on = |branch: &str| {
@@ -716,7 +741,7 @@ mod tests {
     #[test]
     fn always_allowed_commands_apply_in_every_mode() {
         let cwd = Path::new("/w");
-        let always = remembered("cd /w && pnpm lint 2>&1 | tail -3", cwd);
+        let always = remembered("cd /w && pnpm lint 2>&1 | tail -3", &[cwd]);
         assert_eq!(always, ["pnpm lint"]);
         let from_server = |approval| Rules { always_allow: always.clone(), ..bot(approval, &[]) };
         for approval in [Approval::Ask, Approval::Allowlist] {
@@ -727,13 +752,13 @@ mod tests {
                 assert_eq!(b.decide(Tier::Workspace, Some("sudo pnpm lint"), "t", cwd, mem), Decision::Ask);
             }
         }
-        assert!(remembered("python3 - <<EOF", cwd).is_empty());
+        assert!(remembered("python3 - <<EOF", &[cwd]).is_empty());
     }
 
     #[test]
     fn tool_rules_match_the_request_title_exactly() {
         let cwd = Path::new("/w");
-        let always = remember(None, "mcp__github__create_issue", cwd);
+        let always = remember(None, "mcp__github__create_issue", &[cwd]);
         assert_eq!(always, ["tool:mcp__github__create_issue"]);
         for approval in [Approval::Ask, Approval::Allowlist] {
             let b = bot(approval, &[]);
@@ -770,16 +795,16 @@ mod tests {
             ("ls $(id)", &[]),
         ];
         for (command, want) in cases {
-            assert_eq!(remembered(command, cwd), *want, "{command}");
+            assert_eq!(remembered(command, &[cwd]), *want, "{command}");
         }
     }
 
     #[test]
     fn the_floor_is_never_remembered() {
         let cwd = Path::new("/w");
-        assert!(remember(Some("git push --force origin main"), "t", cwd).is_empty());
-        assert_eq!(remember(Some("git push origin main"), "t", cwd), ["git push origin"]);
-        assert_eq!(remember(None, "Write a.txt", cwd), ["tool:Write a.txt"]);
+        assert!(remember(Some("git push --force origin main"), "t", &[cwd]).is_empty());
+        assert_eq!(remember(Some("git push origin main"), "t", &[cwd]), ["git push origin"]);
+        assert_eq!(remember(None, "Write a.txt", &[cwd]), ["tool:Write a.txt"]);
     }
 
     #[test]

@@ -538,6 +538,7 @@ export function BotsView({ group, isAdmin, member }: { group: GroupDto; isAdmin:
   const allBots = useWorkspace((s) => s.bots)
   const [removing, setRemoving] = useState<BotDto | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [dirsOf, setDirsOf] = useState<BotDto | null>(null)
   const states = useWorkspace((s) => s.botStates[group.id])
   const editing = allBots.find((b) => b.id === editingId)
   const bots = group.botIds.flatMap((id) => allBots.filter((b) => b.id === id))
@@ -595,8 +596,25 @@ export function BotsView({ group, isAdmin, member }: { group: GroupDto; isAdmin:
                 {states?.[b.id]?.tier ? t(' · 本群') : ''}
               </span>
               <span>{t('触发 {scope}', { scope: SCOPE_LABEL(b) })}</span>
+              {b.ownerId !== me?.id && states?.[b.id]?.extraDirs.length ? (
+                <span title={states[b.id]?.extraDirs.join('\n')}>
+                  {t('附加目录 {n}', { n: states[b.id]?.extraDirs.length ?? 0 })}
+                </span>
+              ) : null}
               <span className="spacer" />
               <ShareRequestAction bot={b} />
+              {b.ownerId === me?.id ? (
+                <Button
+                  variant="plain"
+                  size="small"
+                  title={states?.[b.id]?.extraDirs.join('\n') || undefined}
+                  onClick={() => setDirsOf(b)}
+                >
+                  {states?.[b.id]?.extraDirs.length
+                    ? t('附加目录 {n}', { n: states[b.id]?.extraDirs.length ?? 0 })
+                    : t('附加目录')}
+                </Button>
+              ) : null}
               {b.ownerId === me?.id || me?.role === 'sysadmin' ? (
                 <>
                   <GroupTierPicker groupId={group.id} bot={b} tier={states?.[b.id]?.tier ?? null} />
@@ -634,7 +652,72 @@ export function BotsView({ group, isAdmin, member }: { group: GroupDto; isAdmin:
           <BotDialog bot={editing} me={me} tab="access" onClose={() => setEditingId(null)} />
         ) : null}
       </Presence>
+      <Presence>
+        {dirsOf ? (
+          <ExtraDirsDialog
+            groupId={group.id}
+            bot={dirsOf}
+            dirs={states?.[dirsOf.id]?.extraDirs ?? []}
+            onClose={() => setDirsOf(null)}
+          />
+        ) : null}
+      </Presence>
     </>
+  )
+}
+
+/** The directories on the owner's machine the bot also works in here, one absolute path per line. */
+function ExtraDirsDialog({
+  groupId,
+  bot,
+  dirs,
+  onClose,
+}: {
+  groupId: string
+  bot: BotDto
+  dirs: string[]
+  onClose: () => void
+}) {
+  const [text, setText] = useState(dirs.join('\n'))
+  const [busy, setBusy] = useState(false)
+  const save = async () => {
+    setBusy(true)
+    const list = text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+    if (await attempt(() => groupsApi.setBotExtraDirs(groupId, bot.id, list))) onClose()
+    else setBusy(false)
+  }
+  return (
+    <Dialog
+      open
+      title={t('{bot} 的附加目录', { bot: bot.name })}
+      width={480}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('取消')}</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void save()}>
+            {t('保存')}
+          </Button>
+        </>
+      }
+    >
+      <TextField
+        multiline
+        rows={4}
+        label={t('每行一个本机绝对路径')}
+        placeholder={t('如：/Users/me/code/pay-sdk')}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <p className="gs-note">
+        {t(
+          '除工作区外，Bot 在本群也可读写这些目录，其中 git 仓库的改动在「改动」里按目录分组显示。附加目录不参与强制同步群的版本同步。修改后下一轮开启新会话。',
+        )}
+      </p>
+    </Dialog>
   )
 }
 

@@ -43,6 +43,7 @@ const state = (botId: string, o: Partial<GroupBotStateDto> = {}): GroupBotStateD
   model: null,
   effort: null,
   context: null,
+  extraDirs: [],
   ...o,
 })
 

@@ -572,6 +572,7 @@ describe('chat view', () => {
         model: null,
         effort: null,
         context: null,
+        extraDirs: [],
       },
     })
     expect(within(main).getByTestId('git-b1').textContent).toBe('小王的 Claudemain1未提交托管')
@@ -1278,6 +1279,7 @@ describe('repo and workspaces', () => {
     model: null,
     effort: null,
     context: null,
+    extraDirs: [],
     ...s,
   }))
 

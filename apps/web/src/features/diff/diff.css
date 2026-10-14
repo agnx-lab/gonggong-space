@@ -78,6 +78,14 @@
   color: var(--tint-orange-text);
   font-size: var(--text-caption-size);
 }
+.diff__repo-tag {
+  flex: none;
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-capsule);
+  background: var(--tint-blue);
+  color: var(--tint-blue-text);
+  font-size: var(--text-caption-size);
+}
 .diff-layout-toggle {
   flex: none;
   margin-left: auto;

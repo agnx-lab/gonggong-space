@@ -45,6 +45,8 @@ const PROVIDER_REMOVED: &str = "provider_removed";
 pub(crate) struct TurnReq {
     pub start: RunStart,
     pub cwd: PathBuf,
+    /// The session's additional directories (ACP additionalDirectories), existing absolute paths.
+    pub extras: Vec<PathBuf>,
     pub out: Outbox,
     /// The owner's local settings as of this run.
     pub local: LocalSettings,
@@ -120,7 +122,7 @@ struct Active {
     turn: Turn,
     /// False while the session is being set up (session/load replays history we must not forward).
     streaming: bool,
-    /// Set when the turn runs in a repo workspace.
+    /// Set when the workspace or an additional directory is a repo.
     git: Option<GitTurn>,
     sync: Option<SyncTurn>,
     /// The last prompt has ended: no more appends (spec §8.9) are taken.
@@ -129,8 +131,9 @@ struct Active {
 
 struct GitTurn {
     cwd: PathBuf,
+    extras: Vec<PathBuf>,
     kind: WorkspaceKind,
-    snap: git::Snapshot,
+    tracked: Vec<git::Tracked>,
 }
 
 /// State shared between the session task, ACP callbacks and the engine (for cancel).
@@ -428,20 +431,16 @@ impl Shared {
         true
     }
 
-    /// Arms change tracking for a repo workspace; the tree is never fetched or moved before a turn.
+    /// Arms change tracking for the repos among the workspace and its additional directories; the trees are never
+    /// fetched or moved before a turn.
     async fn pre_turn(&self, req: &TurnReq) {
-        if !git::is_repo(&req.cwd) {
+        let tracked = git::track(&req.cwd, &req.extras).await;
+        if tracked.is_empty() {
             return;
         }
-        match git::snapshot(&req.cwd).await {
-            Ok(snap) => {
-                let kind =
-                    if req.start.workspace.cd_path.is_none() { WorkspaceKind::Managed } else { WorkspaceKind::Cd };
-                if let Some(a) = self.0.lock().unwrap().active.as_mut() {
-                    a.git = Some(GitTurn { cwd: req.cwd.clone(), kind, snap });
-                }
-            }
-            Err(e) => tracing::warn!("git snapshot failed: {e}"),
+        let kind = if req.start.workspace.cd_path.is_none() { WorkspaceKind::Managed } else { WorkspaceKind::Cd };
+        if let Some(a) = self.0.lock().unwrap().active.as_mut() {
+            a.git = Some(GitTurn { cwd: req.cwd.clone(), extras: req.extras.clone(), kind, tracked });
         }
     }
 
@@ -472,10 +471,9 @@ impl Shared {
         // Before the submit: catching up afterwards writes the others' changes into the tree.
         if let Some(g) = git {
             let result = async {
-                Ok::<_, String>((git::status(&g.cwd, g.kind).await?, git::changed_since(&g.cwd, &g.snap).await?))
+                Ok::<_, String>((git::status(&g.cwd, &g.extras, g.kind).await?, git::turn_changed(&g.tracked).await?))
             };
-            let patch =
-                git::patch_since(&g.cwd, &g.snap).await.inspect_err(|e| tracing::warn!("git patch failed: {e}"));
+            let patch = git::turn_patch(&g.tracked).await.inspect_err(|e| tracing::warn!("git patch failed: {e}"));
             let git = result.await.inspect_err(|e| tracing::warn!("git post-turn failed: {e}")).ok();
             let mut s = self.0.lock().unwrap();
             if let Some(a) = s.active.as_mut() {
@@ -499,10 +497,10 @@ impl Shared {
         let git = {
             let s = self.0.lock().unwrap();
             let a = s.active.as_ref().filter(|a| a.run_id == run_id)?;
-            a.git.as_ref().map(|g| (g.cwd.clone(), g.snap.clone()))
+            a.git.as_ref().map(|g| g.tracked.clone())
         };
-        let Some((cwd, snap)) = git else { return Some(Err(t!("本轮改动仅支持 git 工作区").into())) };
-        Some(git::patch_since(&cwd, &snap).await)
+        let Some(tracked) = git else { return Some(Err(t!("本轮改动仅支持 git 工作区").into())) };
+        Some(git::turn_patch(&tracked).await)
     }
 
     /// Restores the files `run_id` touched, if it is this conversation's last finished turn. None → not ours.
@@ -514,7 +512,7 @@ impl Shared {
             }
             s.last.take()?.1
         };
-        Some(git::discard(&g.cwd, &g.snap).await)
+        Some(git::turn_discard(&g.tracked).await)
     }
 
     fn stream(&self, cx: &ConnectionTo<Agent>, session: &SessionId) {
@@ -1156,7 +1154,8 @@ impl Conversation<'_> {
             }
         }
         let servers = mcp_servers_for(&req.start, self.ask);
-        let new = NewSessionRequest::new(&req.cwd).mcp_servers(servers).meta(meta);
+        let new =
+            NewSessionRequest::new(&req.cwd).additional_directories(req.extras.clone()).mcp_servers(servers).meta(meta);
         let res = self.cx.send_request(new).block_task().await?;
         self.set_modes(res.modes);
         self.set_options(res.config_options.unwrap_or_default());
@@ -1174,11 +1173,17 @@ impl Conversation<'_> {
         let caps = &self.init.agent_capabilities;
         let servers = mcp_servers_for(&req.start, self.ask);
         if caps.session_capabilities.resume.is_some() {
-            let req = ResumeSessionRequest::new(id.clone(), &req.cwd).mcp_servers(servers).meta(meta);
+            let req = ResumeSessionRequest::new(id.clone(), &req.cwd)
+                .additional_directories(req.extras.clone())
+                .mcp_servers(servers)
+                .meta(meta);
             let res = self.cx.send_request(req).block_task().await?;
             Ok((res.modes, res.config_options))
         } else if caps.load_session {
-            let req = LoadSessionRequest::new(id.clone(), &req.cwd).mcp_servers(servers).meta(meta);
+            let req = LoadSessionRequest::new(id.clone(), &req.cwd)
+                .additional_directories(req.extras.clone())
+                .mcp_servers(servers)
+                .meta(meta);
             let res = self.cx.send_request(req).block_task().await?;
             Ok((res.modes, res.config_options))
         } else {

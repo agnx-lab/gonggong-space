@@ -1,0 +1,1 @@
+ALTER TABLE "group_bots" ADD COLUMN "extra_dirs" jsonb DEFAULT '[]'::jsonb NOT NULL;

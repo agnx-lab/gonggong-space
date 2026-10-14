@@ -85,6 +85,7 @@ function RepoFiles({ group, ...props }: Omit<FileListProps, 'repos'> & { group: 
           <Icon name="chevron-right" weight={2} />
         </span>
         <span className="diff__repo-name">{repo.path || t('根仓库')}</span>
+        {repo.kind === 'extra' ? <span className="diff__repo-tag">{t('附加目录#one')}</span> : null}
         <span className="diff__repo-branch">
           {repo.base ? `${repo.branch ?? 'HEAD'} → ${repo.base}` : repo.branch}
         </span>

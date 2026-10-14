@@ -113,6 +113,8 @@ pub enum RepoKind {
     Root,
     Submodule,
     Nested,
+    /// An additional directory of the session; its repo's path is the directory's absolute path.
+    Extra,
 }
 
 /// Git state of a non-root repo; `path` is relative to the workspace root.
@@ -476,6 +478,9 @@ pub struct WorkspaceSpec {
     /// 禁止直推基准分支: pushing to `repo.branch` always asks the owner.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub protect_base: bool,
+    /// Absolute paths the session may also work in (ACP additionalDirectories); not shared by sync.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

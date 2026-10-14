@@ -239,6 +239,11 @@ export const WorkspaceSpec = z.object({
   cdPath: z.string().nullable(),
   /** 禁止直推基准分支 (run.start only): pushing to `repo.branch` always asks the owner. */
   protectBase: z.boolean().optional(),
+  /**
+   * Additional directories (absolute local paths) of the session besides the workspace (run.start, workspace.diff):
+   * the agent may read and write them; their git changes are reported as `extra` repos. Not shared by sync.
+   */
+  extraDirs: z.array(z.string()).optional(),
 })
 
 export const RunStart = z.object({

@@ -425,6 +425,8 @@ export const groupBots = pgTable(
     workspaceReason: text('workspace_reason'),
     /** Agent commands last reported over ACP (available_commands_update) for / candidates. */
     agentCommands: jsonb('agent_commands').notNull().default([]),
+    /** Absolute paths on the owner's machine the session also works in (ACP additionalDirectories); set by the owner. */
+    extraDirs: jsonb('extra_dirs').$type<string[]>().notNull().default([]),
     removedAt: ts('removed_at'),
     addedAt: createdAt(),
   },

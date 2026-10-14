@@ -175,18 +175,33 @@ impl Engine {
     }
 }
 
+/// The run's additional directories; each must be an existing directory given by its absolute path.
+fn extra_dirs(start: &RunStart) -> Result<Vec<PathBuf>, String> {
+    let dirs: Vec<PathBuf> = start.workspace.extra_dirs.iter().map(PathBuf::from).collect();
+    match dirs.iter().find(|d| !d.is_absolute() || !d.is_dir()) {
+        Some(d) => Err(t!("附加目录不存在或不是目录：{path}", path = d.display())),
+        None => Ok(dirs),
+    }
+}
+
 /// How long the server waits for a workspace diff (DIFF_TIMEOUT_MS).
 const DIFF_TIMEOUT: Duration = Duration::from_secs(10);
 
-async fn workspace_diff(dir: &Path, scope: DiffScope, run_id: Option<&str>, shared: Option<Arc<Shared>>) -> DiffResult {
+async fn workspace_diff(
+    dir: &Path,
+    extras: &[PathBuf],
+    scope: DiffScope,
+    run_id: Option<&str>,
+    shared: Option<Arc<Shared>>,
+) -> DiffResult {
     let ended = t!("该轮已结束或不在本机运行");
     match scope {
         DiffScope::Turn => {
             let (Some(run_id), Some(shared)) = (run_id, shared) else { return Err(ended.into()) };
             shared.live_patch(run_id).await.ok_or(ended)?
         }
-        DiffScope::Uncommitted => git::uncommitted_patch(dir).await,
-        DiffScope::Base => git::base_patch(dir).await,
+        DiffScope::Uncommitted => git::uncommitted_patch(dir, extras).await,
+        DiffScope::Base => git::base_patch(dir, extras).await,
     }
 }
 
@@ -314,17 +329,18 @@ impl Handler for Engine {
             }
             ServerToDaemon::WorkspaceDiff(req) => {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let extras: Vec<PathBuf> = req.workspace.extra_dirs.iter().map(PathBuf::from).collect();
                 let key = (req.group_id.clone(), req.bot_id.clone());
                 let shared = self.0.actors.lock().unwrap().get(&key).map(|a| a.shared.clone());
                 let (inner, out) = (self.0.clone(), out.clone());
                 tokio::spawn(async move {
-                    let key = format!("{}|{:?}|{:?}", dir.display(), req.scope, req.run_id);
+                    let key = format!("{}|{extras:?}|{:?}|{:?}", dir.display(), req.scope, req.run_id);
                     let (slots, d, run_id) = (inner.diff_slots.clone(), dir.clone(), req.run_id.clone());
                     // The server stops waiting by then; dropping the work kills its git processes and frees the slot.
                     let compute = async move {
                         let work = async {
                             let _slot = slots.acquire_owned().await.expect("never closed");
-                            workspace_diff(&d, req.scope, run_id.as_deref(), shared).await
+                            workspace_diff(&d, &extras, req.scope, run_id.as_deref(), shared).await
                         };
                         tokio::time::timeout(DIFF_TIMEOUT, work)
                             .await
@@ -424,6 +440,10 @@ impl Inner {
             Ok(dir) => dir,
             Err(e) => return out.send(failed(&start.run_id, e)),
         };
+        let extras = match extra_dirs(&start) {
+            Ok(extras) => extras,
+            Err(e) => return out.send(failed(&start.run_id, e)),
+        };
         let sync = match self.replicas.before_turn(&start, &cwd, &out).await {
             Ok(sync) => sync,
             Err(Refusal::Wait(issue)) => return out.send(waiting(&start.run_id, issue)),
@@ -453,7 +473,7 @@ impl Inner {
         });
         actor.shared.enqueue(&start.run_id);
         let behind = sync.as_ref().and_then(|s| s.behind());
-        let _ = actor.tx.send(TurnReq { start, cwd, out, local, sync, behind });
+        let _ = actor.tx.send(TurnReq { start, cwd, extras, out, local, sync, behind });
     }
 
     /// Hands an answer / append to the conversation running `run_id`, once its attachments are in that workspace.

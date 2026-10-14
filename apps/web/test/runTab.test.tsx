@@ -669,6 +669,7 @@ describe('process timeline', () => {
             model: null,
             effort: null,
             context: null,
+            extraDirs: [],
           },
         },
       },

@@ -3,6 +3,7 @@ import {
   BindWorkspaceReq,
   DefaultWorkspaceReq,
   type DirListingDto,
+  GroupBotExtraDirsReq,
   type RepoAccessReason,
   type RepoCandidatesDto,
 } from '@gonggong/protocol'
@@ -16,13 +17,14 @@ import { idParam } from '../../lib/ids.js'
 import { requireUser } from '../auth/session.js'
 import { publishBot } from '../bots/dto.js'
 import { activeBots, requireMember } from '../groups/service.js'
+import { postEvent } from '../messages/service.js'
 import { groupLocalPaths } from '../repos/service.js'
 import { ABSOLUTE, announceCd, requestCd } from './cd.js'
 import { daemonWorkspaceRoutes } from './daemon.js'
 import { workspaceDiffRoutes } from './diff.js'
 import { workspaceFileRoutes } from './files.js'
 import { currentRepo, ensureWorkspace, onlineMachine, PAUSING } from './provision.js'
-import { listBotStates } from './state.js'
+import { listBotStates, updateBotState } from './state.js'
 
 const DIR_TIMEOUT_MS = 10_000
 /** repo.find walks the home dir: allow it longer than one directory listing. */
@@ -109,6 +111,41 @@ export function workspaceRoutes(ctx: Ctx) {
         if (!(await requestCd(ctx, { groupId: group.id, botId: bot.id, path, force })))
           fail('conflict', '{bot} 离线，无法绑定工作区', { bot: bot.name })
         await announceCd(ctx, { groupId: group.id, userId: me.id, bot, path })
+        return reply.status(204).send()
+      },
+    )
+
+    /** The session's additional directories; a change starts a new session from the next turn on. */
+    app.put<{ Params: { id: string; botId: string } }>(
+      '/api/groups/:id/bots/:botId/extra-dirs',
+      async (req, reply) => {
+        const me = await requireUser(ctx, req)
+        const { group } = await requireMember(ctx, req.params.id, me.id)
+        const bot = await ownBot(ctx, me.id, req.params.botId)
+        const [gb] = await ctx.db
+          .select({ extraDirs: groupBots.extraDirs })
+          .from(groupBots)
+          .where(
+            and(eq(groupBots.groupId, group.id), eq(groupBots.botId, bot.id), isNull(groupBots.removedAt)),
+          )
+        if (!gb) return fail('not_found', '该 Bot 不在群内')
+        const { dirs } = GroupBotExtraDirsReq.parse(req.body)
+        if (dirs.some((d) => !ABSOLUTE.test(d))) fail('invalid', '需要本机绝对路径')
+        const extraDirs = [...new Set(dirs.map((d) => d.replace(/(.)[\\/]+$/, '$1')))]
+        if (extraDirs.join('\n') === gb.extraDirs.join('\n')) return reply.status(204).send()
+        await updateBotState(ctx, group.id, bot.id, {
+          extraDirs,
+          sessionId: null,
+          newSessionReason: 'config_changed',
+        })
+        await postEvent(
+          ctx,
+          group.id,
+          extraDirs.length
+            ? '{user} 将 {bot} 在本群的附加目录设为 {dirs}'
+            : '{user} 清空了 {bot} 在本群的附加目录',
+          { user: me.name, bot: bot.name, dirs: extraDirs.join('、') },
+        )
         return reply.status(204).send()
       },
     )
