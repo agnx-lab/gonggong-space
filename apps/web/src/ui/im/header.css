@@ -87,3 +87,28 @@
   font-weight: 600;
   box-shadow: var(--shadow-outline, none);
 }
+
+.pn-chathead__avatar {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-field);
+  background: none;
+  cursor: pointer;
+}
+.pn-chathead__avatar:hover {
+  opacity: 0.8;
+}
+.pn-chathead__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pn-chathead__link:hover {
+  color: var(--label);
+  text-decoration: underline;
+}

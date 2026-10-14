@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { InspectorPortal, useInspector } from '../../app/inspector'
 import { GROUP_MODE_LABEL } from '../../app/Sidebar'
 import { useSession } from '../../app/session'
@@ -163,6 +163,7 @@ export function ChatView({
   const dropFiles = useRef<((files: File[]) => void) | null>(null)
   const drag = useFileDrag()
   const inspector = useInspector()
+  const navigate = useNavigate()
   const infoOpen = inspector.view === 'group-info'
   const benchTabs = useWorkbench((s) => s.benches[group.id]?.tabs.length ?? 0)
   const benchOpen = useWorkbench((s) => s.open)
@@ -435,6 +436,18 @@ export function ChatView({
           avatar={<GroupAvatar group={group} size={32} />}
           title={group.name}
           onBack={onBack}
+          {...(readOnly
+            ? {}
+            : dm
+              ? group.botIds[0]
+                ? { avatarLabel: t('查看 Bot'), onAvatarClick: () => navigate(`/bot/${group.botIds[0]}`) }
+                : {}
+              : isAdmin
+                ? { avatarLabel: t('打开群设置'), onAvatarClick: () => setSettings('basic') }
+                : {
+                    avatarLabel: t('打开群信息'),
+                    onAvatarClick: () => inspector.open('group-info', 'main'),
+                  })}
           tags={dm ? undefined : [{ label: GROUP_MODE_LABEL[group.mode], tone: 'gray' }]}
           badges={group.feishu ? <FeishuChatLink chat={group.feishu} /> : null}
           subtitle={
@@ -447,13 +460,36 @@ export function ChatView({
                   className="chat-view__muted"
                 />
               ) : null}
-              {dm
-                ? sharer
-                  ? t('{owner} 共享的 Bot · ', { owner: sharer })
-                  : t('仅你和你的 Bot · ')
-                : botCount
-                  ? t('{n} 人 · {bots} Bot · ', { n: group.members.length, bots: botCount })
-                  : t('{n} 人 · ', { n: group.members.length })}
+              {dm ? (
+                sharer ? (
+                  t('{owner} 共享的 Bot · ', { owner: sharer })
+                ) : (
+                  t('仅你和你的 Bot · ')
+                )
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="pn-chathead__link"
+                    onClick={() => inspector.open('group-info', 'members')}
+                  >
+                    {t('{n} 人', { n: group.members.length })}
+                  </button>
+                  {' · '}
+                  {botCount ? (
+                    <>
+                      <button
+                        type="button"
+                        className="pn-chathead__link"
+                        onClick={() => inspector.open('group-info', 'bots')}
+                      >
+                        {t('{n} Bot', { n: botCount })}
+                      </button>
+                      {' · '}
+                    </>
+                  ) : null}
+                </>
+              )}
               <span title={group.repo?.url}>
                 {group.repo
                   ? `${repoName(group.repo.url)} · ${group.repo.branch}`

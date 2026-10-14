@@ -35,6 +35,9 @@ export interface ChatHeaderProps {
   trailing?: ReactNode
   /** Shows a「返回」chevron before the avatar (single-column mobile layout). */
   onBack?: () => void
+  /** Makes the avatar a button named `avatarLabel`. */
+  onAvatarClick?: () => void
+  avatarLabel?: string
 }
 
 export function ChatHeader({
@@ -51,9 +54,17 @@ export function ChatHeader({
   onTabChange,
   trailing,
   onBack,
+  onAvatarClick,
+  avatarLabel,
 }: ChatHeaderProps) {
   const [own, setOwn] = useState(defaultTab ?? tabs[0]?.value)
   const current = tab ?? own
+  const face =
+    avatar !== undefined ? (
+      avatar
+    ) : (
+      <Avatar name={typeof title === 'string' ? title : ''} size={32} shape={group ? 'square' : 'circle'} />
+    )
   return (
     <header className="pn-chathead">
       <div className="pn-chathead__bar">
@@ -62,14 +73,18 @@ export function ChatHeader({
             <Icon name="chevron-left" size={20} weight={1.8} />
           </button>
         ) : null}
-        {avatar !== undefined ? (
-          avatar
+        {onAvatarClick ? (
+          <button
+            type="button"
+            className="pn-chathead__avatar"
+            aria-label={avatarLabel}
+            title={avatarLabel}
+            onClick={onAvatarClick}
+          >
+            {face}
+          </button>
         ) : (
-          <Avatar
-            name={typeof title === 'string' ? title : ''}
-            size={32}
-            shape={group ? 'square' : 'circle'}
-          />
+          face
         )}
         <div className="pn-chathead__titles">
           <div className="pn-chathead__title">

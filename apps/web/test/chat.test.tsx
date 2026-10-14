@@ -1200,6 +1200,33 @@ describe('repo and workspaces', () => {
     ...s,
   }))
 
+  it('opens settings from the header avatar for admins, the info panel otherwise, and members or bots from the subtitle', async () => {
+    mockApi({ ...baseRoutes([group()]), 'GET /groups/g1/bot-states': () => states })
+    const { unmount } = renderAt('/g/g1')
+    const main = screen.getByRole('main')
+    fireEvent.click(await within(main).findByRole('button', { name: '打开群设置' }))
+    expect(await screen.findByRole('dialog', { name: '基本信息 · 退款 v2 迁移' })).toBeTruthy()
+    fireEvent.click(within(main).getByRole('button', { name: '2 Bot' }))
+    const drawer = await screen.findByRole('complementary', { name: '群设置' })
+    expect(await within(drawer).findByText('Bot · 2')).toBeTruthy()
+    fireEvent.click(within(main).getByRole('button', { name: '2 人' }))
+    expect(
+      await within(screen.getByRole('complementary', { name: '群设置' })).findByText('群成员 · 2'),
+    ).toBeTruthy()
+    unmount()
+
+    const member = group({
+      members: [
+        { userId: 'u1', name: '王磊', avatar: null, isAdmin: false },
+        { userId: 'u2', name: '李建国', avatar: null, isAdmin: true },
+      ],
+    })
+    mockApi({ ...baseRoutes([member]), 'GET /groups/g1/bot-states': () => states })
+    renderAt('/g/g1')
+    fireEvent.click(await within(screen.getByRole('main')).findByRole('button', { name: '打开群信息' }))
+    expect(await screen.findByRole('complementary', { name: '群设置' })).toBeTruthy()
+  })
+
   it('lets a group admin unbind the repo after confirming', async () => {
     const calls = mockApi({
       ...baseRoutes([group()]),
