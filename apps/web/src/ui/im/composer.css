@@ -35,7 +35,7 @@
   background: transparent;
   color: var(--label);
   font: inherit;
-  font-size: var(--text-body-size);
+  font-size: var(--composer-font-size, var(--text-body-size));
   line-height: 19px;
   padding: 0;
   min-height: 19px;
@@ -174,7 +174,8 @@
   overflow: hidden;
   pointer-events: none;
   color: var(--label);
-  font-size: var(--text-body-size);
+  /* Must match the textarea's: the caret follows its transparent text, the eye this layer. */
+  font-size: var(--composer-font-size, var(--text-body-size));
   line-height: 19px;
 }
 .pn-composer__mirror,

@@ -108,9 +108,9 @@
   .composer {
     padding: var(--space-8) var(--space-12) var(--space-12);
   }
-  /* Below 16px iOS zooms the page on focus. */
-  .composer .pn-composer textarea {
-    font-size: 16px;
+  /* Below 16px iOS zooms the page on focus; the @ highlight layer takes the same size. */
+  .composer .pn-composer {
+    --composer-font-size: 16px;
   }
 }
 
