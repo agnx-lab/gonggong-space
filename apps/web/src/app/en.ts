@@ -70,4 +70,7 @@ export default {
     'Three steps to get your first Bot working. Or wait for a teammate to add you to a group and jump right in.',
   共享给我: 'Shared with me',
   '{owner} 共享': 'Shared by {owner}',
+  取消置顶: 'Unpin',
+  取消免打扰: 'Unmute',
+  清除未读: 'Mark as read',
 } satisfies Record<string, string>

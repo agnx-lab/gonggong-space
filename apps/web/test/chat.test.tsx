@@ -297,6 +297,31 @@ describe('sidebar', () => {
     expect(within(nav).getByRole('link', { name: /脚本实验/ })).toBeTruthy()
   })
 
+  it('right-clicking a conversation pins, mutes or clears its unread', async () => {
+    const calls = mockApi({
+      ...baseRoutes([group({ unread: 3, lastSeq: 9 })]),
+      'PUT /groups/g1/prefs': (body) => group({ ...(body as Partial<GroupDto>), unread: 3 }),
+      'POST /groups/g1/read': () => group({ unread: 0 }),
+    })
+    renderAt('/')
+    const nav = screen.getByRole('navigation', { name: '会话列表' })
+    const row = await within(nav).findByRole('link', { name: /退款 v2 迁移/ })
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: '置顶' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === '/groups/g1/prefs')?.body).toEqual({ pinned: true }),
+    )
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: '消息免打扰' }))
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path === '/groups/g1/prefs').at(-1)?.body).toEqual({ muted: true }),
+    )
+    fireEvent.contextMenu(row)
+    fireEvent.click(await screen.findByRole('menuitem', { name: '清除未读' }))
+    await waitFor(() => expect(within(row).queryByText('3')).toBeNull())
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/groups/g1/read')).toBe(true)
+  })
+
   it('welcomes a new user in the main area with the three first-run steps', async () => {
     mockApi({ ...baseRoutes([]), 'GET /bots': () => [] })
     renderAt('/')

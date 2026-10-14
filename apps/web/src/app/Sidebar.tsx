@@ -1,17 +1,21 @@
 import type { BotDto, GroupDto, MachineDto } from '@gonggong/protocol'
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
-import { NavLink, useLocation } from 'react-router'
+import { type MouseEvent, type PointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router'
 import { BotAvatar } from '../features/bots/avatars'
 import { botStateText, PRESENCE } from '../features/bots/model'
 import { draftKey } from '../features/chat/MessageComposer'
+import { groupsApi } from '../features/groups/api'
 import { GroupAvatar } from '../features/groups/GroupAvatar'
 import { OS_LABEL } from '../features/machines/BindMachineDialog'
 import { middle } from '../features/repos/RepoWorkspaceView'
 import { t } from '../i18n'
+import { api } from '../lib/api'
+import { attempt } from '../lib/errors'
 import { plainText } from '../lib/plain'
 import { useRealtimeStatus } from '../lib/realtime'
-import { Badge, Button, ConversationContent, Icon } from '../ui'
+import { Badge, Button, ContextMenu, ConversationContent, Icon } from '../ui'
 import { keyNav } from '../ui/im/keynav'
+import { useInspector } from './inspector'
 import { useWorkbench } from './workbench'
 import { lastText, useWorkspace } from './workspace'
 
@@ -64,8 +68,50 @@ const draftOf = (groupId: string) => {
   }
 }
 
+const LONG_PRESS_MS = 500
+
+/** A touch long-press opens the row's context menu, as a right-click does; the tap that follows is swallowed. */
+function useLongPress() {
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const fired = useRef(false)
+  const cancel = () => clearTimeout(timer.current)
+  return {
+    onPointerDown: (e: PointerEvent<HTMLElement>) => {
+      fired.current = false
+      if (e.pointerType !== 'touch') return
+      const { currentTarget: el, clientX, clientY } = e
+      timer.current = setTimeout(() => {
+        fired.current = true
+        el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX, clientY }))
+      }, LONG_PRESS_MS)
+    },
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    onPointerMove: cancel,
+    onClickCapture: (e: MouseEvent<HTMLElement>) => {
+      if (fired.current) e.preventDefault()
+    },
+  }
+}
+
 function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabStop: boolean }) {
   const dm = g.kind === 'dm'
+  const navigate = useNavigate()
+  const press = useLongPress()
+  const onMenu = (v: string) => {
+    if (v === 'pin') void attempt(() => groupsApi.prefs(g.id, { pinned: !g.pinned }))
+    else if (v === 'mute') void attempt(() => groupsApi.prefs(g.id, { muted: !g.muted }))
+    else if (v === 'read')
+      void attempt(async () =>
+        useWorkspace
+          .getState()
+          .applyEvent({ t: 'group.updated', group: await api.post<GroupDto>(`/groups/${g.id}/read`, {}) }),
+      )
+    else if (v === 'info') {
+      navigate(`/g/${g.id}`)
+      useInspector.getState().open('group-info', 'main')
+    }
+  }
   // The mode lives in the chat header; a group's second line is for the latest message, a DM's for where its Bot works.
   const preview = dm
     ? g.workspacePath
@@ -74,32 +120,44 @@ function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabS
     : (g.last && plainText(lastText(g))) ||
       t('{n} 人 · {mode}', { n: g.members.length, mode: GROUP_MODE_LABEL[g.mode] })
   return (
-    <NavLink
-      to={`/g/${g.id}`}
-      className="pn-conv"
-      data-testid={`group-item-${g.id}`}
-      tabIndex={tabStop ? 0 : -1}
-      onKeyDown={(e) =>
-        keyNav(e, e.currentTarget.closest<HTMLElement>('.sidebar__scroll'), '.pn-conv', { select: true })
-      }
+    <ContextMenu
+      className="sidebar__ctx"
+      items={[
+        { label: g.pinned ? t('取消置顶') : t('置顶'), value: 'pin', icon: 'pin' },
+        { label: g.muted ? t('取消免打扰') : t('消息免打扰'), value: 'mute', icon: 'bell-slash' },
+        { label: t('清除未读'), value: 'read', icon: 'check', disabled: !g.unread },
+        { label: dm ? t('私聊设置') : t('打开群信息'), value: 'info', icon: 'info' },
+      ]}
+      onSelect={onMenu}
     >
-      <ConversationContent
-        item={{
-          id: g.id,
-          name: g.name,
-          group: true,
-          avatarNode: <GroupAvatar group={g} size={40} />,
-          tags: dm ? [{ label: 'Bot', tone: 'blue' }] : undefined,
-          preview,
-          draft: current ? undefined : draftOf(g.id),
-          unread: g.unread,
-          mention: g.mentioned,
-          muted: g.muted,
-          pinned: g.pinned,
-          live: g.liveRunIds.length > 0,
-        }}
-      />
-    </NavLink>
+      <NavLink
+        {...press}
+        to={`/g/${g.id}`}
+        className="pn-conv"
+        data-testid={`group-item-${g.id}`}
+        tabIndex={tabStop ? 0 : -1}
+        onKeyDown={(e) =>
+          keyNav(e, e.currentTarget.closest<HTMLElement>('.sidebar__scroll'), '.pn-conv', { select: true })
+        }
+      >
+        <ConversationContent
+          item={{
+            id: g.id,
+            name: g.name,
+            group: true,
+            avatarNode: <GroupAvatar group={g} size={40} />,
+            tags: dm ? [{ label: 'Bot', tone: 'blue' }] : undefined,
+            preview,
+            draft: current ? undefined : draftOf(g.id),
+            unread: g.unread,
+            mention: g.mentioned,
+            muted: g.muted,
+            pinned: g.pinned,
+            live: g.liveRunIds.length > 0,
+          }}
+        />
+      </NavLink>
+    </ContextMenu>
   )
 }
 
