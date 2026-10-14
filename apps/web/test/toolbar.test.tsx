@@ -167,7 +167,18 @@ describe('Sidebar selection capsule', () => {
     }
   })
 
-  it('follows the open conversation into the 已完成 section when it is expanded', () => {
+  it('re-measures when rows above or around the open conversation appear, e.g. expanding 已完成', () => {
+    const resized: ResizeObserverCallback[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          resized.push(cb)
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
     const saved = HTMLElement.prototype.getBoundingClientRect
     HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
       return { top: this.dataset.testid === 'group-item-g2' ? 200 : 0, height: 48 } as DOMRect
@@ -185,10 +196,31 @@ describe('Sidebar selection capsule', () => {
       const scroll = document.querySelector('.sidebar__scroll') as HTMLElement
       expect(scroll.style.getPropertyValue('--capsule-h')).toBe('0px')
       fireEvent.click(screen.getByRole('button', { name: '已完成 · 1' }))
+      act(() => {
+        for (const cb of resized) cb([], {} as ResizeObserver)
+      })
       expect(scroll.style.getPropertyValue('--capsule-y')).toBe('200px')
       expect(scroll.style.getPropertyValue('--capsule-h')).toBe('48px')
     } finally {
       HTMLElement.prototype.getBoundingClientRect = saved
+      vi.unstubAllGlobals()
     }
+  })
+})
+
+describe('Sidebar flag filter', () => {
+  it('drops 只看已标记 once nothing is flagged, so a new flag does not silently hide the rest', () => {
+    const view = (groups: GroupDto[]) => (
+      <MemoryRouter>
+        <Sidebar groups={groups} bots={[]} machines={[]} />
+      </MemoryRouter>
+    )
+    const { rerender } = render(view([{ ...group('g1', '前端'), flagged: true }, group('g2', '后端')]))
+    fireEvent.click(screen.getByRole('button', { name: '只看已标记' }))
+    expect(screen.queryByTestId('group-item-g2')).toBeNull()
+    rerender(view([group('g1', '前端'), group('g2', '后端')]))
+    rerender(view([group('g1', '前端'), { ...group('g2', '后端'), flagged: true }]))
+    expect(screen.getByTestId('group-item-g1')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '只看已标记' }).getAttribute('aria-pressed')).toBe('false')
   })
 })

@@ -224,10 +224,10 @@ const isDone = (g: GroupDto) => g.doneSeq != null && g.lastSeq <= g.doneSeq
 const byPin = (list: GroupDto[]) => [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned))
 
 /** Positions the selection capsule under the current conversation so it slides between rows. */
-function useSelectionCapsule(groups: GroupDto[], layout: string) {
+function useSelectionCapsule(groups: GroupDto[]) {
   const scroll = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the route, the rows or which rows show (`layout`) change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the route or the rows change
   useLayoutEffect(() => {
     const el = scroll.current
     if (!el) return
@@ -242,8 +242,10 @@ function useSelectionCapsule(groups: GroupDto[], layout: string) {
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
+    // The content box resizes whenever rows above the current one appear or go (setup guide, filter, 已完成 fold).
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
     return () => ro.disconnect()
-  }, [pathname, groups, layout])
+  }, [pathname, groups])
   return { scroll, pathname }
 }
 
@@ -339,14 +341,16 @@ export function Sidebar({
   onNewBot,
   onConfirmBot,
 }: SidebarProps) {
-  const [onlyFlagged, setOnlyFlagged] = useState(false)
-  const [showDone, setShowDone] = useState(false)
-  const { scroll, pathname } = useSelectionCapsule(groups, `${onlyFlagged}:${showDone}`)
+  const { scroll, pathname } = useSelectionCapsule(groups)
   // While the main area shows the first-run welcome, "还没有…" in every section would only repeat it.
   const empty = (text: string) => (loaded && guide ? <div className="sidebar__empty">{text}</div> : null)
   const inGroup = groups.some((g) => g.kind === 'group')
+  const [onlyFlagged, setOnlyFlagged] = useState(false)
+  const [showDone, setShowDone] = useState(false)
   const anyFlagged = groups.some((g) => g.flagged)
-  const shown = groups.filter((g) => !(onlyFlagged && anyFlagged) || g.flagged)
+  // Unflagging the last one hides the filter; don't let it silently re-apply when a flag comes back.
+  if (onlyFlagged && !anyFlagged) setOnlyFlagged(false)
+  const shown = groups.filter((g) => !onlyFlagged || g.flagged)
   const done = shown.filter(isDone)
   const open = shown.filter((g) => !isDone(g))
   const lists = [
@@ -370,133 +374,140 @@ export function Sidebar({
     <div className="sidebar">
       {header}
       <div ref={scroll} className="sidebar__scroll">
-        {guide && loaded && !(machines.length && bots.length && inGroup) ? (
-          <SetupGuide
-            bound={machines.length > 0}
-            hasBot={bots.length > 0}
-            inGroup={inGroup}
-            onBindMachine={onBindMachine}
-            onNewBot={onNewBot}
-            onNewGroup={onNewGroup}
-          />
-        ) : null}
-        {anyFlagged ? (
-          <div className="sidebar__filter">
-            <Button
-              size="small"
-              variant={onlyFlagged ? 'primary' : 'plain'}
-              aria-pressed={onlyFlagged}
-              onClick={() => setOnlyFlagged(!onlyFlagged)}
-            >
-              <Icon name="flag" size={12} />
-              {t('只看已标记')}
-            </Button>
-          </div>
-        ) : null}
-        {lists.map((l) => (
-          <section key={l.label}>
-            <SectionHead label={l.label} onAdd={l.add} addTitle={l.addTitle} />
-            <div className="sidebar__list">
-              {l.items.length
-                ? l.items.map((g) => (
+        <div>
+          {guide && loaded && !(machines.length && bots.length && inGroup) ? (
+            <SetupGuide
+              bound={machines.length > 0}
+              hasBot={bots.length > 0}
+              inGroup={inGroup}
+              onBindMachine={onBindMachine}
+              onNewBot={onNewBot}
+              onNewGroup={onNewGroup}
+            />
+          ) : null}
+          {anyFlagged ? (
+            <div className="sidebar__filter">
+              <Button
+                size="small"
+                variant={onlyFlagged ? 'primary' : 'plain'}
+                aria-pressed={onlyFlagged}
+                onClick={() => setOnlyFlagged(!onlyFlagged)}
+              >
+                <Icon name="flag" size={12} />
+                {t('只看已标记')}
+              </Button>
+            </div>
+          ) : null}
+          {lists.map((l) => (
+            <section key={l.label}>
+              <SectionHead label={l.label} onAdd={l.add} addTitle={l.addTitle} />
+              <div className="sidebar__list">
+                {l.items.length
+                  ? l.items.map((g) => (
+                      <GroupRow
+                        key={g.id}
+                        g={g}
+                        current={pathname === `/g/${g.id}`}
+                        tabStop={g.id === stop}
+                      />
+                    ))
+                  : empty(l.empty)}
+              </div>
+            </section>
+          ))}
+          {done.length ? (
+            <section>
+              <button
+                type="button"
+                className="sidebar__head sidebar__fold"
+                aria-expanded={showDone}
+                onClick={() => setShowDone(!showDone)}
+              >
+                <Icon name={showDone ? 'chevron-down' : 'chevron-right'} size={11} />
+                {t('已完成 · {n}', { n: done.length })}
+              </button>
+              {showDone ? (
+                <div className="sidebar__list">
+                  {done.map((g) => (
                     <GroupRow key={g.id} g={g} current={pathname === `/g/${g.id}`} tabStop={g.id === stop} />
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+          <section>
+            <SectionHead label={t('我的 Bot')} onAdd={onNewBot} addTitle={onNewBot && t('新建 Bot…')} />
+            <div className="sidebar__list">
+              {bots.length
+                ? bots.map((b) => (
+                    <BotRow
+                      key={b.id}
+                      b={b}
+                      meta={botStateText(b)}
+                      action={
+                        b.binding === 'pending_confirm' && onConfirmBot ? (
+                          <Button size="small" variant="primary" onClick={() => onConfirmBot(b.id)}>
+                            {t('确认')}
+                          </Button>
+                        ) : null
+                      }
+                    />
                   ))
-                : empty(l.empty)}
+                : empty(t('还没有 Bot'))}
             </div>
           </section>
-        ))}
-        {done.length ? (
-          <section>
-            <button
-              type="button"
-              className="sidebar__head sidebar__fold"
-              aria-expanded={showDone}
-              onClick={() => setShowDone(!showDone)}
-            >
-              <Icon name={showDone ? 'chevron-down' : 'chevron-right'} size={11} />
-              {t('已完成 · {n}', { n: done.length })}
-            </button>
-            {showDone ? (
+          {sharedBots.length ? (
+            <section aria-label={t('共享给我')}>
+              <SectionHead label={t('共享给我')} />
               <div className="sidebar__list">
-                {done.map((g) => (
-                  <GroupRow key={g.id} g={g} current={pathname === `/g/${g.id}`} tabStop={g.id === stop} />
-                ))}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-        <section>
-          <SectionHead label={t('我的 Bot')} onAdd={onNewBot} addTitle={onNewBot && t('新建 Bot…')} />
-          <div className="sidebar__list">
-            {bots.length
-              ? bots.map((b) => (
+                {sharedBots.map((b) => (
                   <BotRow
                     key={b.id}
                     b={b}
-                    meta={botStateText(b)}
-                    action={
-                      b.binding === 'pending_confirm' && onConfirmBot ? (
-                        <Button size="small" variant="primary" onClick={() => onConfirmBot(b.id)}>
-                          {t('确认')}
-                        </Button>
-                      ) : null
-                    }
+                    meta={[t('{owner} 共享', { owner: b.ownerName }), botStateText(b)]
+                      .filter(Boolean)
+                      .join(' · ')}
                   />
-                ))
-              : empty(t('还没有 Bot'))}
-          </div>
-        </section>
-        {sharedBots.length ? (
-          <section aria-label={t('共享给我')}>
-            <SectionHead label={t('共享给我')} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+          <section aria-label={t('我的机器')}>
+            <SectionHead
+              label={t('我的机器')}
+              onAdd={onBindMachine}
+              addTitle={onBindMachine && t('绑定新机器')}
+            />
             <div className="sidebar__list">
-              {sharedBots.map((b) => (
-                <BotRow
-                  key={b.id}
-                  b={b}
-                  meta={[t('{owner} 共享', { owner: b.ownerName }), botStateText(b)]
-                    .filter(Boolean)
-                    .join(' · ')}
-                />
-              ))}
+              {machines.length
+                ? machines.map((m) => {
+                    const bound = bots.filter((b) => b.machineId === m.id).length
+                    const meta = [OS_LABEL[m.os], bound && t('{n} 个 Bot', { n: bound })]
+                      .filter(Boolean)
+                      .join(' · ')
+                    return (
+                      <div key={m.id} className="sidebar__row">
+                        <NavLink
+                          to={`/machine/${m.id}`}
+                          className="sidebar__open"
+                          title={[m.name, m.online ? t('在线') : t('离线'), meta].filter(Boolean).join(' · ')}
+                        >
+                          <span
+                            className="sidebar__dot"
+                            style={{ background: m.online ? 'var(--system-green)' : 'var(--system-gray)' }}
+                          />
+                          <span className="sidebar__text">
+                            <span className="sidebar__name">{m.name}</span>
+                            {meta ? <span className="sidebar__meta">{meta}</span> : null}
+                          </span>
+                        </NavLink>
+                      </div>
+                    )
+                  })
+                : empty(t('还没有绑定机器'))}
             </div>
           </section>
-        ) : null}
-        <section aria-label={t('我的机器')}>
-          <SectionHead
-            label={t('我的机器')}
-            onAdd={onBindMachine}
-            addTitle={onBindMachine && t('绑定新机器')}
-          />
-          <div className="sidebar__list">
-            {machines.length
-              ? machines.map((m) => {
-                  const bound = bots.filter((b) => b.machineId === m.id).length
-                  const meta = [OS_LABEL[m.os], bound && t('{n} 个 Bot', { n: bound })]
-                    .filter(Boolean)
-                    .join(' · ')
-                  return (
-                    <div key={m.id} className="sidebar__row">
-                      <NavLink
-                        to={`/machine/${m.id}`}
-                        className="sidebar__open"
-                        title={[m.name, m.online ? t('在线') : t('离线'), meta].filter(Boolean).join(' · ')}
-                      >
-                        <span
-                          className="sidebar__dot"
-                          style={{ background: m.online ? 'var(--system-green)' : 'var(--system-gray)' }}
-                        />
-                        <span className="sidebar__text">
-                          <span className="sidebar__name">{m.name}</span>
-                          {meta ? <span className="sidebar__meta">{meta}</span> : null}
-                        </span>
-                      </NavLink>
-                    </div>
-                  )
-                })
-              : empty(t('还没有绑定机器'))}
-          </div>
-        </section>
+        </div>
       </div>
       <Footer bots={bots} machines={machines} />
     </div>
