@@ -128,7 +128,7 @@
   flex: none;
 }
 
-.pn-conv__flag {
+.pn-conv__flagged {
   flex: none;
   color: var(--system-orange);
 }

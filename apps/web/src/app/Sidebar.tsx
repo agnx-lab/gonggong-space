@@ -224,23 +224,26 @@ const isDone = (g: GroupDto) => g.doneSeq != null && g.lastSeq <= g.doneSeq
 const byPin = (list: GroupDto[]) => [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned))
 
 /** Positions the selection capsule under the current conversation so it slides between rows. */
-function useSelectionCapsule(groups: GroupDto[]) {
+function useSelectionCapsule(groups: GroupDto[], layout: string) {
   const scroll = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the route or the rows change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the route, the rows or which rows show (`layout`) change
   useLayoutEffect(() => {
     const el = scroll.current
     if (!el) return
     const measure = () => {
       const item = el.querySelector<HTMLElement>('.pn-conv[aria-current="page"]')
-      el.style.setProperty('--capsule-y', `${item?.offsetTop ?? 0}px`)
-      el.style.setProperty('--capsule-h', `${item?.offsetHeight ?? 0}px`)
+      // On-screen offset, not offsetTop: rows sit in wrappers (the context menu) that would become their offsetParent.
+      const box = item?.getBoundingClientRect()
+      const y = box ? box.top - el.getBoundingClientRect().top + el.scrollTop : 0
+      el.style.setProperty('--capsule-y', `${y}px`)
+      el.style.setProperty('--capsule-h', `${box?.height ?? 0}px`)
     }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [pathname, groups])
+  }, [pathname, groups, layout])
   return { scroll, pathname }
 }
 
@@ -336,12 +339,12 @@ export function Sidebar({
   onNewBot,
   onConfirmBot,
 }: SidebarProps) {
-  const { scroll, pathname } = useSelectionCapsule(groups)
+  const [onlyFlagged, setOnlyFlagged] = useState(false)
+  const [showDone, setShowDone] = useState(false)
+  const { scroll, pathname } = useSelectionCapsule(groups, `${onlyFlagged}:${showDone}`)
   // While the main area shows the first-run welcome, "还没有…" in every section would only repeat it.
   const empty = (text: string) => (loaded && guide ? <div className="sidebar__empty">{text}</div> : null)
   const inGroup = groups.some((g) => g.kind === 'group')
-  const [onlyFlagged, setOnlyFlagged] = useState(false)
-  const [showDone, setShowDone] = useState(false)
   const anyFlagged = groups.some((g) => g.flagged)
   const shown = groups.filter((g) => !(onlyFlagged && anyFlagged) || g.flagged)
   const done = shown.filter(isDone)

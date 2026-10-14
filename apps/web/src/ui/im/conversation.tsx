@@ -69,7 +69,7 @@ export function ConversationContent({ item: it }: { item: Conversation }) {
       <span className="pn-conv__body">
         <span className="pn-conv__line">
           <span className="pn-conv__name">{it.name}</span>
-          {it.flagged && <Icon name="flag" size={12} label={t('已标记')} className="pn-conv__flag" />}
+          {it.flagged && <Icon name="flag" size={12} label={t('已标记')} className="pn-conv__flagged" />}
           {it.tags?.map((t) => (
             <Tag key={t.label} tone={t.tone}>
               {t.label}

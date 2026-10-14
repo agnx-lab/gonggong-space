@@ -1,5 +1,5 @@
 import type { GroupDto } from '@gonggong/protocol'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Sidebar } from '../src/app/Sidebar'
@@ -136,13 +136,16 @@ describe('Sidebar rows', () => {
 
 describe('Sidebar selection capsule', () => {
   it('keeps aria-current on the open conversation and moves the capsule to it', () => {
-    const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop')
-    Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
-      configurable: true,
-      get(this: HTMLElement) {
-        return this.dataset.testid === 'group-item-g2' ? 60 : 0
-      },
-    })
+    // Rows sit inside wrappers (the context menu), so the capsule goes by on-screen position, not offsetTop.
+    const saved = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const top = this.classList.contains('sidebar__scroll')
+        ? 100
+        : this.dataset.testid === 'group-item-g2'
+          ? 130
+          : 0
+      return { top, height: 48 } as DOMRect
+    }
     try {
       render(
         <MemoryRouter initialEntries={['/g/g2']}>
@@ -157,9 +160,35 @@ describe('Sidebar selection capsule', () => {
       expect(active.getAttribute('aria-current')).toBe('page')
       expect(screen.getByTestId('group-item-g1').getAttribute('aria-current')).toBeNull()
       const scroll = active.closest('.sidebar__scroll') as HTMLElement
-      expect(scroll.style.getPropertyValue('--capsule-y')).toBe('60px')
+      expect(scroll.style.getPropertyValue('--capsule-y')).toBe('30px')
+      expect(scroll.style.getPropertyValue('--capsule-h')).toBe('48px')
     } finally {
-      if (saved) Object.defineProperty(HTMLElement.prototype, 'offsetTop', saved)
+      HTMLElement.prototype.getBoundingClientRect = saved
+    }
+  })
+
+  it('follows the open conversation into the 已完成 section when it is expanded', () => {
+    const saved = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      return { top: this.dataset.testid === 'group-item-g2' ? 200 : 0, height: 48 } as DOMRect
+    }
+    try {
+      render(
+        <MemoryRouter initialEntries={['/g/g2']}>
+          <Sidebar
+            groups={[group('g1', '前端'), { ...group('g2', '后端'), doneSeq: 0 }]}
+            bots={[]}
+            machines={[]}
+          />
+        </MemoryRouter>,
+      )
+      const scroll = document.querySelector('.sidebar__scroll') as HTMLElement
+      expect(scroll.style.getPropertyValue('--capsule-h')).toBe('0px')
+      fireEvent.click(screen.getByRole('button', { name: '已完成 · 1' }))
+      expect(scroll.style.getPropertyValue('--capsule-y')).toBe('200px')
+      expect(scroll.style.getPropertyValue('--capsule-h')).toBe('48px')
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = saved
     }
   })
 })
