@@ -316,7 +316,8 @@ describe('the mode switch cannot get stuck (§3.5)', () => {
 
   it('a base that does not submit its tree within 10 minutes of its sync.init fails the switch', async () => {
     await switching()
-    expect((await group()).syncSwitch?.sentAt).toBeTruthy()
+    // sentAt is recorded right after sync.init goes out.
+    await vi.waitFor(async () => expect((await group()).syncSwitch?.sentAt).toBeTruthy())
     await expireSwitches(t.ctx)
     expect((await group()).mode).toBe('force')
     await ago(11, ['at', 'sentAt'])
@@ -335,7 +336,8 @@ describe('the mode switch cannot get stuck (§3.5)', () => {
     expect((await group()).mode).toBe('force')
     done('B', runId, null)
     await vi.waitFor(() => expect(inits('B').map((m) => m.role)).toEqual(['base']))
-    expect((await group()).syncSwitch?.sentAt).toBeTruthy()
+    // sentAt is recorded right after sync.init goes out.
+    await vi.waitFor(async () => expect((await group()).syncSwitch?.sentAt).toBeTruthy())
     await expireSwitches(t.ctx)
     expect((await group()).mode).toBe('force')
     await ago(11, ['sentAt'])
