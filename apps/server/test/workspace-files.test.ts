@@ -4,6 +4,7 @@ import {
   FILE_TEXT_MAX_BYTES,
   type FilesTreeDto,
   type FileTextDto,
+  type OpenAppsDto,
   PROTOCOL_VERSION,
   type ServerToDaemon,
   TUNNEL_FRAME,
@@ -12,7 +13,7 @@ import {
 } from '@gonggong/protocol'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { groupBots } from '../src/db/schema.js'
+import { auditLogs, groupBots } from '../src/db/schema.js'
 import { createTestApp, inbox, type TestApp } from './support/app.js'
 import { client } from './support/http.js'
 
@@ -37,10 +38,12 @@ async function daemon(token: string) {
   })
   expect(await box.next()).toMatchObject({ t: 'welcome' })
   /** The next files request; hello may first trigger workspace messages. */
-  const next = async () => {
+  const next = async <T extends ServerToDaemon['t'] = 'files.tree' | 'files.read'>(
+    types: T[] = ['files.tree', 'files.read'] as T[],
+  ) => {
     for (;;) {
       const m = await box.next<ServerToDaemon>()
-      if (m.t === 'files.tree' || m.t === 'files.read') return m
+      if ((types as string[]).includes(m.t)) return m as Extract<ServerToDaemon, { t: T }>
     }
   }
   return { send, next }
@@ -223,5 +226,55 @@ describe('files browser routes', () => {
     expect(missing.status).toBe(404)
     expect(await missing.json()).toMatchObject({ error: 'not_found', message: '文件不存在' })
     expect((await w.members.get(w.url('raw', ''))).status).toBe(400)
+  })
+})
+
+describe('opening the workspace in a local app', () => {
+  it("lists the machine's apps and opens the bot's own workspace, for the machine owner only, audited", async () => {
+    const w = await world()
+    await t.db
+      .update(groupBots)
+      .set({ workspaceKind: 'cd', cdPath: '/Users/wl/pay' })
+      .where(and(eq(groupBots.groupId, w.group.id), eq(groupBots.botId, w.bot.id)))
+    const base = `/api/groups/${w.group.id}/bots/${w.bot.id}`
+    const owner = client(t, await t.seed.cookie(w.machine.ownerId))
+    expect((await w.members.get(`${base}/open-apps`)).status).toBe(403)
+    expect((await w.members.post(`${base}/open`, { app: 'finder' })).status).toBe(403)
+    expect((await w.outsiders.get(`${base}/open-apps`)).status).toBe(404)
+    expect((await owner.get(`${base}/open-apps`)).body).toMatchObject({ error: 'conflict' })
+
+    const d = await daemon(w.token)
+    const listing = owner.get<OpenAppsDto>(`${base}/open-apps`)
+    const ask = await d.next(['apps.list'])
+    d.send({
+      t: 'apps.list.result',
+      requestId: ask.requestId,
+      apps: ['finder', 'cursor', 'someday', 'terminal'],
+    })
+    expect((await listing).body).toEqual({ apps: ['finder', 'cursor', 'terminal'] })
+
+    expect((await owner.post(`${base}/open`, { app: 'rm' })).status).toBe(400)
+    const opening = owner.post(`${base}/open`, { app: 'cursor' })
+    const req = await d.next(['workspace.open'])
+    expect(req).toMatchObject({
+      t: 'workspace.open',
+      groupId: w.group.id,
+      botId: w.bot.id,
+      workspace: { repo: null, cdPath: '/Users/wl/pay' },
+      app: 'cursor',
+    })
+    expect(Object.keys(req)).not.toContain('path')
+    d.send({ t: 'workspace.open.result', requestId: req.requestId, error: null })
+    expect((await opening).status).toBe(204)
+
+    const failing = owner.post(`${base}/open`, { app: 'warp' })
+    const again = await d.next(['workspace.open'])
+    d.send({ t: 'workspace.open.result', requestId: again.requestId, error: '本机没有安装 warp' })
+    expect((await failing).body).toMatchObject({ error: 'conflict', message: '本机没有安装 warp' })
+
+    const log = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'workspace.open'))
+    expect(log.map((l) => [l.actorUserId, l.groupId, l.detail])).toEqual([
+      [w.machine.ownerId, w.group.id, { botId: w.bot.id, app: 'cursor' }],
+    ])
   })
 })

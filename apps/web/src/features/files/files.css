@@ -269,3 +269,45 @@
 .ft__note--error {
   color: var(--tint-red-text);
 }
+/* 用本地应用打开: app icon + chevron in one capsule */
+.open-with {
+  flex: none;
+  display: inline-flex;
+  align-items: stretch;
+  height: 26px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-field);
+}
+.open-with__main,
+.open-with__more {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--label-secondary);
+  cursor: default;
+}
+.open-with__main {
+  width: 30px;
+}
+.open-with__more {
+  width: 22px;
+  border-left: 1px solid var(--separator);
+}
+.open-with .ui-menu-anchor {
+  display: flex;
+}
+.open-with__main:hover,
+.open-with__more:hover,
+.open-with__more[aria-expanded="true"] {
+  background: var(--control-fill);
+}
+.open-with__icon {
+  width: 16px;
+  height: 16px;
+}
+.ui-menu .open-with__icon {
+  width: 18px;
+  height: 18px;
+}

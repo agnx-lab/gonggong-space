@@ -15,6 +15,7 @@ import { useWide } from '../../diff/DiffPane'
 import { BotFileViewer } from '../../files/FileViewer'
 import { openTab } from '../open'
 import type { TabMeta, TabProps } from '../types'
+import { OpenWith } from './OpenWith'
 
 /** Below this the tree folds into a panel toggled from the bar. */
 const WIDE_PX = 700
@@ -260,6 +261,7 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
         />
         <Button size="small" variant="plain" icon="arrow-clockwise" aria-label={t('刷新')} onClick={reload} />
         <Checkbox label={t('显示忽略的')} checked={ignored} onChange={setIgnored} />
+        <OpenWith groupId={groupId} botId={tab.botId} />
       </div>
       {failed ? (
         <EmptyState

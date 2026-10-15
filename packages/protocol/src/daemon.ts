@@ -572,6 +572,22 @@ export const RepoFound = z.object({
 })
 export type RepoFound = z.infer<typeof RepoFound>
 
+/** Apps a workspace can be opened with: macOS checks which are installed; elsewhere only the file manager. */
+export const OPEN_APPS = ['finder', 'cursor', 'idea', 'vscode', 'warp', 'iterm', 'terminal', 'files'] as const
+export type OpenApp = (typeof OPEN_APPS)[number]
+/** Answer to apps.list: ids of OPEN_APPS (unknown ones from newer daemons are ignored). */
+export const AppsListResult = z.object({
+  t: z.literal('apps.list.result'),
+  requestId: z.string(),
+  apps: z.array(z.string()),
+})
+/** Answer to workspace.open. */
+export const WorkspaceOpenResult = z.object({
+  t: z.literal('workspace.open.result'),
+  requestId: z.string(),
+  error: z.string().nullable(),
+})
+
 /** Answer to dir.list. */
 export const DirResult = z.object({
   t: z.literal('dir.result'),
@@ -830,6 +846,8 @@ export const BotsProviderState = z.object({
 
 export const DaemonToServer = z.discriminatedUnion('t', [
   AgentsUpdate,
+  AppsListResult,
+  WorkspaceOpenResult,
   CommandsUpdate,
   DirResult,
   RepoFound,
@@ -999,6 +1017,18 @@ export const RepoFind = z.object({
   repo: RepoSpec,
 })
 
+/** Which OPEN_APPS the machine has. */
+export const AppsList = z.object({ t: z.literal('apps.list'), requestId: z.string() })
+/** Open the bot's workspace in `app` on the machine (the daemon resolves the directory; no path is sent). */
+export const WorkspaceOpen = z.object({
+  t: z.literal('workspace.open'),
+  requestId: z.string(),
+  groupId: z.string(),
+  botId: z.string(),
+  workspace: WorkspaceSpec,
+  app: z.string(),
+})
+
 /** Browse the machine's directories for the workspace picker; `path` null → the home dir. */
 export const DirList = z.object({
   t: z.literal('dir.list'),
@@ -1113,6 +1143,8 @@ export const CcSwitchApply = z.object({
 
 export const ServerToDaemon = z.discriminatedUnion('t', [
   DirList,
+  AppsList,
+  WorkspaceOpen,
   RepoFind,
   FilesList,
   FilesTree,

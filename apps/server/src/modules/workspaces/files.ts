@@ -5,6 +5,9 @@ import {
   type FilesTreeDto,
   type FileTextDto,
   INLINE_FILE_MIMES,
+  OPEN_APPS,
+  type OpenAppsDto,
+  OpenWorkspaceReq,
   type ServerToDaemon,
   type TunnelHead,
 } from '@gonggong/protocol'
@@ -12,15 +15,19 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { Ctx } from '../../context.js'
-import { groupBots } from '../../db/schema.js'
+import { groupBots, machines } from '../../db/schema.js'
+import { audit } from '../../lib/audit.js'
 import { fail, HttpError } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
 import { requireUser } from '../auth/session.js'
 import { activeBots, requireMember } from '../groups/service.js'
 import { currentRepo, onlineMachine } from './provision.js'
 
-type Answer = Extract<DaemonToServer, { t: 'files.tree.result' | 'files.read.result' }>
-type Ask = Extract<ServerToDaemon, { t: 'files.tree' | 'files.read' }>
+type Answer = Extract<
+  DaemonToServer,
+  { t: 'files.tree.result' | 'files.read.result' | 'workspace.open.result' }
+>
+type Ask = Extract<ServerToDaemon, { t: 'files.tree' | 'files.read' | 'workspace.open' }>
 /** An ask without the fields `ask` fills in, per message type. */
 type AskBody = {
   [K in Ask['t']]: Omit<Extract<Ask, { t: K }>, 'requestId' | 'groupId' | 'botId' | 'workspace'>
@@ -82,6 +89,49 @@ export function workspaceFileRoutes(ctx: Ctx) {
       if (res.error) throw new HttpError('conflict', res.error)
       return res
     }
+
+    /** Opening the workspace in a local app is for the owner of the bot's machine only. */
+    async function owned(req: Req) {
+      const t = await target(req)
+      const me = await requireUser(ctx, req)
+      const [m] = t.bot.machineId
+        ? await ctx.db
+            .select({ ownerId: machines.ownerId })
+            .from(machines)
+            .where(eq(machines.id, t.bot.machineId))
+        : []
+      if (m?.ownerId !== me.id) return fail('forbidden', '仅 Bot 所在机器的主人可以用本地应用打开')
+      return { ...t, me }
+    }
+
+    app.get('/api/groups/:id/bots/:botId/open-apps', async (req: Req): Promise<OpenAppsDto> => {
+      const t = await owned(req)
+      const machineId = onlineMachine(ctx, t.bot.machineId)
+      if (!machineId) return offline(t.bot.name)
+      const res =
+        (await ctx.hub.request(
+          machineId,
+          { t: 'apps.list', requestId: randomUUID() },
+          'apps.list.result',
+          TIMEOUT_MS,
+        )) ?? offline(t.bot.name)
+      const known = new Set<string>(OPEN_APPS)
+      return { apps: res.apps.filter((a): a is OpenAppsDto['apps'][number] => known.has(a)) }
+    })
+
+    app.post('/api/groups/:id/bots/:botId/open', async (req: Req, reply: FastifyReply) => {
+      const t = await owned(req)
+      const { app: openWith } = OpenWorkspaceReq.parse(req.body)
+      await ask(t, { t: 'workspace.open', app: openWith }, 'workspace.open.result')
+      await audit(ctx, {
+        category: 'admin',
+        actorUserId: t.me.id,
+        groupId: t.groupId,
+        action: 'workspace.open',
+        detail: { botId: t.bot.id, app: openWith },
+      })
+      return reply.status(204).send()
+    })
 
     app.get('/api/groups/:id/bots/:botId/files/tree', async (req: Req): Promise<FilesTreeDto> => {
       const t = await target(req)

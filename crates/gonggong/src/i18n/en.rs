@@ -1,4 +1,8 @@
 pub(super) const EN: &[(&str, &str)] = &[
+    ("不支持用 {app} 打开", "Can't open with {app}"),
+    ("本机没有安装 {app}", "{app} is not installed on this machine"),
+    ("工作区目录不存在：{path}", "The workspace directory doesn't exist: {path}"),
+    ("无法打开：{e}", "Couldn't open: {e}"),
     ("尚未绑定，请先执行 gg login", "Not bound yet; run gg login first"),
     (
         "{exe} 是命令行程序，双击不会启动。请在 PowerShell 或命令提示符中运行：先 {exe} login '<接入链接>' 绑定本机，再 {exe} run。\n按回车键关闭窗口",

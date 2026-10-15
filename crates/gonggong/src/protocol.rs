@@ -496,6 +496,16 @@ pub struct FilesList {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceOpen {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub app: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilesTree {
     pub request_id: String,
     pub group_id: String,
@@ -1298,6 +1308,10 @@ pub enum DaemonToServer {
     CommandsUpdate { group_id: String, bot_id: String, commands: Vec<AgentCommand> },
     #[serde(rename = "dir.result")]
     DirResult(DirResult),
+    #[serde(rename = "apps.list.result", rename_all = "camelCase")]
+    AppsListResult { request_id: String, apps: Vec<String> },
+    #[serde(rename = "workspace.open.result", rename_all = "camelCase")]
+    WorkspaceOpenResult { request_id: String, error: Option<String> },
     #[serde(rename = "repo.found")]
     RepoFound(RepoFound),
     #[serde(rename = "files.result", rename_all = "camelCase")]
@@ -1448,6 +1462,10 @@ pub enum ServerToDaemon {
     WorkspaceDiff(WorkspaceDiff),
     #[serde(rename = "dir.list", rename_all = "camelCase")]
     DirList { request_id: String, path: Option<String> },
+    #[serde(rename = "apps.list", rename_all = "camelCase")]
+    AppsList { request_id: String },
+    #[serde(rename = "workspace.open")]
+    WorkspaceOpen(WorkspaceOpen),
     #[serde(rename = "repo.find")]
     RepoFind(RepoFind),
     #[serde(rename = "question.answer", rename_all = "camelCase")]

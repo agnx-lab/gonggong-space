@@ -29,6 +29,7 @@ import {
   MachineInfo,
   McpServer,
   OfficialInput,
+  OPEN_APPS,
   PermissionOption,
   ProviderInput,
   ProviderStateItem,
@@ -1151,6 +1152,13 @@ export const CommandCandidatesDto = z.object({
   agent: z.array(z.object({ name: z.string(), hint: z.string(), botId: z.string(), botName: z.string() })),
 })
 export type CommandCandidatesDto = z.infer<typeof CommandCandidatesDto>
+
+// ── 用本地应用打开工作区 (on the bot's machine, for its owner) ──────────────
+/** GET /api/groups/:id/bots/:botId/open-apps — what the machine can open the workspace with, in menu order. */
+export const OpenAppsDto = z.object({ apps: z.array(z.enum(OPEN_APPS)) })
+export type OpenAppsDto = z.infer<typeof OpenAppsDto>
+/** POST /api/groups/:id/bots/:botId/open */
+export const OpenWorkspaceReq = z.object({ app: z.enum(OPEN_APPS) })
 
 // ── MCP layers (spec §7; platform → team → group, plan 团队层级 D8) ─────────
 export const McpServerDto = z.object({

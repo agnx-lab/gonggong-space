@@ -1,0 +1,8 @@
+{
+  "t": "workspace.open",
+  "requestId": "o1",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": { "repo": null, "cdPath": "/Users/wl/pay" },
+  "app": "cursor"
+}

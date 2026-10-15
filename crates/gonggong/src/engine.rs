@@ -276,6 +276,17 @@ impl Handler for Engine {
                     async move { out.send(DaemonToServer::DirResult(workspace::browse(request_id, path).await)) },
                 );
             }
+            ServerToDaemon::AppsList { request_id } => {
+                out.send(DaemonToServer::AppsListResult { request_id, apps: crate::open_apps::available() });
+            }
+            ServerToDaemon::WorkspaceOpen(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let error = crate::open_apps::open(&req.app, &dir).await.err();
+                    out.send(DaemonToServer::WorkspaceOpenResult { request_id: req.request_id, error });
+                });
+            }
             ServerToDaemon::RepoFind(req) => {
                 let (shared, out) = (self.0.clone(), out.clone());
                 tokio::spawn(async move { out.send(DaemonToServer::RepoFound(shared.workspaces.find(req).await)) });

@@ -67,4 +67,11 @@ export default {
   '{name} 停止了运行': '{name} stopped the run',
   '审批与提问记录永久保存；完整运行过程保留 {n} 天，过期后卡片只保留摘要。':
     'Approval and question records are kept forever; full run details are kept for {n} {n:day|days}, after which cards keep only a summary.',
+  访达: 'Finder',
+  终端: 'Terminal',
+  文件管理器: 'File manager',
+  '用 {app} 打开': 'Open in {app}',
+  '无法用 {app} 打开': "Couldn't open in {app}",
+  选择打开方式: 'Choose an app to open with',
+  '{app}（默认）': '{app} (default)',
 } satisfies Record<string, string>

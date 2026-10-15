@@ -23,6 +23,7 @@ pub mod logs;
 pub mod manage;
 pub mod mcp_call;
 pub mod net;
+pub mod open_apps;
 pub mod permission;
 pub mod previews;
 pub mod proc;

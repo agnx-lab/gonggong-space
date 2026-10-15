@@ -135,7 +135,7 @@ describe('files tab', () => {
   it('lists the root lazily, dirs first, with uncommitted marks; the ignored toggle refetches', async () => {
     openFiles()
     await screen.findByRole('treeitem', { name: /src/ })
-    expect(calls[0]).toBe('/api/groups/g1/bots/b1/files/tree?path=')
+    expect(calls.filter((c) => c.includes('/files/'))[0]).toBe('/api/groups/g1/bots/b1/files/tree?path=')
     const names = tree()
       .getAllByRole('treeitem')
       .map((r) => r.dataset.name)
