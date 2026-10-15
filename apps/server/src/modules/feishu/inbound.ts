@@ -282,13 +282,18 @@ async function onRecalled(ctx: Ctx, ev: FeishuInbound['im.message.recalled_v1'])
 
 const toast = (type: 'success' | 'error', content: string) => ({ toast: { type, content } })
 
-/** Card buttons and forms: the operator answers or approves exactly as on the web, with the same rights. */
+/**
+ * Card buttons and forms: the operator answers or approves exactly as on the web, with the same rights. A run
+ * card is updated by the run sync the decision leads to; a card of its own (sent before approvals and questions
+ * moved into the run card) is answered with its settled state.
+ */
 async function onCardAction(ctx: Ctx, ev: FeishuInbound['card.action.trigger']) {
   const value = ev.action?.value as CardValue | undefined
   const messageId = ev.context?.open_message_id
   if (!value || !messageId) return {}
   const user = await userOfFeishu(ctx, ev.operator?.union_id)
   if (!user) return toast('error', zt('请先认证共工账号'))
+  const own = (await linkOf(ctx, messageId))?.kind !== 'run_card'
   try {
     if (value.k === 'answer') {
       const [row] = await ctx.db
@@ -301,6 +306,7 @@ async function onCardAction(ctx: Ctx, ev: FeishuInbound['card.action.trigger']) 
       const questions = row.q.questions as Question[]
       const answers = formAnswers(questions, ev.action?.form_value ?? {})
       await answerQuestions(ctx, user, row.q.runId, row.q.id, answers, [])
+      if (!own) return toast('success', zt('已提交回答'))
       const card = questionCard({
         bot: row.bot,
         id: row.q.id,
@@ -320,6 +326,7 @@ async function onCardAction(ctx: Ctx, ev: FeishuInbound['card.action.trigger']) 
       .where(eq(approvals.id, value.a))
     if (!row) return toast('error', zt('审批请求不存在'))
     const decided = await decideApproval(ctx, user, row.a.runId, row.a.id, value.o)
+    if (!own) return toast('success', zt('已处理'))
     const card = approvalCard({
       bot: row.bot,
       id: row.a.id,

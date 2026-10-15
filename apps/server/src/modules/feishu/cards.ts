@@ -43,6 +43,138 @@ const STATUS: Record<RunStatus, { label: string; template: string }> = {
   expired: { label: zt('已作废'), template: 'grey' },
 }
 
+/** An approval or question of the run, shown inside its card: a block while pending, one history line after. */
+export type Interaction =
+  | {
+      k: 'approval'
+      id: string
+      title: string
+      detail: string
+      options: PermissionOption[]
+      /** Rules 始终允许 adds; empty → its scope can't be shown, so it isn't offered (plan A7). */
+      remember: string[]
+      status: string
+      by: string | null
+      /** The bot owner, the only one who can decide. */
+      owner: string
+    }
+  | {
+      k: 'question'
+      id: string
+      questions: Question[]
+      status: string
+      by: string | null
+      answers: Answer[] | null
+    }
+
+export const isPending = (i: Interaction) => i.status === 'pending'
+
+/** Settled lines beyond this fold into a collapsed panel. */
+const HISTORY_INLINE = 3
+
+const grey = (s: string) => `<font color='grey'>${s}</font>`
+const oneLine = (s: string, max = 60) => {
+  const line = s.split('\n')[0] ?? ''
+  return line.length > max || s.includes('\n') ? `${line.slice(0, max)}…` : line
+}
+const codeBlock = (s: string) => `\`\`\`\n${truncated(s).replaceAll('```', "'''")}\n\`\`\``
+
+function historyLine(i: Interaction) {
+  const by = i.by ?? ''
+  if (i.k === 'approval') {
+    const what = i.detail ? `${i.title} \`${oneLine(i.detail).replaceAll('`', "'")}\`` : i.title
+    if (i.status === 'approved') return `✓ ${zt('{name} 已允许：{what}', { name: by, what })}`
+    if (i.status === 'rejected') return `✕ ${zt('{name} 已拒绝：{what}', { name: by, what })}`
+    return grey(`${settledNote(i.status, i.by)}：${what}`)
+  }
+  const qa = i.questions.map((q) => {
+    const answer = answerText(q, i.answers)
+    return answer === null ? `**${q.title}**` : `**${q.title}** → ${answer}`
+  })
+  if (i.status === 'answered') return [`✓ ${zt('{name} 已回答', { name: by })}`, ...qa].join('\n')
+  return grey(`${settledNote(i.status, i.by)}：${i.questions.map((q) => q.title).join(zt('、'))}`)
+}
+
+const OPTION_ORDER = ['allow_once', 'allow_always', 'reject_once', 'reject_always']
+
+function approvalBlock(i: Extract<Interaction, { k: 'approval' }>): unknown[] {
+  const options = i.options
+    .filter((opt) => opt.kind !== 'allow_always' || i.remember.length)
+    .sort((a, b) => OPTION_ORDER.indexOf(a.kind) - OPTION_ORDER.indexOf(b.kind))
+  const buttons = options.map((opt) => {
+    const value: CardValue = { k: 'approve', a: i.id, o: opt.optionId }
+    return {
+      tag: 'column',
+      width: 'auto',
+      elements: [
+        {
+          tag: 'button',
+          type: opt.kind === 'allow_once' ? 'primary' : opt.kind.startsWith('allow') ? 'default' : 'danger',
+          text: text(opt.name),
+          behaviors: [{ type: 'callback', value }],
+        },
+      ],
+    }
+  })
+  return [
+    markdown(`**${zt('待审批：{title}', { title: i.title })}**`),
+    ...(i.detail ? [markdown(codeBlock(i.detail))] : []),
+    ...(options.some((opt) => opt.kind === 'allow_always')
+      ? [
+          {
+            tag: 'collapsible_panel',
+            expanded: false,
+            header: { title: markdown(grey(zt('「始终允许」将添加的规则'))) },
+            elements: [markdown(truncated(i.remember.map((r) => `- \`${r}\``).join('\n')))],
+          },
+        ]
+      : []),
+    { tag: 'column_set', horizontal_spacing: 'small', columns: buttons },
+    markdown(grey(zt('仅 Bot 主人 {name} 可以审批', { name: i.owner }))),
+  ]
+}
+
+function questionBlock(i: Extract<Interaction, { k: 'question' }>): unknown[] {
+  const value: CardValue = { k: 'answer', q: i.id }
+  return [
+    {
+      tag: 'form',
+      name: `answers_${i.id.slice(0, 8)}`,
+      elements: [
+        ...questionInputs(i.questions),
+        {
+          tag: 'button',
+          type: 'primary',
+          name: 'submit',
+          text: text(zt('提交回答')),
+          form_action_type: 'submit',
+          behaviors: [{ type: 'callback', value }],
+        },
+      ],
+    },
+  ]
+}
+
+/** The run's approvals and questions: settled ones as history (folded when many), then the pending blocks. */
+export function interactionElements(items: Interaction[]) {
+  const lines = items.filter((i) => !isPending(i)).map((i) => markdown(historyLine(i)))
+  const history =
+    lines.length > HISTORY_INLINE
+      ? [
+          {
+            tag: 'collapsible_panel',
+            expanded: false,
+            header: { title: markdown(grey(zt('已处理 {n} 项审批与提问', { n: lines.length }))) },
+            elements: lines,
+          },
+        ]
+      : lines
+  const pending = items
+    .filter(isPending)
+    .flatMap((i) => (i.k === 'approval' ? approvalBlock(i) : questionBlock(i)))
+  return [...history, ...pending]
+}
+
 /** One card per run: status while it works, then the final reply. `url` (查看过程) is null without 对外地址. */
 export function runCard(o: {
   bot: string
@@ -50,13 +182,18 @@ export function runCard(o: {
   step: string
   reply: string | null
   url: string | null
+  items?: Interaction[]
 }) {
   const s = STATUS[o.status]
   const body = o.reply ?? o.step
   return card(
     o.bot,
     s.template,
-    [...(body ? [markdown(truncated(body))] : []), ...(o.url ? [linkButton(zt('查看过程'), o.url)] : [])],
+    [
+      ...(body ? [markdown(truncated(body))] : []),
+      ...interactionElements(o.items ?? []),
+      ...(o.url ? [linkButton(zt('查看过程'), o.url)] : []),
+    ],
     s.label,
   )
 }
@@ -66,8 +203,9 @@ export const REPLY_ELEMENT = 'reply'
 const STEP_ELEMENT = 'step'
 
 /**
- * The run card while it works, as a CardKit entity in streaming mode: the agent's text so far, the step it is
- * on and 查看过程. `text` is cut like the final reply so streamed updates keep a common prefix.
+ * The run card while it works, as a CardKit entity: the agent's text so far, the step it is on, its approvals and
+ * questions, and 查看过程. Streaming mode is off while something is pending (Feishu cards in streaming mode can't
+ * take a callback). `text` is cut like the final reply so streamed updates keep a common prefix.
  */
 export function runStreamCard(o: {
   bot: string
@@ -75,16 +213,19 @@ export function runStreamCard(o: {
   step: string
   text: string
   url: string | null
+  items?: Interaction[]
 }) {
   const s = STATUS[o.status]
+  const items = o.items ?? []
   return {
     schema: '2.0',
-    config: { update_multi: true, streaming_mode: true },
+    config: { update_multi: true, streaming_mode: !items.some(isPending) },
     header: { title: text(o.bot), subtitle: text(s.label), template: s.template },
     body: {
       elements: [
         { ...markdown(streamText(o.text)), element_id: REPLY_ELEMENT },
         ...(o.step ? [{ ...markdown(`▸ ${o.step}`), element_id: STEP_ELEMENT }] : []),
+        ...interactionElements(items),
         ...(o.url ? [linkButton(zt('查看过程'), o.url)] : []),
       ],
     },
@@ -97,6 +238,25 @@ export const streamText = (s: string) => (s ? truncated(s) : zt('正在处理…
 export type CardValue = { k: 'answer'; q: string } | { k: 'approve'; a: string; o: string }
 
 const field = (i: number) => `q${i}`
+
+/** Each question's bold title and its control; field names are what formAnswers reads back. */
+function questionInputs(questions: Question[]) {
+  return questions.flatMap((q, i) => {
+    const options = q.options.map((label, n) => ({ text: text(label), value: String(n) }))
+    const control =
+      q.type === 'text'
+        ? { tag: 'input', name: field(i), required: true, placeholder: text(zt('输入回答')) }
+        : {
+            tag: q.type === 'multi' ? 'multi_select_static' : 'select_static',
+            name: field(i),
+            required: true,
+            placeholder: text(zt('请选择')),
+            options,
+            ...(q.recommended !== null && q.type !== 'multi' && { initial_option: String(q.recommended) }),
+          }
+    return [markdown(`**${i + 1}. ${q.title}**`), control]
+  })
+}
 
 /** The agent's questions as one form; settled cards show who handled them instead. */
 export function questionCard(o: {
@@ -120,28 +280,13 @@ export function questionCard(o: {
       ),
       markdown(settledNote(o.status, o.by)),
     ])
-  const inputs = o.questions.flatMap((q, i) => {
-    const options = q.options.map((label, n) => ({ text: text(label), value: String(n) }))
-    const control =
-      q.type === 'text'
-        ? { tag: 'input', name: field(i), required: true, placeholder: text(zt('输入回答')) }
-        : {
-            tag: q.type === 'multi' ? 'multi_select_static' : 'select_static',
-            name: field(i),
-            required: true,
-            placeholder: text(zt('请选择')),
-            options,
-            ...(q.recommended !== null && q.type !== 'multi' && { initial_option: String(q.recommended) }),
-          }
-    return [markdown(lines[i] as string), control]
-  })
   const value: CardValue = { k: 'answer', q: o.id }
   return card(zt('{bot} 的提问', { bot: o.bot }), 'orange', [
     {
       tag: 'form',
       name: 'answers',
       elements: [
-        ...inputs,
+        ...questionInputs(o.questions),
         {
           tag: 'button',
           type: 'primary',

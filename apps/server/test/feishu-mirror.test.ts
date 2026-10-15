@@ -615,8 +615,38 @@ describe('question and approval cards', () => {
     ])
   })
 
-  it('questions arrive as a form; the trigger user answers from Feishu', async () => {
+  /** The run's one CardKit card: its message, card_id and current JSON. */
+  function runCard() {
+    const msg = t.feishu.sent.find((s) => (s.content.data as { card_id?: string } | undefined)?.card_id)!
+    const cardId = (msg.content.data as { card_id: string }).card_id
+    const entity = t.feishu.cards.get(cardId)!
+    return { messageId: msg.messageId, cardId, entity, json: JSON.stringify(entity.card) }
+  }
+
+  const askApproval = (
+    machineId: string,
+    runId: string,
+    requestId: string,
+    o: { detail?: string; remember?: string[] } = {},
+  ) =>
+    onApprovalRequest(t.ctx, machineId, {
+      t: 'approval.request',
+      runId,
+      requestId,
+      title: '执行命令',
+      toolKind: 'execute',
+      detail: o.detail ?? 'rm -rf build',
+      options: [
+        { optionId: 'no', name: '拒绝', kind: 'reject_once' },
+        { optionId: 'always', name: '始终允许', kind: 'allow_always' },
+        { optionId: 'ok', name: '允许一次', kind: 'allow_once' },
+      ],
+      remember: o.remember ?? [],
+    })
+
+  it('questions show as a form in the run card, streaming paused; answering folds them into a summary', async () => {
     const { machine, run, ownerFs } = await liveRun()
+    const before = t.feishu.sent.length
     await onQuestionAsk(t.ctx, machine.id, {
       t: 'question.ask',
       runId: run.id,
@@ -627,30 +657,38 @@ describe('question and approval cards', () => {
       ],
     })
     await feishuIdle(t.ctx)
-    const card = t.feishu.sent.at(-1)!
-    expect(JSON.stringify(card.content)).toContain('用哪个库？')
+    expect(t.feishu.sent).toHaveLength(before)
+    const pending = runCard()
+    expect(pending.entity.streaming).toBe(false)
+    expect(pending.json).toContain('**1. 用哪个库？**')
+    expect(pending.json.match(/提交回答/g)).toHaveLength(1)
 
     const [q] = await t.db.select().from(questionSets).where(eq(questionSets.runId, run.id))
     const res = (await t.feishu.cardAction(BOT_APP, {
-      messageId: card.messageId,
+      messageId: pending.messageId,
       chatId: CHAT,
       operator: ownerFs,
       value: { k: 'answer', q: q!.id },
       formValue: { q0: '1', q1: '尽快' },
-    })) as { toast: { type: string }; card: { data: unknown } }
+    })) as { toast: { type: string }; card?: unknown }
     expect(res.toast.type).toBe('success')
-    const settled = JSON.stringify(res.card.data)
-    expect(settled).toContain('已由 王磊 处理')
-    expect(settled).toContain('→ yup')
-    expect(settled).toContain('→ 尽快')
-    const [after] = await t.db.select().from(questionSets).where(eq(questionSets.id, q!.id))
-    expect(after).toMatchObject({
+    expect(res.card).toBeUndefined()
+    await feishuIdle(t.ctx)
+    const after = runCard()
+    expect(after.json).toContain('✓ 王磊 已回答')
+    expect(after.json).toContain('**用哪个库？** → yup')
+    expect(after.json).toContain('**备注** → 尽快')
+    expect(after.json).not.toContain('提交回答')
+    expect(after.entity.streaming).toBe(true)
+    const [row] = await t.db.select().from(questionSets).where(eq(questionSets.id, q!.id))
+    expect(row).toMatchObject({
       status: 'answered',
       answers: [
         { questionId: 'a', choices: [1], text: null },
         { questionId: 'b', choices: [], text: '尽快' },
       ],
     })
+    expect(t.feishu.sent).toHaveLength(before)
   })
 
   it('refuses an operator without the right to answer', async () => {
@@ -665,7 +703,7 @@ describe('question and approval cards', () => {
     await feishuIdle(t.ctx)
     const [q] = await t.db.select().from(questionSets).where(eq(questionSets.runId, run.id))
     const res = (await t.feishu.cardAction(BOT_APP, {
-      messageId: t.feishu.sent.at(-1)!.messageId,
+      messageId: runCard().messageId,
       chatId: CHAT,
       operator: memberFs,
       value: { k: 'answer', q: q!.id },
@@ -674,86 +712,148 @@ describe('question and approval cards', () => {
     expect(res.toast).toEqual({ type: 'error', content: '仅触发人或 Bot 主人可以回答' })
   })
 
-  it('approvals arrive with one button per option; the owner decides from Feishu; web decisions update the card', async () => {
-    const { machine, run, ownerFs, ownerHttp } = await liveRun()
-    const options = [
-      { optionId: 'ok', name: '允许', kind: 'allow_once' as const },
-      { optionId: 'no', name: '拒绝', kind: 'reject_once' as const },
-    ]
-    const ask = (requestId: string) =>
-      onApprovalRequest(t.ctx, machine.id, {
-        t: 'approval.request',
-        runId: run.id,
-        requestId,
-        title: '执行命令',
-        toolKind: 'execute',
-        detail: 'rm -rf build',
-        options,
-        remember: [],
-      })
-    await ask('r1')
+  it('approving several times only updates the run card, never sends a new message', async () => {
+    const { machine, run, ownerFs, ownerHttp, member } = await liveRun()
+    const memberFs = await link(member.id)
+    const before = t.feishu.sent.length
+    await askApproval(machine.id, run.id, 'r1')
     await feishuIdle(t.ctx)
-    const card = t.feishu.sent.at(-1)!
-    expect(JSON.stringify(card.content)).toContain('rm -rf build')
+    const pending = runCard()
+    expect(pending.entity.streaming).toBe(false)
+    expect(pending.json).toContain('待审批：执行命令')
+    expect(pending.json).toContain('```\\nrm -rf build\\n```')
+    expect(pending.json).toContain('仅 Bot 主人 王磊 可以审批')
     const [a] = await t.db
       .select()
       .from(approvals)
       .where(and(eq(approvals.runId, run.id), eq(approvals.requestId, 'r1')))
-    const res = (await t.feishu.cardAction(BOT_APP, {
-      messageId: card.messageId,
-      chatId: CHAT,
-      operator: ownerFs,
-      value: { k: 'approve', a: a!.id, o: 'ok' },
-    })) as { toast: { type: string }; card: { data: unknown } }
-    expect(res.toast.type).toBe('success')
-    expect(JSON.stringify(res.card.data)).toContain('已由 王磊 允许')
-    expect((await t.db.select().from(approvals).where(eq(approvals.id, a!.id)))[0]?.status).toBe('approved')
-
-    await ask('r2')
+    const click = (operator: FakeUser, approvalId: string, o: string) =>
+      t.feishu.cardAction(BOT_APP, {
+        messageId: pending.messageId,
+        chatId: CHAT,
+        operator,
+        value: { k: 'approve', a: approvalId, o },
+      }) as Promise<{ toast: { type: string; content: string } }>
+    expect((await click(memberFs, a!.id, 'ok')).toast).toEqual({
+      type: 'error',
+      content: '仅 Bot 主人可以审批',
+    })
+    expect((await click(ownerFs, a!.id, 'ok')).toast.type).toBe('success')
     await feishuIdle(t.ctx)
-    const second = t.feishu.sent.at(-1)!
+    expect((await t.db.select().from(approvals).where(eq(approvals.id, a!.id)))[0]?.status).toBe('approved')
+    expect(runCard().json).toContain('✓ 王磊 已允许：执行命令 `rm -rf build`')
+    expect(runCard().entity.streaming).toBe(true)
+
+    await askApproval(machine.id, run.id, 'r2', { detail: 'git push' })
+    await feishuIdle(t.ctx)
     const [b] = await t.db.select().from(approvals).where(eq(approvals.requestId, 'r2'))
     await ownerHttp.post(`/api/runs/${run.id}/approvals/${b!.id}`, { optionId: 'no' })
     await feishuIdle(t.ctx)
-    const update = t.feishu.cardUpdates.find((u) => u.messageId === second.messageId)
-    expect(JSON.stringify(update?.card)).toContain('已由 王磊 拒绝')
+    const json = runCard().json
+    expect(json).toContain('✓ 王磊 已允许：执行命令 `rm -rf build`')
+    expect(json).toContain('✕ 王磊 已拒绝：执行命令 `git push`')
+    expect(json).not.toContain('"callback"')
+    expect(t.feishu.sent).toHaveLength(before)
+    expect(t.feishu.cardUpdates).toEqual([])
+    const seqs = t.feishu.cardOps.map((o) => o.sequence)
+    expect(seqs).toEqual([...seqs].sort((x, y) => x - y))
   })
 
-  it('始终允许 shows its scope and is hidden without one; deciding it from Feishu adds the rules to the bot', async () => {
-    const { machine, run, bot, ownerFs } = await liveRun()
-    const ask = (requestId: string, remember: string[]) =>
-      onApprovalRequest(t.ctx, machine.id, {
-        t: 'approval.request',
-        runId: run.id,
-        requestId,
-        title: '执行命令',
-        toolKind: 'execute',
-        detail: 'npm run build -- --watch=false',
-        options: [
-          { optionId: 'once', name: '允许一次', kind: 'allow_once' },
-          { optionId: 'always', name: '始终允许', kind: 'allow_always' },
-        ],
-        remember,
-      })
-    await ask('r0', [])
+  it('a card busy with a click is updated once Feishu lets it (200810)', async () => {
+    const { machine, run, ownerHttp } = await liveRun()
+    await askApproval(machine.id, run.id, 'r1')
     await feishuIdle(t.ctx)
-    const bare = JSON.stringify(t.feishu.sent.at(-1)!.content)
-    expect(bare).toContain('允许一次')
-    expect(bare).not.toContain('始终允许')
+    const { cardId } = runCard()
+    const [a] = await t.db.select().from(approvals).where(eq(approvals.requestId, 'r1'))
+    t.feishu.interacting.add(cardId)
+    await ownerHttp.post(`/api/runs/${run.id}/approvals/${a!.id}`, { optionId: 'ok' })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(runCard().json).toContain('"callback"')
+    t.feishu.interacting.delete(cardId)
+    await feishuIdle(t.ctx)
+    expect(runCard().json).toContain('✓ 王磊 已允许')
+    expect(runCard().entity.streaming).toBe(true)
+  })
 
-    await ask('r1', ['npm run build', 'tail'])
+  it('folds a long history and keeps it on the final card', async () => {
+    const { machine, run, ownerHttp } = await liveRun()
+    for (const r of ['r1', 'r2', 'r3', 'r4']) {
+      await askApproval(machine.id, run.id, r, { detail: `echo ${r}` })
+      const [a] = await t.db.select().from(approvals).where(eq(approvals.requestId, r))
+      await ownerHttp.post(`/api/runs/${run.id}/approvals/${a!.id}`, { optionId: 'ok' })
+    }
     await feishuIdle(t.ctx)
-    const scoped = JSON.stringify(t.feishu.sent.at(-1)!.content)
-    expect(scoped).toContain('将始终允许：npm run build、tail')
-    expect(scoped).toContain('"always"')
+    expect(runCard().json).toContain('已处理 4 项审批与提问')
+    expect(runCard().entity.card).toMatchObject({
+      body: { elements: expect.arrayContaining([expect.objectContaining({ tag: 'collapsible_panel' })]) },
+    })
+    await setRun(run.id, { status: 'completed' })
+    expect(runCard().json).toContain('✓ 王磊 已允许：执行命令 `echo r4`')
+    expect(runCard().entity.streaming).toBe(false)
+  })
+
+  it('buttons read 允许一次 / 始终允许 / 拒绝, its rules folded; 始终允许 is hidden without rules and adds them to the bot', async () => {
+    const { machine, run, bot, ownerFs } = await liveRun()
+    await askApproval(machine.id, run.id, 'r0')
+    await feishuIdle(t.ctx)
+    expect(runCard().json).not.toContain('始终允许')
+    const [r0] = await t.db.select().from(approvals).where(eq(approvals.requestId, 'r0'))
+    await t.feishu.cardAction(BOT_APP, {
+      messageId: runCard().messageId,
+      chatId: CHAT,
+      operator: ownerFs,
+      value: { k: 'approve', a: r0!.id, o: 'ok' },
+    })
+    await feishuIdle(t.ctx)
+
+    await askApproval(machine.id, run.id, 'r1', { remember: ['npm run build', 'tail'] })
+    await feishuIdle(t.ctx)
+    const json = runCard().json
+    const order = ['允许一次', '始终允许', '拒绝'].map((label) => json.indexOf(`"content":"${label}"`))
+    expect(order.every((i) => i > 0)).toBe(true)
+    expect(order).toEqual([...order].sort((x, y) => x - y))
+    expect(json).toContain('「始终允许」将添加的规则')
+    expect(json).toContain('- `npm run build`\\n- `tail`')
     const [a] = await t.db.select().from(approvals).where(eq(approvals.requestId, 'r1'))
     await t.feishu.cardAction(BOT_APP, {
-      messageId: t.feishu.sent.at(-1)!.messageId,
+      messageId: runCard().messageId,
       chatId: CHAT,
       operator: ownerFs,
       value: { k: 'approve', a: a!.id, o: 'always' },
     })
     const [row] = await t.db.select({ v: bots.alwaysAllow }).from(bots).where(eq(bots.id, bot.id))
     expect(row?.v).toEqual(['npm run build', 'tail'])
+  })
+
+  it('an approval card sent on its own before keeps being updated, and answers its click itself', async () => {
+    const { machine, run, ownerFs } = await liveRun()
+    await askApproval(machine.id, run.id, 'r1')
+    await askApproval(machine.id, run.id, 'r2')
+    const rows = await t.db.select().from(approvals).where(eq(approvals.runId, run.id))
+    const [a, b] = ['r1', 'r2'].map((r) => rows.find((x) => x.requestId === r)!)
+    for (const [x, id] of [
+      [a!, 'om_old_a'],
+      [b!, 'om_old_b'],
+    ] as const)
+      await t.db.insert(feishuMessageLinks).values({
+        feishuMessageId: id,
+        chatId: CHAT,
+        appId: BOT_APP,
+        direction: 'out',
+        kind: 'approval',
+        runId: run.id,
+        refId: x.id,
+      })
+    const res = (await t.feishu.cardAction(BOT_APP, {
+      messageId: 'om_old_a',
+      chatId: CHAT,
+      operator: ownerFs,
+      value: { k: 'approve', a: a!.id, o: 'ok' },
+    })) as { card: { data: unknown } }
+    expect(JSON.stringify(res.card.data)).toContain('已由 王磊 允许')
+    await setRun(run.id, { status: 'running' })
+    const update = t.feishu.cardUpdates.find((u) => u.messageId === 'om_old_b')
+    expect(JSON.stringify(update?.card)).toContain('rm -rf build')
+    expect(runCard().json).not.toContain('"callback"')
   })
 })

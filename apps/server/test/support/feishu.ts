@@ -192,8 +192,35 @@ export class FakeFeishu {
     return { messageId, done }
   }
 
-  /** `operator` clicks a card button (or submits a form) on a message `appId` sent. */
-  cardAction(
+  /**
+   * `operator` clicks a card button (or submits a form) on a message `appId` sent. A CardKit card can't take a
+   * click in streaming mode, and can't be updated until the click was answered (200810).
+   */
+  async cardAction(
+    appId: string,
+    o: {
+      messageId: string
+      chatId: string
+      operator: FakeUser
+      value: unknown
+      formValue?: Record<string, unknown>
+    },
+  ) {
+    const sent = this.sent.find((s) => s.messageId === o.messageId)
+    const cardId = (sent?.content.data as { card_id?: string } | undefined)?.card_id
+    if (cardId && this.cards.get(cardId)?.streaming) throw new Error('a streaming card takes no clicks')
+    if (cardId) this.interacting.add(cardId)
+    try {
+      return await this.callback(appId, o)
+    } finally {
+      if (cardId) this.interacting.delete(cardId)
+    }
+  }
+
+  /** CardKit cards whose click is being handled: updates to them fail with 200810. */
+  readonly interacting = new Set<string>()
+
+  private callback(
     appId: string,
     o: {
       messageId: string
@@ -277,6 +304,7 @@ export class FakeFeishu {
     this.check(app.appId)
     const entity = this.cards.get(cardId)
     if (!entity || entity.appId !== app.appId) throw new FeishuError(300301, 'card not found')
+    if (this.interacting.has(cardId)) throw new FeishuError(200810, 'card is in an ongoing interaction')
     const last = this.cardOps.findLast((o) => o.cardId === cardId)
     if (last && sequence <= last.sequence) throw new FeishuError(300317, 'sequence did not increase')
     return entity
