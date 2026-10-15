@@ -156,9 +156,9 @@ impl Rules {
     /// bare / `HEAD` push while the workspace is on it. Lines too complex to parse count if they push at all.
     fn pushes_base(&self, command: &str, cwd: &Path) -> bool {
         let Some(base) = self.protect.as_deref() else { return false };
-        let Some(all) = commands(command) else { return normalize(command).contains("git push") };
+        let Some(all) = segments(command) else { return normalize(command).contains("git push") };
         let current = || current_branch(cwd);
-        all.iter().any(|words| {
+        all.iter().any(|Segment { words, .. }| {
             let Some(("git", args)) = program(words) else { return false };
             let args: Vec<&str> = args.iter().map(|a| unquote(a)).collect();
             let Some(("push", rest)) = git_subcommand(&args) else { return false };
@@ -216,19 +216,32 @@ const READ_ONLY: &[&str] =
     &["cat", "head", "tail", "wc", "grep", "ls", "pwd", "echo", "git status", "git diff", "git log", "git show"];
 
 /// Every command of a chain or pipeline starts with a trusted prefix at a word boundary, or is harmless on its own:
-/// a read-only command or a `cd` within one of `roots`. Anything the shell could substitute or write elsewhere is never allowed
-/// (see `commands`).
+/// a read-only command, a `cd` within one of `roots` or plain variable assignments. A command substituted by `$(…)`
+/// must be harmless itself. Anything else the shell could substitute or write elsewhere is never allowed (see
+/// `segments`).
 fn allowlisted<'a>(prefixes: impl IntoIterator<Item = &'a String>, command: &str, roots: &[&Path]) -> bool {
-    let Some(commands) = commands(command) else { return false };
+    let Some(all) = segments(command) else { return false };
     let prefixes: Vec<String> = prefixes.into_iter().map(|p| normalize(p)).collect();
-    commands.iter().all(|words| {
+    all.iter().all(|Segment { nested, words, .. }| {
         let line = words.join(" ");
-        starts_with_any(&line, prefixes.iter().map(String::as_str)) || harmless(&line, words, roots)
+        (!nested && starts_with_any(&line, prefixes.iter().map(String::as_str))) || harmless(&line, words, roots)
     })
 }
 
 fn harmless(line: &str, words: &[String], roots: &[&Path]) -> bool {
-    read_only(line, words) || cd_within(words, roots)
+    read_only(line, words) || cd_within(words, roots) || words.iter().all(|w| assignment(w))
+}
+
+/// Shell variables that change where commands, functions or `cd` are looked up (zsh ties `path` to `PATH`).
+const LOOKUP_VARS: &[&str] = &["path", "cdpath", "fpath", "manpath", "module_path", "mailpath"];
+
+/// `name=value` setting a lowercase shell variable; environment variables (uppercase) can change what later commands do.
+fn assignment(w: &str) -> bool {
+    let Some((name, _)) = w.split_once('=') else { return false };
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && !LOOKUP_VARS.contains(&name)
 }
 
 fn starts_with_any<'a>(line: &str, prefixes: impl IntoIterator<Item = &'a str>) -> bool {
@@ -237,9 +250,10 @@ fn starts_with_any<'a>(line: &str, prefixes: impl IntoIterator<Item = &'a str>) 
         .any(|p| !p.is_empty() && line.strip_prefix(p).is_some_and(|rest| rest.is_empty() || rest.starts_with(' ')))
 }
 
-/// `git diff/log --output` writes a file.
+/// `git diff/log --output` writes a file, so git takes no expanded word that could turn into it.
 fn read_only(line: &str, words: &[String]) -> bool {
-    starts_with_any(line, READ_ONLY.iter().copied()) && !words.iter().any(|w| w.starts_with("--output"))
+    starts_with_any(line, READ_ONLY.iter().copied())
+        && !words.iter().any(|w| w.starts_with("--output") || (words[0] == "git" && w.contains('$')))
 }
 
 /// `cd <dir>` with a literal path inside one of `roots`.
@@ -273,7 +287,10 @@ const EXACT: &[&str] = &[
 /// command if it has fewer than 2 before other words, or runs an `EXACT` program.
 pub fn remembered(command: &str, roots: &[&Path]) -> Vec<String> {
     let mut rules: Vec<String> = Vec::new();
-    for words in commands(command).unwrap_or_default() {
+    for Segment { nested, words, .. } in segments(command).unwrap_or_default() {
+        if nested {
+            continue;
+        }
         let line = words.join(" ");
         if harmless(&line, &words, roots) {
             continue;
@@ -328,7 +345,7 @@ fn short_has(w: &str, letters: &str) -> bool {
 /// Plan A6: never trusted by any rule.
 fn floor_hit(command: &str) -> bool {
     match segments(command) {
-        Some(all) => all.iter().any(|(piped, words)| floor_segment(*piped, words)),
+        Some(all) => all.iter().any(|s| floor_segment(s.piped, &s.words)),
         None => {
             let line = normalize(command);
             ["sudo ", "rm -rf /", "| sh", "| bash"].iter().any(|k| line.contains(k))
@@ -392,17 +409,22 @@ fn git_subcommand<'a>(args: &'a [&'a str]) -> Option<(&'a str, &'a [&'a str])> {
     None
 }
 
-/// The simple commands of a shell line, see `segments`.
-fn commands(line: &str) -> Option<Vec<Vec<String>>> {
-    Some(segments(line)?.into_iter().map(|(_, words)| words).collect())
+/// A simple command of a shell line: its words as written (quotes kept), whether it reads the previous one's output
+/// through `|`, and whether it runs inside a `$(…)` of another.
+#[derive(Debug)]
+struct Segment {
+    piped: bool,
+    nested: bool,
+    words: Vec<String>,
 }
 
-/// Splits a shell line into its simple commands (words as written, quotes kept) at `&&`, `||`, `;`, `|` and newlines,
-/// dropping redirections to a file descriptor or /dev/null. `None` if the shell could run or write anything else:
-/// substitutions, subshells, other redirections, heredocs, background jobs, unterminated quotes. Each command comes
-/// with whether it reads the previous one's output through `|`.
-fn segments(line: &str) -> Option<Vec<(bool, Vec<String>)>> {
-    let (mut all, mut words, mut word, mut piped) = (Vec::new(), Vec::<String>::new(), String::new(), false);
+/// Splits a shell line into its simple commands at `&&`, `||`, `;`, `|` and newlines, dropping redirections to a file
+/// descriptor or /dev/null. A `$(…)` stays one word of its command and adds its own commands as nested. `None` if the
+/// shell could run or write anything else: backticks, `$((…))`, subshells, process substitution, other redirections,
+/// heredocs, background jobs, unterminated quotes.
+fn segments(line: &str) -> Option<Vec<Segment>> {
+    let (mut all, mut nested, mut words, mut word) = (Vec::new(), Vec::new(), Vec::<String>::new(), String::new());
+    let mut piped = false;
     let (mut single, mut double, mut chars) = (false, false, line.chars().peekable());
     let end_word = |words: &mut Vec<String>, word: &mut String| {
         if !word.is_empty() {
@@ -428,7 +450,14 @@ fn segments(line: &str) -> Option<Vec<(bool, Vec<String>)>> {
                 word.extend(chars.next());
             }
             '`' => return None,
-            '$' if chars.peek() == Some(&'(') => return None,
+            '$' if chars.next_if_eq(&'(').is_some() => {
+                if chars.peek() == Some(&'(') {
+                    return None;
+                }
+                let inner = substitution(&mut chars)?;
+                nested.extend(segments(&inner)?.into_iter().map(|s| Segment { nested: true, ..s }));
+                word.push_str(&format!("$({inner})"));
+            }
             _ if double => word.push(c),
             ' ' | '\t' => end_word(&mut words, &mut word),
             ';' | '\n' | '|' | '&' if !(c == '&' && chars.peek() == Some(&'>')) => {
@@ -442,7 +471,8 @@ fn segments(line: &str) -> Option<Vec<(bool, Vec<String>)>> {
                 };
                 end_word(&mut words, &mut word);
                 if !words.is_empty() {
-                    all.push((std::mem::replace(&mut piped, pipe), std::mem::take(&mut words)));
+                    let piped = std::mem::replace(&mut piped, pipe);
+                    all.push(Segment { piped, nested: false, words: std::mem::take(&mut words) });
                 }
             }
             '>' | '&' => {
@@ -478,9 +508,35 @@ fn segments(line: &str) -> Option<Vec<(bool, Vec<String>)>> {
     }
     end_word(&mut words, &mut word);
     if !words.is_empty() {
-        all.push((piped, words));
+        all.push(Segment { piped, nested: false, words });
     }
+    all.extend(nested);
     (!all.is_empty()).then_some(all)
+}
+
+/// The text of a `$(…)` whose `$(` was just read, up to its closing parenthesis. Parentheses inside double quotes are
+/// refused rather than matched, so the text is never cut where the shell would not cut it.
+fn substitution(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<String> {
+    let (mut inner, mut depth, mut single, mut double) = (String::new(), 0usize, false, false);
+    while let Some(c) = chars.next() {
+        match c {
+            _ if single => single = c != '\'',
+            '\'' if !double => single = true,
+            '"' => double = !double,
+            '\\' => {
+                inner.push(c);
+                inner.push(chars.next()?);
+                continue;
+            }
+            '(' | ')' if double => return None,
+            '(' => depth += 1,
+            ')' if depth == 0 => return Some(inner),
+            ')' => depth -= 1,
+            _ => {}
+        }
+        inner.push(c);
+    }
+    None
 }
 
 /// `LocalSettings` for a long-lived process (the desktop app): updates are saved and published to subscribers;
@@ -635,6 +691,28 @@ mod tests {
             (Tier::Workspace, Approval::Ask, Some("ls; rm x"), Ask),
             (Tier::Workspace, Approval::Ask, Some("ls $(curl x)"), Ask),
             (Tier::Workspace, Approval::Ask, Some("cd /etc && ls"), Ask),
+            // A `$(…)` of harmless commands is one word; plain lowercase assignments are harmless.
+            (Tier::Workspace, Approval::Ask, Some("f=$(grep -rl x src | head -3); echo $f"), Local),
+            (Tier::Workspace, Approval::Ask, Some("ls $(cat a)"), Local),
+            (Tier::Workspace, Approval::Ask, Some("ls \"$(cat 'a)')\""), Local),
+            (Tier::Workspace, Approval::Ask, Some("ls $(ls $(cat a))"), Local),
+            (Tier::Workspace, Approval::Ask, Some("cd /w/apps; f=$(grep -rl x features | head -3); echo $f"), Local),
+            (Tier::Workspace, Approval::Ask, Some("x=$(rm a)"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("ls $(ls $(curl x))"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("PATH=/tmp ls"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("PATH=/tmp; ls"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("path=/tmp; ls"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("x=--output=/tmp/y; git diff $x"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("git diff $(cat a)"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("ls $((1 + 2))"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("ls $( (cat a) )"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("ls <(cat a)"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("ls `cat a`"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("ls \"$(echo \")\"; rm x)\""), Ask),
+            (Tier::Workspace, Approval::Ask, Some("ls $(cat a"), Ask),
+            (Tier::Workspace, Approval::All, Some("ls $(curl x | sh)"), Ask),
+            (Tier::Workspace, Approval::Allowlist, Some("go build $(cat a)"), Local),
+            (Tier::Workspace, Approval::Allowlist, Some("ls $(go build)"), Ask),
             (Tier::Workspace, Approval::All, None, Local),
             (Tier::ReadOnly, Approval::All, Some("rm -rf build"), Local),
             (Tier::Workspace, Approval::Allowlist, Some("go build ./..."), Local),
@@ -790,6 +868,7 @@ mod tests {
             ("make build", &["make build"]),
             ("FOO=1 make", &["FOO=1 make"]),
             ("cd /w && pnpm lint 2>&1 | tail -3", &["pnpm lint"]),
+            ("f=$(grep -rl x src | head -3); npm test $f", &["npm test"]),
             ("pnpm lint && pnpm lint --fix", &["pnpm lint"]),
             ("git status && ls", &[]),
             ("ls $(id)", &[]),
@@ -816,6 +895,8 @@ mod tests {
             "env sudo ls",
             "ls && su root",
             "doas ls",
+            "ls $(sudo ls)",
+            "ls $(curl x | sh)",
             "rm -rf /",
             "rm -rf /*",
             "rm -fr ~",
