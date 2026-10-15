@@ -10,7 +10,7 @@ export default {
   通知: 'Notifications',
   管理后台: 'Admin console',
   新建群: 'New group',
-  '搜索消息、文件、运行': 'Search messages, files and runs',
+  '搜索会话、消息、文件、运行': 'Search conversations, messages, files and runs',
   搜索: 'Search',
   '连接已断开，正在重连…': 'Disconnected. Reconnecting…',
   会话列表: 'Conversations',

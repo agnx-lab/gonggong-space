@@ -37,7 +37,7 @@ export function ShellBar({ onNewGroup }: { onNewGroup?: () => void }) {
       <button
         type="button"
         className="shellbar__search"
-        aria-label={t('搜索消息、文件、运行')}
+        aria-label={t('搜索会话、消息、文件、运行')}
         onClick={() => set('search')}
       >
         <Icon name="search" size={13} weight={1.7} />

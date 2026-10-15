@@ -135,7 +135,7 @@ test('interrupt-and-append continues the same run; candidates list files and age
 
     // ⌘K finds the reply.
     await page.keyboard.press('Meta+k')
-    await page.getByPlaceholder('搜索消息、文件、运行').fill('appended')
+    await page.getByPlaceholder('搜索会话、消息、文件、运行').fill('appended')
     await expect(page.getByTestId('search-results')).toContainText('appended')
     await page.keyboard.press('Escape')
 

@@ -165,3 +165,9 @@
 .search__row--active svg[data-type] {
   filter: drop-shadow(0 0 1px var(--on-accent));
 }
+.search__section {
+  padding: var(--space-6) var(--space-8) var(--space-2);
+  font-size: var(--text-footnote-size);
+  font-weight: 600;
+  color: var(--label-secondary);
+}

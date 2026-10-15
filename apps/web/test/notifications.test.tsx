@@ -1,4 +1,4 @@
-import type { NotificationDto, SearchResultDto, UserDto, WebEvent } from '@gonggong/protocol'
+import type { GroupDto, NotificationDto, SearchResultDto, UserDto, WebEvent } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -358,7 +358,7 @@ describe('⌘K search', () => {
     })
     renderShell()
     fireEvent.keyDown(document, { key: 'k', metaKey: true })
-    const input = await screen.findByPlaceholderText('搜索消息、文件、运行')
+    const input = await screen.findByPlaceholderText('搜索会话、消息、文件、运行')
     expect(screen.getByText('esc 关闭')).toBeTruthy()
     fireEvent.change(input, { target: { value: '退款' } })
     const results = screen.getByTestId('search-results')
@@ -370,20 +370,20 @@ describe('⌘K search', () => {
     fireEvent.click(screen.getByRole('tab', { name: '运行' }))
     fireEvent.click(await within(results).findByText('小王的 Claude · 迁移'))
     expect(screen.getByTestId('where').textContent).toBe('/g/g1?run=r7')
-    expect(screen.queryByPlaceholderText('搜索消息、文件、运行')).toBeNull()
+    expect(screen.queryByPlaceholderText('搜索会话、消息、文件、运行')).toBeNull()
     expect(calls.filter((c) => c.path.startsWith('/search')).length).toBe(3)
 
     fireEvent.keyDown(document, { key: 'K', ctrlKey: true })
-    await screen.findByPlaceholderText('搜索消息、文件、运行')
+    await screen.findByPlaceholderText('搜索会话、消息、文件、运行')
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByPlaceholderText('搜索消息、文件、运行')).toBeNull()
+    expect(screen.queryByPlaceholderText('搜索会话、消息、文件、运行')).toBeNull()
   })
 
   const q = '/search?q=%E9%80%80%E6%AC%BE&tab=msg'
   const typeQuery = async () => {
     renderShell()
     fireEvent.keyDown(document, { key: 'k', metaKey: true })
-    const input = await screen.findByPlaceholderText('搜索消息、文件、运行')
+    const input = await screen.findByPlaceholderText('搜索会话、消息、文件、运行')
     fireEvent.change(input, { target: { value: '退款' } })
     return input
   }
@@ -432,15 +432,65 @@ describe('⌘K search', () => {
     expect(none.closest('.ui-empty')?.querySelector('.ui-empty__art svg[aria-hidden="true"]')).toBeTruthy()
 
     fireEvent.keyDown(input, { key: 'Escape', isComposing: true })
-    expect(screen.getByPlaceholderText('搜索消息、文件、运行')).toBeTruthy()
+    expect(screen.getByPlaceholderText('搜索会话、消息、文件、运行')).toBeTruthy()
     fireEvent.keyDown(input, { key: 'Escape' })
-    expect(screen.queryByPlaceholderText('搜索消息、文件、运行')).toBeNull()
+    expect(screen.queryByPlaceholderText('搜索会话、消息、文件、运行')).toBeNull()
+  })
+
+  it('lists matching conversations above the results, by group name or DM bot name, and opens one', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const conv = (id: string, name: string, kind: GroupDto['kind']) =>
+      ({ id, name, kind, avatar: null, members: [], botIds: [] }) as unknown as GroupDto
+    useWorkspace.setState({
+      groups: [
+        conv('g1', '退款 v2 迁移', 'group'),
+        conv('g2', '订单服务', 'group'),
+        conv('d1', '退款助手', 'dm'),
+      ],
+    })
+    mockApi({ [`GET ${q}`]: [hit({})] })
+    const input = await typeQuery()
+    const results = screen.getByTestId('search-results')
+    expect(within(results).getByText('会话')).toBeTruthy()
+    const rows = within(results).getAllByRole('option')
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining('退款 v2 迁移'),
+      expect.stringContaining('退款助手'),
+    ])
+    expect(rows[1]!.textContent).toContain('私聊')
+    await waitFor(() => expect(within(results).getAllByRole('option')).toHaveLength(3))
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(screen.getByTestId('where').textContent).toBe('/g/d1')
+    expect(screen.queryByPlaceholderText('搜索会话、消息、文件、运行')).toBeNull()
+  })
+
+  it('shows matching conversations instead of "no results" when the server finds nothing', async () => {
+    useWorkspace.setState({
+      groups: [
+        {
+          id: 'g2',
+          name: '退款群',
+          kind: 'group',
+          avatar: null,
+          members: [],
+          botIds: [],
+        } as unknown as GroupDto,
+      ],
+    })
+    mockApi({ [`GET ${q}`]: [] })
+    await typeQuery()
+    const results = screen.getByTestId('search-results')
+    await waitFor(() => expect(within(results).queryByRole('status')).toBeNull())
+    expect(within(results).queryByText('没有匹配的结果')).toBeNull()
+    fireEvent.click(within(results).getByRole('option'))
+    expect(screen.getByTestId('where').textContent).toBe('/g/g2')
   })
 
   it('opens from the sidebar search field', async () => {
     mockApi({})
     renderShell()
-    fireEvent.click(screen.getByRole('button', { name: /搜索消息、文件、运行/ }))
+    fireEvent.click(screen.getByRole('button', { name: /搜索会话、消息、文件、运行/ }))
     expect(await screen.findByRole('dialog', { name: '搜索' })).toBeTruthy()
   })
 })

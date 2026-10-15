@@ -1,6 +1,7 @@
-import type { SearchResultDto } from '@gonggong/protocol'
-import { type KeyboardEvent, useEffect, useId, useState } from 'react'
+import type { GroupDto, SearchResultDto } from '@gonggong/protocol'
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { useWorkspace } from '../../app/workspace'
 import { api } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import {
@@ -14,6 +15,7 @@ import {
   Tabs,
   useEscape,
 } from '../../ui'
+import { GroupAvatar } from '../groups/GroupAvatar'
 import './search.css'
 import { t } from '../../i18n'
 
@@ -26,6 +28,16 @@ const TABS: { value: Tab; label: string }[] = [
 ]
 const ICON: Record<Tab, IconName> = { msg: 'bubble', file: 'doc-code', run: 'play' }
 const DEBOUNCE_MS = 200
+const MAX_CONVERSATIONS = 5
+
+/** Conversations whose name (a DM's is its bot's) contains every term, matched locally as you type. */
+const matchConversations = (groups: GroupDto[], query: string) => {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!terms.length) return []
+  return groups
+    .filter((g) => terms.every((w) => g.name.toLowerCase().includes(w)))
+    .slice(0, MAX_CONVERSATIONS)
+}
 
 const hrefOf = (r: SearchResultDto) => {
   const q = new URLSearchParams()
@@ -56,7 +68,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   )
 }
 
-/** ⌘K overlay (Web 对话.dc.html `ovSearch`): messages, files and runs of my groups. */
+/** ⌘K overlay (Web 对话.dc.html `ovSearch`): my conversations by name, then messages, files and runs of my groups. */
 export function SearchOverlay({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
   const listId = useId()
@@ -73,6 +85,9 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
   const key = q.trim() && `${tab}:${q.trim()}:${attempt}`
   const settled = !!key && found.key === key
   const results = settled ? found.list : []
+  const groups = useWorkspace((s) => s.groups)
+  const convs = matchConversations(groups, q)
+  const count = convs.length + results.length
   useEscape(onClose)
 
   useEffect(() => {
@@ -96,21 +111,42 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
     }
   }, [q, tab, attempt])
 
-  const go = (r: SearchResultDto) => {
+  const go = (href: string) => {
     onClose()
-    navigate(hrefOf(r))
+    navigate(href)
+  }
+  const hrefAt = (i: number) => {
+    const g = convs[i]
+    const r = results[i - convs.length]
+    return g ? `/g/${g.id}` : r && hrefOf(r)
   }
   const optionId = (i: number) => `${listId}-${i}`
+  const row = (key: string, i: number, href: string, children: ReactNode) => (
+    <button
+      key={key}
+      id={optionId(i)}
+      ref={i === active ? (el) => el?.scrollIntoView?.({ block: 'nearest' }) : undefined}
+      type="button"
+      role="option"
+      tabIndex={-1}
+      aria-selected={i === active}
+      className={cx('search__row', i === active && 'search__row--active')}
+      onMouseMove={() => setActive(i)}
+      onClick={() => go(href)}
+    >
+      {children}
+    </button>
+  )
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (!results.length || e.nativeEvent.isComposing) return
+    if (!count || e.nativeEvent.isComposing) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       const step = e.key === 'ArrowDown' ? 1 : -1
-      setActive((i) => (i + step + results.length) % results.length)
+      setActive((i) => (i + step + count) % count)
     } else if (e.key === 'Enter') {
-      const r = results[active]
-      if (r) go(r)
+      const href = hrefAt(active)
+      if (href) go(href)
     }
   }
 
@@ -124,13 +160,16 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
             // biome-ignore lint/a11y/noAutofocus: the overlay exists to type a query
             autoFocus
             className="search__input"
-            placeholder={t('搜索消息、文件、运行')}
+            placeholder={t('搜索会话、消息、文件、运行')}
             role="combobox"
-            aria-expanded={results.length > 0}
+            aria-expanded={count > 0}
             aria-controls={listId}
-            aria-activedescendant={results.length ? optionId(active) : undefined}
+            aria-activedescendant={count ? optionId(active) : undefined}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value)
+              setActive(0)
+            }}
             onKeyDown={onKeyDown}
           />
           <span className="search__esc">{t('esc 关闭')}</span>
@@ -139,38 +178,42 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
           <Tabs size="sm" items={TABS} value={tab} onChange={setTab} />
         </div>
         <div className="search__results" data-testid="search-results">
-          {key && !settled ? (
-            <div className="search__empty">
-              <Spinner />
-            </div>
-          ) : settled && found.failed ? (
-            <div className="search__empty">
-              {t('搜索失败')}
-              <button type="button" className="search__retry" onClick={() => setAttempt((a) => a + 1)}>
-                {t('重试')}
-              </button>
-            </div>
-          ) : settled && !results.length ? (
-            <EmptyState compact title={t('没有匹配的结果')} illustration={<NoResultsArt />} />
-          ) : null}
-          {results.length ? (
+          {count ? (
             <div id={listId} role="listbox" aria-label={t('搜索结果')} className="search__list">
-              {results.map((r, i) => {
+              {convs.length ? (
+                <div className="search__section" role="presentation">
+                  {t('会话#conversations')}
+                </div>
+              ) : null}
+              {convs.map((g, i) =>
+                row(
+                  g.id,
+                  i,
+                  `/g/${g.id}`,
+                  <>
+                    <GroupAvatar group={g} size={20} />
+                    <div className="search__text">
+                      <div className="search__title">
+                        <Highlight text={g.name} query={q.trim()} />
+                      </div>
+                    </div>
+                    <span className="search__time">{g.kind === 'dm' ? t('私聊') : t('群聊')}</span>
+                  </>,
+                ),
+              )}
+              {convs.length && results.length ? (
+                <div className="search__section" role="presentation">
+                  {TABS.find((x) => x.value === tab)?.label}
+                </div>
+              ) : null}
+              {results.map((r, j) => {
                 const icon = r.kind === 'run' && r.sub.includes('运行过程已过期') ? 'archive' : ICON[r.kind]
                 const title = r.kind === 'file' ? r.title : plainText(r.title)
-                return (
-                  <button
-                    key={`${r.groupId}:${r.messageId ?? r.runId}:${r.title}`}
-                    id={optionId(i)}
-                    ref={i === active ? (el) => el?.scrollIntoView?.({ block: 'nearest' }) : undefined}
-                    type="button"
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={i === active}
-                    className={cx('search__row', i === active && 'search__row--active')}
-                    onMouseMove={() => setActive(i)}
-                    onClick={() => go(r)}
-                  >
+                return row(
+                  `${r.groupId}:${r.messageId ?? r.runId}:${r.title}`,
+                  convs.length + j,
+                  hrefOf(r),
+                  <>
                     {r.kind === 'file' ? (
                       <FileIcon name={r.title} size={18} />
                     ) : (
@@ -183,10 +226,24 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
                       <div className="search__sub">{r.sub}</div>
                     </div>
                     {r.at ? <span className="search__time">{listTime(r.at)}</span> : null}
-                  </button>
+                  </>,
                 )
               })}
             </div>
+          ) : null}
+          {key && !settled ? (
+            <div className="search__empty">
+              <Spinner />
+            </div>
+          ) : settled && found.failed ? (
+            <div className="search__empty">
+              {t('搜索失败')}
+              <button type="button" className="search__retry" onClick={() => setAttempt((a) => a + 1)}>
+                {t('重试')}
+              </button>
+            </div>
+          ) : settled && !count ? (
+            <EmptyState compact title={t('没有匹配的结果')} illustration={<NoResultsArt />} />
           ) : null}
         </div>
       </div>
