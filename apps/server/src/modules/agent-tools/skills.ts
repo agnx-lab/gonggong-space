@@ -10,13 +10,17 @@ import {
   createSkill,
   deleteSkill,
   findSkill,
+  inheritedSkills,
+  keptIn,
   type Listed,
   listed,
   mergeSkills,
   rollbackSkill,
+  setInherited,
   skillVersion,
   skillVersionList,
   snapshot,
+  turnedOff,
   updateSkill,
   visibleIn,
 } from '../skills/service.js'
@@ -79,8 +83,9 @@ const audited = (run: Run) => ({ botId: run.botId, runId: run.id })
 export async function skillList(ctx: Ctx, run: Run): Promise<ToolOutput> {
   const rows = await listed(ctx.db).where(visibleIn(ctx.db, run.groupId))
   if (!rows.length) return { text: '本群还没有 Skill', groups: [] }
+  const off = await turnedOff(ctx.db, run.groupId)
   const winner = new Map(
-    mergeSkills(rows.filter((r) => r.skill.enabled).map((r) => r.skill)).map((s) => [s.name, s]),
+    mergeSkills(rows.map((r) => r.skill).filter((s) => s.enabled && keptIn(off)(s))).map((s) => [s.name, s]),
   )
   const team = await teamOf(ctx, run)
   const edit = {
@@ -99,10 +104,19 @@ export async function skillList(ctx: Ctx, run: Run): Promise<ToolOutput> {
       const over = winner.get(skill.name)!
       const state = !skill.enabled
         ? '已停用'
-        : over === skill
-          ? '生效'
-          : `被${LAYER[over.scope as Scope]}同名 Skill 覆盖`
-      const right = scope === 'platform' ? '只读' : edit[scope] ? '可修改' : '发起人无权修改'
+        : !keptIn(off)(skill)
+          ? '本群已关闭'
+          : over === skill
+            ? '生效'
+            : `被${LAYER[over.scope as Scope]}同名 Skill 覆盖`
+      const right =
+        scope !== 'platform' && edit[scope]
+          ? '可修改'
+          : scope !== 'group' && edit.group
+            ? '本群可开关'
+            : scope === 'platform'
+              ? '只读'
+              : '发起人无权修改'
       return [
         `- ${skill.name} · ${LAYER[scope]} · v${version.version} · ${state} · ${right}`,
         `  说明：${skill.description}`,
@@ -192,12 +206,30 @@ export async function skillDelete(ctx: Ctx, run: Run, a: Args<'skill_delete'>): 
 
 export async function skillToggle(ctx: Ctx, run: Run, a: Args<'skill_toggle'>): Promise<ToolOutput> {
   const l = await writable(ctx, run, a.layer)
+  if (l.scope === 'group' && !(await findSkill(ctx, l, eq(skills.name, a.name))))
+    return toggleInherited(ctx, run, a)
   const current = await named(ctx, l, a.name)
   const state = a.enabled ? '启用' : '停用'
   if (current.skill.enabled === a.enabled)
     return { text: `${LAYER[l.scope]} Skill「${a.name}」已是${state}状态`, groups: [] }
   await updateSkill(ctx, l, current, { enabled: a.enabled }, run.originUserId, audited(run))
   return { text: `已${state}${LAYER[l.scope]} Skill「${a.name}」，下一轮生效`, groups: [] }
+}
+
+/** No group skill of that name: turns the inherited one on or off for this group alone. */
+async function toggleInherited(ctx: Ctx, run: Run, a: Args<'skill_toggle'>): Promise<ToolOutput> {
+  const found =
+    (await inheritedSkills(ctx.db, run.groupId)).find((r) => r.skill.name === a.name) ??
+    refuse(`本群没有名为「${a.name}」的群层 Skill，也没有继承的同名 Skill，请用 skill_list 查看`)
+  const what = `继承的${LAYER[found.skill.scope as Scope]} Skill「${a.name}」`
+  if (!(await setInherited(ctx, run.groupId, a.name, a.enabled, run.originUserId, audited(run))))
+    return { text: `${what}在本群已是${a.enabled ? '启用' : '关闭'}状态`, groups: [] }
+  return {
+    text: a.enabled
+      ? `已在本群重新启用${what}，下一轮生效`
+      : `已在本群关闭${what}，下一轮生效（不影响其他群）`,
+    groups: [],
+  }
 }
 
 export async function listSkillVersions(ctx: Ctx, run: Run, a: Args<'skill_versions'>): Promise<ToolOutput> {

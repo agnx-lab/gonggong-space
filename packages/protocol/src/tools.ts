@@ -190,7 +190,11 @@ export const SkillDeleteArgs = z.object({ name: skillName, layer: skillLayer.opt
 export const SkillToggleArgs = z.object({
   name: skillName,
   layer: skillLayer.optional(),
-  enabled: z.boolean().describe('true = 启用，false = 停用（保留内容与版本）'),
+  enabled: z
+    .boolean()
+    .describe(
+      'true = 启用，false = 停用（保留内容与版本）。layer=group 且本群没有同名群层 Skill 时，开关的是本群继承的平台层/团队层 Skill，只影响本群',
+    ),
 })
 export const SkillVersionsArgs = z.object({ name: skillName, layer: skillLayer.optional() })
 export const SkillRollbackArgs = z.object({
@@ -297,7 +301,7 @@ export const GONGGONG_TOOLS = {
   skill_list: {
     title: GONGGONG_TOOL_TITLES.skill_list,
     description:
-      '本群可见的团队 Skill（平台、团队、群三层，含已停用的）：名称、层级、说明、版本、是否生效（同名时下层覆盖上层）、发起人能否修改。',
+      '本群可见的团队 Skill（平台、团队、群三层，含已停用和本群已关闭的）：名称、层级、说明、版本、是否生效（同名时下层覆盖上层）、发起人能否修改。',
     input: SkillListArgs,
   },
   skill_get: {
@@ -322,7 +326,7 @@ export const GONGGONG_TOOLS = {
   },
   skill_toggle: {
     title: GONGGONG_TOOL_TITLES.skill_toggle,
-    description: `启用或停用 Skill。${SKILL_WRITE}`,
+    description: `启用或停用 Skill。要在本群关掉继承自团队或平台的 Skill（不影响其他群）时，用 layer=group 并给出它的名称，需发起人为本群管理员。${SKILL_WRITE}`,
     input: SkillToggleArgs,
   },
   skill_versions: {

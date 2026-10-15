@@ -414,6 +414,13 @@
       "when": 1791971081144,
       "tag": "0058_group_bot_extra_dirs",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792029768522,
+      "tag": "0059_strong_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, readlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MessageDto, TimelineDto } from '@gonggong/protocol'
 import { expect, test } from '@playwright/test'
-import { bindManaged, buildDaemon, memberWithMachine, ROOT, remoteRepo } from './helpers'
+import { adminSession, bindManaged, buildDaemon, call, memberWithMachine, ROOT, remoteRepo } from './helpers'
 
 test.beforeAll(buildDaemon)
 
@@ -48,7 +48,7 @@ test('a group admin adds a skill; Claude gets the plugin, Codex a git-excluded l
     const main = page.getByRole('main')
 
     await test.step('the group admin writes a skill in 群设置 · Skill', async () => {
-      await main.getByRole('button', { name: '群设置' }).click()
+      await main.getByRole('button', { name: '群设置', exact: true }).click()
       await page
         .getByRole('complementary', { name: '群设置' })
         .getByRole('button', { name: /同步模式/ })
@@ -161,7 +161,7 @@ test('a group admin has a bot create a skill through gonggong; settings and / li
     )
 
     await test.step('群设置 · Skill shows it at v1', async () => {
-      await main.getByRole('button', { name: '群设置' }).click()
+      await main.getByRole('button', { name: '群设置', exact: true }).click()
       await page
         .getByRole('complementary', { name: '群设置' })
         .getByRole('button', { name: /同步模式/ })
@@ -187,5 +187,95 @@ test('a group admin has a bot create a skill through gonggong; settings and / li
     })
   } finally {
     m.stop()
+  }
+})
+
+test('a group admin turns an inherited skill off for the group in settings, and back on through a bot; other groups keep it', async ({
+  page,
+}) => {
+  test.setTimeout(4 * 60_000)
+  const tag = Date.now().toString(36)
+  const name = `shared-${tag}`
+  const admin = (await page.context().browser()!.newContext({ baseURL: 'http://127.0.0.1:5190' })).request
+  await adminSession(admin)
+  const shared = await call<{ id: string }>(admin, 'post', '/api/admin/skills', {
+    files: [
+      { path: 'SKILL.md', content: `---\nname: ${name}\ndescription: 平台共享规范\n---\n全平台通用。\n` },
+    ],
+  })
+  const { m, api } = await memberWithMachine(page, `ski${tag}`, { env: { GONGGONG_ADAPTER_CMD: MOCK } })
+  const me = await api.me()
+  const botName = `${tag} Bot`
+  const bot = await api.call<{ id: string }>('post', '/api/bots', {
+    name: botName,
+    ownerId: me.id,
+    agentKind: 'claude',
+    machineId: await api.machineId(),
+    systemPrompt: '',
+  })
+  m.start()
+  try {
+    const newGroup = (title: string) =>
+      api.call<{ id: string }>('post', '/api/groups', {
+        name: title,
+        kind: 'group',
+        botIds: [bot.id],
+        repo: null,
+      })
+    const group = await newGroup('继承关闭')
+    const other = await newGroup('继承保留')
+    await bindManaged(page.request, group.id, [bot.id])
+    const box = page.getByPlaceholder(composer)
+    const listed = async (groupId: string) => {
+      await page.goto(`/g/${groupId}`)
+      await box.fill(`/${name}`)
+      const skills = page.getByRole('listbox', { name: '/ 命令' }).getByRole('group', { name: '团队 Skill' })
+      return skills.getByRole('option', { name: new RegExp(`gonggong-team:${name}`) })
+    }
+    const runs = page.getByTestId('run-card')
+    const turn = async (text: string, nth: number) => {
+      await box.fill(text)
+      await page.getByRole('button', { name: '发送' }).click()
+      await expect(runs).toHaveCount(nth, { timeout: 60_000 })
+      await expect(runs.nth(nth - 1)).toHaveAttribute('data-status', 'completed', { timeout: 60_000 })
+    }
+    const loaded = () =>
+      existsSync(join(m.home, 'skill-sets', `${group.id}-${bot.id}`, 'skills', name, 'SKILL.md'))
+
+    await test.step('群设置 · Skill lists it under 继承自团队/平台 and turns it off', async () => {
+      await page.goto(`/g/${group.id}`)
+      await page.getByRole('main').getByRole('button', { name: '群设置', exact: true }).click()
+      await page
+        .getByRole('complementary', { name: '群设置' })
+        .getByRole('button', { name: /同步模式/ })
+        .click()
+      const settings = page.getByRole('dialog', { name: /继承关闭/ })
+      await settings.getByRole('button', { name: 'Skill', exact: true }).click()
+      await expect(settings.getByText('继承自团队/平台')).toBeVisible()
+      const toggle = settings.getByRole('switch', { name: `在本群启用 ${name}` })
+      await expect(toggle).toBeChecked()
+      await toggle.locator('xpath=..').click()
+      await expect(toggle).not.toBeChecked()
+      await page.keyboard.press('Escape')
+    })
+
+    await test.step('this group no longer loads it; the other group still does', async () => {
+      await expect(await listed(group.id)).toHaveCount(0)
+      await box.fill('')
+      await turn(`@${botName} mock:echo`, 1)
+      expect(loaded()).toBe(false)
+      await expect(await listed(other.id)).toBeVisible()
+      await box.fill('')
+    })
+
+    await test.step('a bot turns it back on for this group through skill_toggle', async () => {
+      await page.goto(`/g/${group.id}`)
+      await turn(`@${botName} mock:tool skill_toggle ${JSON.stringify({ name, enabled: true })}`, 2)
+      await turn(`@${botName} mock:echo`, 3)
+      expect(loaded()).toBe(true)
+    })
+  } finally {
+    m.stop()
+    await admin.delete(`/api/admin/skills/${shared.id}`)
   }
 })

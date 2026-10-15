@@ -1191,6 +1191,16 @@ export const CreateSkillReq = z.object({ enabled: z.boolean().default(true), fil
 /** New files make a new version unless identical to the current one. */
 export const UpdateSkillReq = z.object({ enabled: z.boolean().optional(), files: SkillFiles.optional() })
 export const RollbackSkillReq = z.object({ versionId: z.string() })
+/** A platform / team skill in effect for the group, which its admins may turn off for the group alone. */
+export const InheritedSkillDto = z.object({
+  name: z.string(),
+  description: z.string(),
+  scope: z.enum(['platform', 'team']),
+  version: z.number().int(),
+  enabledInGroup: z.boolean(),
+})
+export type InheritedSkillDto = z.infer<typeof InheritedSkillDto>
+export const ToggleInheritedSkillReq = z.object({ enabled: z.boolean() })
 
 // ── Search (⌘K, plan D9) ────────────────────────────────────────────────────
 export const SearchQuery = z.object({ q: z.string().min(1).max(200), tab: z.enum(['msg', 'file', 'run']) })

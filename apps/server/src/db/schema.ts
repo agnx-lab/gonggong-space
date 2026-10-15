@@ -816,6 +816,20 @@ export const skillVersions = pgTable(
   (t) => [unique().on(t.skillId, t.version)],
 )
 
+/** Inherited (platform / team) skills a group's admins turned off for that group alone. */
+export const groupSkillOverrides = pgTable(
+  'group_skill_overrides',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.name] })],
+)
+
 /** Scheduled tasks (plan 定时任务): at each firing the first available bot of `botIds` is @-ed in the owner's name. */
 export const schedules = pgTable(
   'schedules',

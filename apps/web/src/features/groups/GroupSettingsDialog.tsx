@@ -19,7 +19,7 @@ import {
   toast,
 } from '../../ui'
 import { McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
-import { SkillLayerList } from '../config/SkillLayer'
+import { InheritedSkillList, SkillLayerList } from '../config/SkillLayer'
 import { GroupFeishuTab } from '../feishu/GroupFeishuTab'
 import { RepoWorkspaceView } from '../repos/RepoWorkspaceView'
 import { SyncModeTab } from '../sync/SyncModeTab'
@@ -152,6 +152,7 @@ export function GroupSettingsDialog({
             <>
               <div className="gs-note">{t('只对本群生效；与团队层、平台层同名时以群层为准。')}</div>
               <SkillLayerList base={`/groups/${group.id}/skills`} tag={t('群层')} />
+              <InheritedSkillList groupId={group.id} />
             </>
           ) : tab === 'feishu' ? (
             <GroupFeishuTab group={group} />

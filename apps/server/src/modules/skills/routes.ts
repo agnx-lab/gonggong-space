@@ -1,9 +1,11 @@
 import {
   CreateSkillReq,
+  type InheritedSkillDto,
   RollbackSkillReq,
   type SkillDetailDto,
   type SkillFile,
   type SkillVersionDto,
+  ToggleInheritedSkillReq,
   UpdateSkillReq,
 } from '@gonggong/protocol'
 import { and, asc, eq, isNull } from 'drizzle-orm'
@@ -13,6 +15,8 @@ import { requireMachine } from '../../daemon/auth.js'
 import { bots, groupBots, groups, skills, skillVersions } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
+import { requireUser } from '../auth/session.js'
+import { requireAdmin } from '../groups/service.js'
 import { type Authorize, eachLayer, type Layer } from '../mcp/routes.js'
 import {
   createSkill,
@@ -20,9 +24,11 @@ import {
   detailDto,
   dto,
   findSkill,
+  inheritedSkills,
   inLayer,
   listed,
   rollbackSkill,
+  setInherited,
   skillVersion,
   skillVersionList,
   snapshot,
@@ -110,6 +116,35 @@ function layerRoutes(ctx: Ctx, app: FastifyInstance, base: string, authorize: Au
   })
 }
 
+/** Platform / team skills in effect for a group, which its admins turn on or off for the group alone. */
+function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
+  type P = { Params: { id: string; name?: string } }
+  const list = async (groupId: string): Promise<InheritedSkillDto[]> =>
+    (await inheritedSkills(ctx.db, groupId)).map(({ skill, version, enabledInGroup }) => ({
+      name: skill.name,
+      description: skill.description,
+      scope: skill.scope as InheritedSkillDto['scope'],
+      version: version.version,
+      enabledInGroup,
+    }))
+
+  app.get<P>('/api/groups/:id/inherited-skills', async (req) => {
+    const me = await requireUser(ctx, req)
+    const { group } = await requireAdmin(ctx, req.params.id, me.id)
+    return list(group.id)
+  })
+
+  app.put<P>('/api/groups/:id/inherited-skills/:name', async (req) => {
+    const me = await requireUser(ctx, req)
+    const { group } = await requireAdmin(ctx, req.params.id, me.id)
+    const { enabled } = ToggleInheritedSkillReq.parse(req.body)
+    const all = await list(group.id)
+    const found = all.find((s) => s.name === req.params.name) ?? fail('not_found', 'Skill 不存在')
+    await setInherited(ctx, group.id, found.name, enabled, me.id)
+    return { ...found, enabledInGroup: enabled }
+  })
+}
+
 /** A skill version for a machine hosting a bot in some group the skill applies to. */
 function daemonRoutes(ctx: Ctx, app: FastifyInstance) {
   app.get<{ Params: { versionId: string } }>('/api/daemon/skills/:versionId', async (req) => {
@@ -146,6 +181,7 @@ function daemonRoutes(ctx: Ctx, app: FastifyInstance) {
 export function skillRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     eachLayer(ctx, 'skills', (base, authorize) => layerRoutes(ctx, app, base, authorize))
+    inheritedRoutes(ctx, app)
     daemonRoutes(ctx, app)
   }
 }

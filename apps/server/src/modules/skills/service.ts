@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, isNull, ne, or, type SQL } from 'drizzle-orm'
 import { parse as parseYaml } from 'yaml'
 import type { Ctx } from '../../context.js'
 import type { Db } from '../../db/client.js'
-import { groups, skills, skillVersions, users } from '../../db/schema.js'
+import { groupSkillOverrides, groups, skills, skillVersions, users } from '../../db/schema.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { type Layer, RANK, type Scope } from '../mcp/routes.js'
@@ -271,8 +271,63 @@ export function mergeSkills<T extends { scope: string; name: string }>(rows: T[]
   return [...merged.values()].sort((a, b) => (a.name < b.name ? -1 : 1))
 }
 
+/** Names of inherited skills the group turned off; its own group-layer skills are not affected. */
+export async function turnedOff(db: Pick<Db, 'select'>, groupId: string) {
+  const rows = await db
+    .select({ name: groupSkillOverrides.name })
+    .from(groupSkillOverrides)
+    .where(eq(groupSkillOverrides.groupId, groupId))
+  return new Set(rows.map((r) => r.name))
+}
+
+/** Drops inherited rows the group turned off. */
+export const keptIn = (off: Set<string>) => (r: { scope: string; name: string }) =>
+  r.scope === 'group' || !off.has(r.name)
+
+/** Platform and team skills in effect above the group, merged, with whether the group keeps them on. */
+export async function inheritedSkills(db: Pick<Db, 'select'>, groupId: string) {
+  const rows = await listed(db).where(
+    and(eq(skills.enabled, true), ne(skills.scope, 'group'), visibleIn(db, groupId)),
+  )
+  const off = await turnedOff(db, groupId)
+  const winners = new Set(mergeSkills(rows.map((r) => r.skill)))
+  return rows
+    .filter((r) => winners.has(r.skill))
+    .sort((a, b) => (a.skill.name < b.skill.name ? -1 : 1))
+    .map((r) => ({ ...r, enabledInGroup: !off.has(r.skill.name) }))
+}
+
+/** Turns inherited skill `name` on or off for the group alone; false when it already was. */
+export async function setInherited(
+  ctx: Ctx,
+  groupId: string,
+  name: string,
+  enabled: boolean,
+  actorId: string,
+  extra?: Extra,
+) {
+  const where = and(eq(groupSkillOverrides.groupId, groupId), eq(groupSkillOverrides.name, name))
+  const changed = enabled
+    ? await ctx.db.delete(groupSkillOverrides).where(where).returning()
+    : await ctx.db
+        .insert(groupSkillOverrides)
+        .values({ groupId, name, updatedBy: actorId, updatedAt: ctx.now() })
+        .onConflictDoNothing()
+        .returning()
+  if (!changed.length) return false
+  await audit(ctx, {
+    category: 'admin',
+    actorUserId: actorId,
+    groupId,
+    action: 'skill.group_toggle',
+    detail: { name, enabled, ...extra },
+  })
+  return true
+}
+
 /** Enabled skills for a run in the group, merged across layers (as `enabledMcpServers`). */
 export async function enabledSkills(db: Pick<Db, 'select'>, groupId: string) {
+  const off = await turnedOff(db, groupId)
   const rows = await db
     .select({
       scope: skills.scope,
@@ -284,7 +339,7 @@ export async function enabledSkills(db: Pick<Db, 'select'>, groupId: string) {
     .from(skills)
     .innerJoin(skillVersions, eq(skillVersions.id, skills.versionId))
     .where(and(eq(skills.enabled, true), visibleIn(db, groupId)))
-  return mergeSkills(rows).map(({ name, description, versionId, digest }) => ({
+  return mergeSkills(rows.filter(keptIn(off))).map(({ name, description, versionId, digest }) => ({
     name,
     description,
     versionId,

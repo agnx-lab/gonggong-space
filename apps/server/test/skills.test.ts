@@ -1,4 +1,5 @@
 import {
+  type InheritedSkillDto,
   PROTOCOL_VERSION,
   type RunStart,
   SKILL_MAX_BYTES,
@@ -9,7 +10,15 @@ import {
 } from '@gonggong/protocol'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { auditLogs, groupBots, messages, skillVersions, teamMembers, users } from '../src/db/schema.js'
+import {
+  auditLogs,
+  groupBots,
+  groupMembers,
+  messages,
+  skillVersions,
+  teamMembers,
+  users,
+} from '../src/db/schema.js'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
 import { enabledSkills } from '../src/modules/skills/service.js'
 import { createTestApp, inbox, type TestApp } from './support/app.js'
@@ -215,6 +224,66 @@ describe('skill layers', () => {
     })
     const [first] = await enabledSkills(t.db, w.groupA.id)
     expect(first!.digest).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+describe('inherited skills in a group', () => {
+  it('lets a group admin turn an inherited skill off for the group only, audited', async () => {
+    const w = await world()
+    const root = await w.as(w.root)
+    const bob = await w.as(w.bob)
+    const eve = await w.as(w.eve)
+    await root.post('/api/admin/skills', { files: skill('wiki', 'platform wiki') })
+    await root.post('/api/admin/skills', { files: skill('jira') })
+    await root.post('/api/admin/skills', { enabled: false, files: skill('off') })
+    await bob.post(`/api/teams/${w.teamA}/skills`, { files: skill('wiki', 'team wiki') })
+    await eve.post(`/api/groups/${w.groupA.id}/skills`, { files: skill('docs') })
+    const sibling = await t.seed.group({ createdBy: w.eve.id, name: 'A2 群' })
+    const url = `/api/groups/${w.groupA.id}/inherited-skills`
+
+    const listed = async () =>
+      (await eve.get<InheritedSkillDto[]>(url)).body.map((s) => [s.name, s.scope, s.enabledInGroup])
+    expect(await listed()).toEqual([
+      ['jira', 'platform', true],
+      ['wiki', 'team', true],
+    ])
+    expect((await eve.put(`${url}/wiki`, { enabled: false })).status).toBe(200)
+    expect(await listed()).toEqual([
+      ['jira', 'platform', true],
+      ['wiki', 'team', false],
+    ])
+    const names = async (groupId: string) => (await enabledSkills(t.db, groupId)).map((s) => s.name)
+    expect(await names(w.groupA.id)).toEqual(['docs', 'jira'])
+    expect(await names(sibling.id)).toEqual(['jira', 'wiki'])
+
+    expect((await eve.put(`${url}/nope`, { enabled: false })).status).toBe(404)
+    expect((await eve.put(`${url}/docs`, { enabled: false })).status).toBe(404)
+    const member = await t.seed.user({ name: '路人' })
+    await t.db.insert(groupMembers).values({ groupId: w.groupA.id, userId: member.id })
+    const plain = await w.as(member)
+    expect((await plain.get(url)).status).toBe(403)
+    expect((await plain.put(`${url}/jira`, { enabled: false })).status).toBe(403)
+
+    expect((await eve.put(`${url}/wiki`, { enabled: true })).status).toBe(200)
+    expect(await names(w.groupA.id)).toEqual(['docs', 'jira', 'wiki'])
+    const log = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'skill.group_toggle'))
+    expect(log.map((l) => [l.actorUserId, l.groupId, l.detail])).toEqual([
+      [w.eve.id, w.groupA.id, { name: 'wiki', enabled: false }],
+      [w.eve.id, w.groupA.id, { name: 'wiki', enabled: true }],
+    ])
+  })
+
+  it('leaves a same-named group skill in effect', async () => {
+    const w = await world()
+    const eve = await w.as(w.eve)
+    await (await w.as(w.root)).post('/api/admin/skills', { files: skill('wiki', 'platform') })
+    const own = await eve.post<SkillDetailDto>(`/api/groups/${w.groupA.id}/skills`, {
+      files: skill('wiki', 'group'),
+    })
+    expect(
+      (await eve.put(`/api/groups/${w.groupA.id}/inherited-skills/wiki`, { enabled: false })).status,
+    ).toBe(200)
+    expect((await enabledSkills(t.db, w.groupA.id)).map((s) => s.versionId)).toEqual([own.body.versionId])
   })
 })
 

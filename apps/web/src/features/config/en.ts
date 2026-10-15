@@ -100,6 +100,10 @@ export default {
   '与仓库自带的同名 skill 冲突时跳过团队版，运行卡片会提示。':
     'A team skill named like one in the repo is skipped, with a note on the run card.',
   '添加 Skill…': 'Add Skill…',
+  '继承自团队/平台': 'Inherited from team / platform',
+  '内容只读；在本群关闭只影响本群，团队和其他群照常加载。':
+    'Read-only. Turning one off here affects only this group; the team and other groups keep loading it.',
+  '在本群启用 {name}': 'Enable {name} in this group',
   '删除 Skill {name}？': 'Delete skill {name}?',
   '删除后历史版本一并移除，无法恢复。': 'Its version history is removed too. This cannot be undone.',
   '相关 Bot 下一轮起不再加载这个 skill': 'Affected Bots stop loading this skill from their next run',

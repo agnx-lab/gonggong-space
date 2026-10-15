@@ -1,10 +1,17 @@
-import type { SkillDetailDto, SkillDto, SkillVersionDto, UserDto } from '@gonggong/protocol'
+import type {
+  InheritedSkillDto,
+  SkillDetailDto,
+  SkillDto,
+  SkillVersionDto,
+  UserDto,
+} from '@gonggong/protocol'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { strToU8, zipSync } from 'fflate'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
 import { useSession } from '../src/app/session'
+import { InheritedSkillList } from '../src/features/config/SkillLayer'
 import { skillFiles, zipSkillFiles } from '../src/features/config/skillFiles'
 import { mockApi } from './mockApi'
 
@@ -249,5 +256,42 @@ describe('配置中心 · Skill', () => {
         body: { versionId: 'v1' },
       }),
     )
+  })
+})
+
+describe('群设置 · 继承的 Skill', () => {
+  it('lists team and platform skills read-only with their layer, and turns one off for this group', async () => {
+    const inherited: InheritedSkillDto[] = [
+      { name: 'jira', description: 'jira helper', scope: 'platform', version: 1, enabledInGroup: true },
+      { name: 'wiki', description: 'wiki helper', scope: 'team', version: 3, enabledInGroup: false },
+    ]
+    const calls = mockApi({
+      'GET /groups/g1/inherited-skills': inherited,
+      'PUT /groups/g1/inherited-skills/jira': { ...inherited[0], enabledInGroup: false },
+    })
+    render(<InheritedSkillList groupId="g1" />)
+    await screen.findByText('/gonggong-team:jira')
+    expect(screen.getByText('继承自团队/平台')).toBeTruthy()
+    const jira = row('/gonggong-team:jira')
+    expect(jira.textContent).toContain('平台层')
+    expect(jira.textContent).toContain('v1')
+    expect(row('/gonggong-team:wiki').textContent).toContain('团队层')
+    expect(within(row('/gonggong-team:wiki')).getByRole('switch').getAttribute('aria-checked')).toBe('false')
+    expect(within(jira).queryByRole('button', { name: /编辑/ })).toBeNull()
+
+    fireEvent.click(within(jira).getByRole('switch', { name: '在本群启用 jira' }))
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'PUT',
+        path: '/groups/g1/inherited-skills/jira',
+        body: { enabled: false },
+      }),
+    )
+  })
+
+  it('shows nothing when no skill is inherited', async () => {
+    mockApi({ 'GET /groups/g1/inherited-skills': [] })
+    const { container } = render(<InheritedSkillList groupId="g1" />)
+    await waitFor(() => expect(container.textContent).toBe(''))
   })
 })

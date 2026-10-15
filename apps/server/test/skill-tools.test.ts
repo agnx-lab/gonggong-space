@@ -144,7 +144,7 @@ describe('skill tools', () => {
     expect((await li.call('skill_toggle', { name: 'jira', layer: 'platform', enabled: false })).isError).toBe(
       true,
     )
-    expect(await li.call('skill_toggle', { name: 'jira', enabled: false })).toMatchObject({
+    expect(await li.call('skill_delete', { name: 'jira' })).toMatchObject({
       isError: true,
       text: '本群没有名为「jira」的群层 Skill，请用 skill_list 查看',
     })
@@ -248,6 +248,45 @@ describe('skill tools', () => {
     )
     expect((await li.call('skill_get', { name: 'review' })).text).toContain('平台层')
     expect(await t.db.select().from(skills)).toHaveLength(1)
+  })
+
+  it('turns an inherited skill off and on for this group only', async () => {
+    const w = await world()
+    await w.platform('wiki')
+    await w.platform('jira')
+    const other = await t.seed.group({ createdBy: w.li.id })
+    const names = async (groupId: string) => (await enabledSkills(t.db, groupId)).map((s) => s.name)
+    const zhao = await w.runOf(w.zhao)
+    expect(await zhao.call('skill_toggle', { name: 'wiki', enabled: false })).toMatchObject({
+      isError: true,
+      text: '发起人不是本群管理员，不能修改群层 Skill',
+    })
+
+    const li = await w.runOf(w.li)
+    expect((await li.call('skill_toggle', { name: 'wiki', enabled: false })).text).toBe(
+      '已在本群关闭继承的平台层 Skill「wiki」，下一轮生效（不影响其他群）',
+    )
+    expect((await li.call('skill_toggle', { name: 'wiki', enabled: false })).text).toBe(
+      '继承的平台层 Skill「wiki」在本群已是关闭状态',
+    )
+    expect(await names(w.group.id)).toEqual(['jira'])
+    expect(await names(other.id)).toEqual(['jira', 'wiki'])
+    expect((await li.call('skill_list')).text).toContain('- wiki · 平台层 · v1 · 本群已关闭 · 本群可开关')
+    expect((await zhao.call('skill_list')).text).toContain('- jira · 平台层 · v1 · 生效 · 只读')
+
+    expect((await li.call('skill_toggle', { name: 'wiki', enabled: true })).text).toBe(
+      '已在本群重新启用继承的平台层 Skill「wiki」，下一轮生效',
+    )
+    expect(await names(w.group.id)).toEqual(['jira', 'wiki'])
+    expect(await li.call('skill_toggle', { name: 'nope', enabled: false })).toMatchObject({
+      isError: true,
+      text: '本群没有名为「nope」的群层 Skill，也没有继承的同名 Skill，请用 skill_list 查看',
+    })
+    const log = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'skill.group_toggle'))
+    expect(log.map((l) => l.detail)).toEqual([
+      { name: 'wiki', enabled: false, botId: w.bot.id, runId: li.run.id },
+      { name: 'wiki', enabled: true, botId: w.bot.id, runId: li.run.id },
+    ])
   })
 
   it('turns validation failures into tool errors', async () => {

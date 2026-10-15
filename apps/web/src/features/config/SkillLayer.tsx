@@ -1,4 +1,5 @@
 import {
+  type InheritedSkillDto,
   SKILL_PLUGIN,
   type SkillDetailDto,
   type SkillDto,
@@ -157,6 +158,52 @@ export function SkillLayerList({ base, tag }: { base: string; tag: string }) {
           />
         ) : null}
       </Presence>
+    </>
+  )
+}
+
+const SCOPE: Record<InheritedSkillDto['scope'], string> = { platform: t('平台层'), team: t('团队层') }
+
+/** Platform and team skills in effect for the group: read-only, each turned on or off for this group alone. */
+export function InheritedSkillList({ groupId }: { groupId: string }) {
+  const base = `/groups/${groupId}/inherited-skills`
+  const { data, error, reload } = useGet<InheritedSkillDto[]>(base)
+  const toggle = async (s: InheritedSkillDto, enabled: boolean) => {
+    try {
+      await api.put(`${base}/${encodeURIComponent(s.name)}`, { enabled })
+    } catch (e) {
+      toast({ type: 'error', title: t('保存失败'), message: errorText(e) })
+    }
+    reload()
+  }
+  if (error) return <Alert variant="error" title={t('配置加载失败')} description={error} />
+  if (!data?.length) return null
+  return (
+    <>
+      <div className="cfg__eyebrow">{t('继承自团队/平台')}</div>
+      <div className="gs-note">{t('内容只读；在本群关闭只影响本群，团队和其他群照常加载。')}</div>
+      <GroupBox>
+        {data.map((s) => (
+          <GroupRow
+            key={s.name}
+            className="cfg__item"
+            label={
+              <span className="cfg__name-line">
+                <span className="cfg__name">{`/${SKILL_PLUGIN}:${s.name}`}</span>
+                <Tag tone="gray">{SCOPE[s.scope]}</Tag>
+                <Tag tone="gray">{`v${s.version}`}</Tag>
+              </span>
+            }
+            description={s.description}
+          >
+            <Switch
+              ariaLabel={t('在本群启用 {name}', { name: s.name })}
+              checked={s.enabledInGroup}
+              onChange={(on) => void toggle(s, on)}
+            />
+          </GroupRow>
+        ))}
+      </GroupBox>
     </>
   )
 }
