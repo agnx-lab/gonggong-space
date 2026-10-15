@@ -81,6 +81,10 @@ export const GitStatus = z.object({
   ahead: z.number().int().nullable(),
   behind: z.number().int().nullable(),
   dirty: z.boolean(),
+  /** Uncommitted files of the root work tree; absent from older daemons. */
+  dirtyCount: z.number().int().optional(),
+  /** When the daemon took the status; absent from older daemons. */
+  checkedAt: z.string().optional(),
   workspace: z.enum(['managed', 'cd']),
   /** Submodules and nested repos (not the root), outermost first; the root fields are null/false when the root is not a repo. */
   repos: z.array(RepoStatus).default([]),

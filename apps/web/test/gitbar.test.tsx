@@ -127,6 +127,58 @@ describe('git status bar', () => {
     ).toBe(true)
   })
 
+  it('expands where a bot works: repo, machine, copyable directory, base vs current branch, changes and extra dirs', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-15T02:05:00.000Z'))
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    useWorkspace.setState({
+      bots: [{ ...bot('b1', '小王的 Claude'), machineName: '王磊的 MacBook' }, bot('b2', '老李的 Codex')],
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              state('b1', {
+                path: '/Users/w/.gonggong/workspaces/g1/b1/r1/refund',
+                git: git({
+                  branch: 'feat/x',
+                  dirty: true,
+                  dirtyCount: 3,
+                  checkedAt: '2026-10-15T02:00:00.000Z',
+                }),
+                extraDirs: ['/Users/w/shared'],
+              }),
+              state('b2', { path: '/w/b2', git: git() }),
+            ]),
+          ),
+      ),
+    )
+    render(<GitBar group={group({ botIds: ['b1', 'b2'] })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的执行位置' }))
+    const panel = await screen.findByRole('dialog', { name: '小王的 Claude 的执行位置' })
+    expect(within(panel).getByText('git@git.corp:pay/refund.git')).toBeTruthy()
+    expect(within(panel).getByText('王磊的 MacBook')).toBeTruthy()
+    expect(within(panel).getByText('/Users/w/.gonggong/workspaces/g1/b1/r1/refund')).toBeTruthy()
+    expect(within(panel).getByText('main')).toBeTruthy()
+    expect(within(panel).getByText('feat/x').closest('[data-mismatch="true"]')).toBeTruthy()
+    expect(within(panel).getByText('与基准分支不同')).toBeTruthy()
+    expect(within(panel).getByText('3 个未提交 · 5 分钟前检查')).toBeTruthy()
+    expect(within(panel).getByText('/Users/w/shared')).toBeTruthy()
+    fireEvent.click(within(panel).getByRole('button', { name: '复制目录' }))
+    expect(writeText).toHaveBeenCalledWith('/Users/w/.gonggong/workspaces/g1/b1/r1/refund')
+    vi.useRealTimers()
+
+    fireEvent.click(screen.getByRole('button', { name: '老李的 Codex 的执行位置' }))
+    const other = await screen.findByRole('dialog', { name: '老李的 Codex 的执行位置' })
+    expect(within(other).getByText('未绑定机器')).toBeTruthy()
+    expect(within(other).queryByText('与基准分支不同')).toBeNull()
+    expect(within(other).getByText('无未提交改动')).toBeTruthy()
+    expect(within(other).queryByText('附加目录')).toBeNull()
+  })
+
   it('opens the bot workspace files once the workspace exists', async () => {
     vi.stubGlobal(
       'fetch',

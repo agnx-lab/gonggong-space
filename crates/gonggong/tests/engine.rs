@@ -430,10 +430,13 @@ async fn repo_workspace_is_left_alone_before_the_turn_and_reports_git_changes() 
         ahead: Some(0),
         behind: Some(0),
         dirty: false,
+        dirty_count: Some(0),
+        checked_at: None,
         workspace: WorkspaceKind::Managed,
         repos: vec![],
     };
-    assert_eq!(done.git, Some(clean.clone()));
+    let unstamped = |git: Option<GitStatus>| git.map(|g| GitStatus { checked_at: None, ..g });
+    assert_eq!(unstamped(done.git.clone()), Some(clean.clone()));
     assert_eq!(done.files_changed, 0);
 
     // Shell edits and commits (as Codex does) are counted through git, not tool locations.
@@ -442,7 +445,7 @@ async fn repo_workspace_is_left_alone_before_the_turn_and_reports_git_changes() 
     let (_, done) = r.finish("r2").await;
     assert_eq!(done.outcome, RunOutcome::Completed, "{:?}", done.error);
     assert_eq!(done.files_changed, 3);
-    assert_eq!(done.git, Some(GitStatus { ahead: Some(1), dirty: true, ..clean }));
+    assert_eq!(unstamped(done.git), Some(GitStatus { ahead: Some(1), dirty: true, dirty_count: Some(2), ..clean }));
     let repos: Vec<_> = done.repos.iter().map(|r| (r.path.as_str(), r.branch.as_deref())).collect();
     assert_eq!(repos, [("", Some("main"))]);
 }

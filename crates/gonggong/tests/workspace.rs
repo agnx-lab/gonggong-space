@@ -127,8 +127,23 @@ impl Rig {
     }
 }
 
-fn clean(branch: &str, workspace: WorkspaceKind) -> GitStatus {
-    GitStatus { branch: Some(branch.into()), ahead: Some(0), behind: Some(0), dirty: false, workspace, repos: vec![] }
+fn clean(branch: &str, workspace: WorkspaceKind) -> Option<GitStatus> {
+    let (dirty, dirty_count, checked_at) = (false, Some(0), None);
+    Some(GitStatus {
+        branch: Some(branch.into()),
+        ahead: Some(0),
+        behind: Some(0),
+        dirty,
+        dirty_count,
+        checked_at,
+        workspace,
+        repos: vec![],
+    })
+}
+
+/// The status without its timestamp, to compare.
+fn unstamped(git: Option<GitStatus>) -> Option<GitStatus> {
+    git.map(|g| GitStatus { checked_at: None, ..g })
 }
 
 #[test]
@@ -173,7 +188,7 @@ async fn ensure_clones_once_with_autocrlf_off_and_reports_git_status() {
     assert_eq!(s.state, WorkspaceStateKind::Ready, "{:?}", s.error);
     let dir = r.managed(Some("rp"));
     assert_eq!(s.path.as_deref(), Some(&*dir.to_string_lossy()));
-    assert_eq!(s.git, Some(clean("main", WorkspaceKind::Managed)));
+    assert_eq!(unstamped(s.git), clean("main", WorkspaceKind::Managed));
     assert!(dir.join("README.md").is_file());
     assert_eq!(git(&dir, &["config", "--local", "core.autocrlf"]), "false");
 
@@ -292,7 +307,7 @@ async fn cd_validates_directory_repo_and_remote() {
     let (s, _) = r.settled("ok").await;
     assert_eq!(s.state, WorkspaceStateKind::Ready, "{:?}", s.error);
     assert_eq!(s.path.as_deref(), Some(&*local.to_string_lossy()));
-    assert_eq!(s.git, Some(clean("main", WorkspaceKind::Cd)));
+    assert_eq!(unstamped(s.git), clean("main", WorkspaceKind::Cd));
     assert_eq!(s.remotes, [remote.bare().to_string_lossy()]);
 
     r.cd("back", Some(remote.spec("rp")), None);
@@ -312,7 +327,7 @@ async fn forced_cd_skips_only_the_group_repo_check() {
     r.cd_with("f1", Some(remote.spec("rp")), Some(&other), true);
     let (s, _) = r.settled("f1").await;
     assert_eq!(s.state, WorkspaceStateKind::Ready, "{:?}", s.error);
-    assert_eq!(s.git, Some(clean("main", WorkspaceKind::Cd)));
+    assert_eq!(unstamped(s.git), clean("main", WorkspaceKind::Cd));
 
     let plain = tempfile::tempdir().unwrap();
     r.cd_with("f2", Some(remote.spec("rp")), Some(plain.path()), true);
@@ -336,7 +351,7 @@ async fn cd_without_group_repo_accepts_any_usable_directory() {
     let foreign = remote.clone_to("any");
     r.cd("repo", None, Some(&foreign));
     let (s, _) = r.settled("repo").await;
-    assert_eq!(s.git, Some(clean("main", WorkspaceKind::Cd)));
+    assert_eq!(unstamped(s.git), clean("main", WorkspaceKind::Cd));
 
     let home = gonggong::config::user_home();
     for (i, path) in [PathBuf::from("/"), home].iter().enumerate() {
@@ -403,13 +418,17 @@ async fn git_status_tracks_ahead_behind_dirty_and_missing_upstream() {
     git(&dir, &["fetch", "-q"]);
     std::fs::write(dir.join("new.txt"), "x").unwrap();
     let s = git::status(&dir, &[], WorkspaceKind::Managed).await.unwrap();
+    let checked = chrono::DateTime::parse_from_rfc3339(s.checked_at.as_deref().unwrap()).unwrap();
+    assert!((chrono::Utc::now() - checked.to_utc()).num_seconds() < 60);
     assert_eq!(
-        s,
+        unstamped(Some(s)).unwrap(),
         GitStatus {
             branch: Some("main".into()),
             ahead: Some(1),
             behind: Some(2),
             dirty: true,
+            dirty_count: Some(1),
+            checked_at: None,
             workspace: WorkspaceKind::Managed,
             repos: vec![],
         }

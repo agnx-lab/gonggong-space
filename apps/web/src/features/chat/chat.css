@@ -423,3 +423,40 @@
 .chat-view__pins:empty {
   display: none;
 }
+/* 执行位置 panel: label column + values that wrap anywhere (paths, URLs). */
+.git-loc {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-6) var(--space-12);
+  margin: 0;
+  font-size: var(--text-subheadline-size);
+}
+.git-loc dt {
+  color: var(--label-secondary);
+}
+.git-loc dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.git-loc__mono {
+  font-family: var(--font-mono);
+}
+.git-loc__dir {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+.git-loc__dir > .git-loc__mono {
+  flex: 1;
+  min-width: 0;
+}
+.git-loc__branches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-12);
+}
+.git-loc__branches [data-mismatch="true"],
+.git-loc__warn {
+  color: var(--tint-orange-text);
+}

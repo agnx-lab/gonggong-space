@@ -101,6 +101,12 @@ pub struct GitStatus {
     pub ahead: Option<u32>,
     pub behind: Option<u32>,
     pub dirty: bool,
+    /// Uncommitted files of the root work tree; absent from older daemons.
+    #[serde(default, rename = "dirtyCount", skip_serializing_if = "Option::is_none")]
+    pub dirty_count: Option<u32>,
+    /// When the status was taken (RFC 3339); absent from older daemons.
+    #[serde(default, rename = "checkedAt", skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
     pub workspace: WorkspaceKind,
     /// Submodules and nested repos (not the root), outermost first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -2,7 +2,9 @@ import type { GroupBotStateDto, GroupDto, RepoStatus } from '@gonggong/protocol'
 import { useEffect } from 'react'
 import { loadBotStates, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
+import { copyWithToast } from '../../lib/clipboard'
 import { realtime } from '../../lib/realtime'
+import { ago } from '../../lib/time'
 import { Icon, type IconName, Popover } from '../../ui'
 import { openTab } from '../workbench/open'
 import { ContextMeter } from './ContextMeter'
@@ -72,17 +74,112 @@ function SubRepos({ botId, name, repos }: { botId: string; name: string; repos: 
   )
 }
 
+/** 执行位置: where the bot works in this group, to tell which code it is changing (郑晓佳 #1488). */
+function Location({
+  name,
+  s,
+  repo,
+  machine,
+}: {
+  name: string
+  s: GroupBotStateDto
+  repo: NonNullable<GroupDto['repo']>
+  machine: string | null
+}) {
+  const label = t('{name} 的执行位置', { name })
+  const git = s.git
+  const current = git?.branch ?? null
+  const changes =
+    git?.dirtyCount != null
+      ? git.dirtyCount
+        ? t('{n} 个未提交', { n: git.dirtyCount })
+        : t('无未提交改动')
+      : git?.dirty
+        ? t('有未提交改动')
+        : t('无未提交改动')
+  return (
+    <Popover
+      portal
+      placement="bottom-end"
+      width={360}
+      aria-label={label}
+      trigger={
+        <button type="button" className="git-bar__act" aria-label={label} title={t('执行位置')}>
+          <Icon name="info" size={13} />
+        </button>
+      }
+    >
+      <dl className="git-loc">
+        <dt>{t('仓库')}</dt>
+        <dd className="git-loc__mono">{repo.url}</dd>
+        <dt>{t('机器')}</dt>
+        <dd>{machine ?? t('未绑定机器')}</dd>
+        <dt>{t('目录#one')}</dt>
+        <dd className="git-loc__dir">
+          <span className="git-loc__mono">{s.path ?? '—'}</span>
+          {s.path ? (
+            <button
+              type="button"
+              className="git-bar__act"
+              aria-label={t('复制目录')}
+              onClick={() => void copyWithToast(s.path ?? '', t('已复制目录'))}
+            >
+              <Icon name="copy" size={13} />
+            </button>
+          ) : null}
+        </dd>
+        <dt>{t('分支')}</dt>
+        <dd className="git-loc__branches">
+          <span>
+            {t('基准')} <span className="git-loc__mono">{repo.branch}</span>
+          </span>
+          <span data-mismatch={!!current && current !== repo.branch}>
+            {t('当前')} <span className="git-loc__mono">{current ?? '—'}</span>
+          </span>
+          {current && current !== repo.branch ? (
+            <span className="git-loc__warn">{t('与基准分支不同')}</span>
+          ) : null}
+        </dd>
+        {git ? (
+          <>
+            <dt>{t('改动')}</dt>
+            <dd>
+              {git.checkedAt ? t('{changes} · {ago}检查', { changes, ago: ago(git.checkedAt) }) : changes}
+            </dd>
+          </>
+        ) : null}
+        {s.extraDirs.length ? (
+          <>
+            <dt>{t('附加目录')}</dt>
+            <dd>
+              {s.extraDirs.map((d) => (
+                <div key={d} className="git-loc__mono">
+                  {d}
+                </div>
+              ))}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </Popover>
+  )
+}
+
 function Item({
   groupId,
   name,
   s,
-  git: showGit,
+  repo,
+  machine,
 }: {
   groupId: string
   name: string
   s: GroupBotStateDto
-  git: boolean
+  /** Set in partition groups with a repo, where the bar shows each bot's git status. */
+  repo: GroupDto['repo']
+  machine: string | null
 }) {
+  const showGit = !!repo
   const git = s.git
   // States stored before repos were reported have none.
   const subs = git?.repos ?? []
@@ -134,6 +231,7 @@ function Item({
       {s.context ? <ContextMeter groupId={groupId} bot={name} context={s.context} /> : null}
       {showGit ? (
         <span className="git-bar__actions">
+          {repo ? <Location name={name} s={s} repo={repo} machine={machine} /> : null}
           <Action
             icon="git-branch"
             label={t('查看 {name} 的改动', { name })}
@@ -194,30 +292,34 @@ export function GitBar({ group }: { group: GroupDto }) {
   if (!ids.length) return null
   return (
     <div className="git-bar" data-testid="git-bar">
-      {ids.map((id) => (
-        <Item
-          key={id}
-          groupId={group.id}
-          git={showGit}
-          name={bots.find((b) => b.id === id)?.name ?? 'bot'}
-          s={
-            states?.[id] ?? {
-              botId: id,
-              workspace: 'managed',
-              state: 'pending',
-              path: null,
-              git: null,
-              error: null,
-              reason: null,
-              tier: null,
-              model: null,
-              effort: null,
-              context: null,
-              extraDirs: [],
+      {ids.map((id) => {
+        const bot = bots.find((b) => b.id === id)
+        return (
+          <Item
+            key={id}
+            groupId={group.id}
+            repo={showGit ? group.repo : null}
+            machine={bot?.machineName ?? null}
+            name={bot?.name ?? 'bot'}
+            s={
+              states?.[id] ?? {
+                botId: id,
+                workspace: 'managed',
+                state: 'pending',
+                path: null,
+                git: null,
+                error: null,
+                reason: null,
+                tier: null,
+                model: null,
+                effort: null,
+                context: null,
+                extraDirs: [],
+              }
             }
-          }
-        />
-      ))}
+          />
+        )
+      })}
     </div>
   )
 }

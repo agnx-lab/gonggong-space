@@ -100,7 +100,7 @@ struct Probe {
     branch: Option<String>,
     ahead: Option<u32>,
     behind: Option<u32>,
-    dirty: bool,
+    dirty: u32,
 }
 
 async fn probe(dir: &Path) -> Result<Probe, String> {
@@ -117,7 +117,7 @@ async fn probe(dir: &Path) -> Result<Probe, String> {
         }
         None => (None, None),
     };
-    let dirty = !porcelain(dir).await?.is_empty();
+    let dirty = porcelain(dir).await?.len() as u32;
     Ok(Probe { branch, ahead, behind, dirty })
 }
 
@@ -133,7 +133,7 @@ pub async fn status(dir: &Path, extras: &[PathBuf], workspace: WorkspaceKind) ->
                 continue;
             }
             let p = probe(&root.join(&r.path)).await?;
-            let (branch, ahead, behind, dirty) = (p.branch, p.ahead, p.behind, p.dirty);
+            let (branch, ahead, behind, dirty) = (p.branch, p.ahead, p.behind, p.dirty > 0);
             let (path, kind) = (under(&label, &r.path), extra_kind(&label, r.kind));
             repos.push(RepoStatus { path, kind, branch, ahead, behind, dirty });
         }
@@ -141,11 +141,23 @@ pub async fn status(dir: &Path, extras: &[PathBuf], workspace: WorkspaceKind) ->
     if !any {
         return Err(not_git().into());
     }
+    let checked_at = Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
     if !is_repo(dir) {
-        return Ok(GitStatus { branch: None, ahead: None, behind: None, dirty: false, workspace, repos });
+        let (dirty, dirty_count) = (false, None);
+        return Ok(GitStatus {
+            branch: None,
+            ahead: None,
+            behind: None,
+            dirty,
+            dirty_count,
+            checked_at,
+            workspace,
+            repos,
+        });
     }
     let p = probe(dir).await?;
-    Ok(GitStatus { branch: p.branch, ahead: p.ahead, behind: p.behind, dirty: p.dirty, workspace, repos })
+    let (branch, ahead, behind, dirty_count) = (p.branch, p.ahead, p.behind, Some(p.dirty));
+    Ok(GitStatus { branch, ahead, behind, dirty: p.dirty > 0, dirty_count, checked_at, workspace, repos })
 }
 
 /// The workspace (label '') and each additional directory, labelled with its absolute path.
@@ -1121,10 +1133,13 @@ mod tests {
             ahead: None,
             behind: None,
             dirty: false,
+            dirty_count: None,
+            checked_at: None,
             workspace: WorkspaceKind::Cd,
             repos: vec![st("a", "main", true), st("b", "feat/x", false)],
         };
-        assert_eq!(s, want);
+        assert!(s.checked_at.is_some());
+        assert_eq!(GitStatus { checked_at: None, ..s }, want);
     }
 
     #[tokio::test]
