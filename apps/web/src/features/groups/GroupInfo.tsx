@@ -339,7 +339,7 @@ function MainView({
                   {gBots.map((b) => (
                     <span key={b.id} className="gs-chip">
                       <span className="gs-dot" style={{ background: PRESENCE[b.presence].color }} />
-                      {b.name}
+                      <span className="gs-chip__name">{b.name}</span>
                     </span>
                   ))}
                 </span>
