@@ -4,7 +4,17 @@ import { locale, t } from '../../i18n'
 import { api } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { useGet } from '../../lib/useGet'
-import { Button, ConfirmActionDialog, GroupBox, GroupRow, PopUpButton, Spinner, Tag, toast } from '../../ui'
+import {
+  Button,
+  ConfirmActionDialog,
+  GroupBox,
+  GroupRow,
+  PopUpButton,
+  Spinner,
+  Switch,
+  Tag,
+  toast,
+} from '../../ui'
 
 const list = (names: string[]) => names.join(locale === 'en' ? ', ' : '、')
 
@@ -87,6 +97,24 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
               <Button disabled={busy} onClick={() => setUnbinding(true)}>
                 {t('解绑#feishu')}
               </Button>
+            </GroupRow>
+            <GroupRow
+              label={t('网页消息同步到飞书群')}
+              description={t(
+                '关闭后，网页上发的消息、定时任务消息及其 Bot 回复和预览卡片不再发到飞书群；飞书群里的消息照常同步到本群',
+              )}
+            >
+              <Switch
+                ariaLabel={t('网页消息同步到飞书群')}
+                checked={data.chat.syncOutbound}
+                disabled={busy}
+                onChange={(syncOutbound) =>
+                  void run(
+                    () => api.patch(path, { syncOutbound }),
+                    syncOutbound ? t('已开启同步到飞书群') : t('已关闭同步到飞书群'),
+                  )
+                }
+              />
             </GroupRow>
             <GroupRow
               label={t('群成员')}

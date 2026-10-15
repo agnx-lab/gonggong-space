@@ -117,6 +117,14 @@ describe('preview cards in Feishu', () => {
     expect(JSON.stringify(update?.card)).toContain('"img_key":"img_1"')
   })
 
+  it('is not sent once the group stops syncing web messages to Feishu', async () => {
+    const { group } = await setup()
+    const owner = client(t, await t.seed.cookie(group.createdBy))
+    expect((await owner.patch(`/api/groups/${group.id}/feishu`, { syncOutbound: false })).status).toBe(200)
+    await publish(group.id)
+    expect(previewCards()).toEqual([])
+  })
+
   it('a devtools login code is not sent to Feishu', async () => {
     const { group, preview } = await setup()
     const file = snapshotFile(preview.id)

@@ -218,7 +218,7 @@ export async function mirrorUserMessage(
   author: { id: string; name: string },
 ) {
   const chat = await boundChat(ctx.db, message.groupId)
-  if (!chat) return
+  if (!chat?.syncOutbound) return
   enqueue(ctx, message.groupId, async () => {
     const main = await mainApp(ctx)
     if (!main) return
@@ -644,13 +644,13 @@ async function syncApprovals(ctx: Ctx, app: FeishuAppRow, trigger: Link, bot: st
 
 /** Called on every preview change (publishPreviews): mirrors the group's preview cards to the bound chat. */
 export async function mirrorPreviews(ctx: Ctx, groupId: string) {
-  if ((await sysParams(ctx.db)).demoMode || !(await boundChat(ctx.db, groupId))) return
+  if ((await sysParams(ctx.db)).demoMode || !(await boundChat(ctx.db, groupId))?.syncOutbound) return
   enqueue(ctx, groupId, () => syncPreviewCards(ctx, groupId))
 }
 
 async function syncPreviewCards(ctx: Ctx, groupId: string) {
   const chat = await boundChat(ctx.db, groupId)
-  if (!chat) return
+  if (!chat?.syncOutbound) return
   const mirrored = (
     await ctx.db
       .select({ id: feishuMessageLinks.refId })

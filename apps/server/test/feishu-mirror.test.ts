@@ -3,6 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   approvals,
+  auditLogs,
   bots,
   feishuChats,
   feishuIdentities,
@@ -412,6 +413,38 @@ describe('共工 → 飞书', () => {
     const texts = t.feishu.sent.filter((s) => s.msgType === 'text')
     expect(texts).toEqual([expect.objectContaining({ content: { text: '李娜：@codex 看看' } })])
     expect(texts[0]?.userToken).toBeUndefined()
+  })
+
+  it('a group admin turns off web → Feishu sync; Feishu @s still run with their card; rebinding turns it on', async () => {
+    const { ownerHttp, member, ownerFs, group } = await setup()
+    const url = `/api/groups/${group.id}/feishu`
+    expect((await ownerHttp.get<GroupFeishuView>(url)).body.chat?.syncOutbound).toBe(true)
+    const memberHttp = client(t, await t.seed.cookie(member.id))
+    expect((await memberHttp.patch(url, { syncOutbound: false })).status).toBe(403)
+
+    const off = await ownerHttp.patch<GroupFeishuView>(url, { syncOutbound: false })
+    expect(off.body.chat?.syncOutbound).toBe(false)
+    const [log] = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'feishu.chat.sync'))
+    expect(log?.detail).toMatchObject({ syncOutbound: false })
+
+    await ownerHttp.post(`/api/groups/${group.id}/messages`, { body: '@codex 你好', clientId: 'client-1' })
+    await feishuIdle(t.ctx)
+    expect(t.feishu.sent).toEqual([])
+
+    const { messageId, done } = t.feishu.message(BOT_APP, {
+      chatId: CHAT,
+      from: ownerFs,
+      text: '@_user_1 修一下登录',
+      mentions: [{ key: '@_user_1', name: 'codex', openId: 'ou_bot' }],
+    })
+    await done
+    await feishuIdle(t.ctx)
+    expect(lastSent()).toMatchObject({ appId: BOT_APP, msgType: 'interactive', replyTo: messageId })
+
+    expect((await ownerHttp.del(url)).status).toBe(204)
+    expect((await ownerHttp.patch(url, { syncOutbound: true })).status).toBe(400)
+    const rebound = await ownerHttp.put<GroupFeishuView>(url, { chatId: CHAT })
+    expect(rebound.body.chat?.syncOutbound).toBe(true)
   })
 
   it('recalling a mirrored message recalls it on Feishu with the author token', async () => {

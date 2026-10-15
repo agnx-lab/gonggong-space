@@ -1,0 +1,1 @@
+ALTER TABLE "feishu_chats" ADD COLUMN "sync_outbound" boolean DEFAULT true NOT NULL;

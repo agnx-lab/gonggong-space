@@ -4,6 +4,7 @@ import {
   type FeishuChatChoicesDto,
   type GroupFeishuView,
   type GroupFromFeishuDto,
+  UpdateFeishuChatReq,
 } from '@gonggong/protocol'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
@@ -144,7 +145,13 @@ async function view(ctx: Ctx, groupId: string, userId: string, added?: string): 
   return {
     available: true,
     chat: chat
-      ? { groupId, chatId: chat.chatId, name: chat.name, boundAt: chat.createdAt.toISOString() }
+      ? {
+          groupId,
+          chatId: chat.chatId,
+          name: chat.name,
+          boundAt: chat.createdAt.toISOString(),
+          syncOutbound: chat.syncOutbound,
+        }
       : null,
     chats,
     bots,
@@ -246,6 +253,22 @@ export function feishuChatRoutes(ctx: Ctx) {
         groupId: group.id,
         action: 'feishu.chat.bind',
         detail: { chatId, name: chat.name },
+      })
+      return view(ctx, group.id, user.id)
+    })
+
+    app.patch<Params>('/api/groups/:id/feishu', async (req) => {
+      const { user, group } = await admin(req, req.params.id)
+      const { syncOutbound } = UpdateFeishuChatReq.parse(req.body)
+      const chat = (await boundChat(ctx.db, group.id)) ?? fail('invalid', '该群尚未绑定飞书群')
+      await ctx.db.update(feishuChats).set({ syncOutbound }).where(eq(feishuChats.id, chat.id))
+      await audit(ctx, {
+        category: 'admin',
+        actorUserId: user.id,
+        teamId: group.teamId,
+        groupId: group.id,
+        action: 'feishu.chat.sync',
+        detail: { chatId: chat.chatId, syncOutbound },
       })
       return view(ctx, group.id, user.id)
     })

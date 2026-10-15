@@ -112,6 +112,11 @@ export default {
   改为飞书群名: 'Use Feishu chat name',
   已改为飞书群名称: 'Renamed after the Feishu chat',
   同步飞书群成员: 'Sync Feishu chat members',
+  网页消息同步到飞书群: 'Sync web messages to the Feishu chat',
+  '关闭后，网页上发的消息、定时任务消息及其 Bot 回复和预览卡片不再发到飞书群；飞书群里的消息照常同步到本群':
+    'When off, messages sent on the web and by schedules, their bot replies and preview cards no longer go to the Feishu chat; Feishu chat messages still sync to this group',
+  已开启同步到飞书群: 'Syncing to the Feishu chat turned on',
+  已关闭同步到飞书群: 'Syncing to the Feishu chat turned off',
   '把飞书群里已注册共工的本团队成员补进本群，用于补上后来才注册或入团队的人':
     'Adds team members in the Feishu chat who have Gonggong accounts, catching up on people who signed up or joined the team later',
   '新加入 {n} 人': '{n} joined',

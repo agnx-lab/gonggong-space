@@ -1148,6 +1148,8 @@ export const feishuChats = pgTable(
     chatId: text('chat_id').notNull(),
     /** Chat name when bound, for display. */
     name: text('name').notNull().default(''),
+    /** Off: web messages are not sent to the chat; Feishu messages still come in and get their run cards. */
+    syncOutbound: boolean('sync_outbound').notNull().default(true),
     boundBy: uuid('bound_by')
       .notNull()
       .references(() => users.id),

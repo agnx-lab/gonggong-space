@@ -35,6 +35,8 @@ export const FeishuChatDto = z.object({
   chatId: z.string(),
   name: z.string(),
   boundAt: z.string(),
+  /** 网页消息同步到飞书群: web messages (and their run and preview cards) go to the chat. */
+  syncOutbound: z.boolean(),
 })
 export type FeishuChatDto = z.infer<typeof FeishuChatDto>
 
@@ -120,6 +122,8 @@ export type GroupFromFeishuDto = z.infer<typeof GroupFromFeishuDto>
 
 /** PUT /api/groups/:id/feishu: bind the group to one of the main app's chats (one to one). */
 export const BindFeishuChatReq = z.object({ chatId: z.string().trim().min(1) })
+/** PATCH /api/groups/:id/feishu */
+export const UpdateFeishuChatReq = z.object({ syncOutbound: z.boolean() })
 
 /** 扫码创建 / 更新权限 session of a Feishu app (device authorization; the QR expires with it). */
 export const FeishuRegisterStatus = z.enum(['waiting', 'succeeded', 'failed', 'expired', 'cancelled'])
