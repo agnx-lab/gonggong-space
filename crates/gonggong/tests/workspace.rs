@@ -3,7 +3,7 @@ use gonggong::engine::{Engine, EngineConfig};
 use gonggong::git;
 use gonggong::protocol::*;
 use gonggong::service::{Handler, Outbox, OutboxRx};
-use gonggong::workspace::managed_path;
+use gonggong::workspace::{managed_path, managed_root, repo_name};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -120,8 +120,10 @@ impl Rig {
         }
     }
 
+    /// Where the managed workspace of a `Remote` repo (`remote.git`) goes.
     fn managed(&self, repo_id: Option<&str>) -> PathBuf {
-        managed_path(self.home.path(), "g1", "b1", repo_id)
+        let root = managed_root(self.home.path(), "g1", "b1", repo_id);
+        if repo_id.is_some() { root.join("remote") } else { root }
     }
 }
 
@@ -130,11 +132,35 @@ fn clean(branch: &str, workspace: WorkspaceKind) -> GitStatus {
 }
 
 #[test]
-fn managed_paths_are_isolated_per_group_bot_and_repo() {
+fn managed_paths_are_isolated_per_group_bot_and_repo_and_named_after_the_repo() {
     let h = Path::new("/h");
-    assert_eq!(managed_path(h, "g", "b", Some("r")), Path::new("/h/workspaces/g/b/r"));
+    let spec = |id: &str, url: &str| RepoSpec {
+        id: id.into(),
+        url: url.into(),
+        branch: "main".into(),
+        protocol: GitProtocol::Auto,
+    };
+    let pay = spec("r", "https://git.corp/pay/pay-server.git");
+    assert_eq!(managed_path(h, "g", "b", Some(&pay)), Path::new("/h/workspaces/g/b/r/pay-server"));
     assert_eq!(managed_path(h, "g", "b", None), Path::new("/h/workspaces/g/b/_empty"));
-    assert_ne!(managed_path(h, "g2", "b", Some("r")), managed_path(h, "g", "b", Some("r")));
+    assert_eq!(managed_root(h, "g", "b", Some("r")), Path::new("/h/workspaces/g/b/r"));
+    assert_ne!(managed_path(h, "g2", "b", Some(&pay)), managed_path(h, "g", "b", Some(&pay)));
+    for (url, name) in [
+        ("https://git.corp/pay/pay-server.git", "pay-server"),
+        ("https://git.corp/pay/pay-server/", "pay-server"),
+        ("https://github.com/yoqu/gonggong-space", "gonggong-space"),
+        ("git@git.corp:pay/pay-server.git", "pay-server"),
+        ("git@git.corp:pay-server.git", "pay-server"),
+        ("ssh://git@git.corp:2222/pay/pay.server.git", "pay.server"),
+        ("file:///srv/git/remote.git", "remote"),
+        ("C:\\repos\\web-site", "web-site"),
+        ("https://git.corp/pay/支付服务.git", "repo"),
+        ("https://git.corp/pay/..", "repo"),
+        ("https://git.corp/pay/a b$(x).git", "abx"),
+        ("", "repo"),
+    ] {
+        assert_eq!(repo_name(url), name, "{url}");
+    }
 }
 
 #[tokio::test]
@@ -191,6 +217,44 @@ async fn ensure_replaces_a_broken_leftover_and_reports_clone_failures() {
     r.ensure("e3", Some(wrong));
     let (s, _) = r.settled("e3").await;
     assert_eq!((s.state, s.reason), (WorkspaceStateKind::Failed, Some(RepoAccessReason::BranchMissing)));
+}
+
+#[tokio::test]
+async fn a_clone_in_the_old_layout_moves_under_its_repo_name_with_local_changes() {
+    let remote = Remote::new();
+    let mut r = rig();
+    let root = managed_root(r.home.path(), "g1", "b1", Some("rp"));
+    std::fs::create_dir_all(root.parent().unwrap()).unwrap();
+    git(root.parent().unwrap(), &["clone", "-q", &remote.url(), "rp"]);
+    git(&root, &["checkout", "-qb", "feat"]);
+    std::fs::write(root.join("wip.txt"), "draft").unwrap();
+    git(&root, &["-c", "user.name=t", "-c", "user.email=t@g", "stash", "-q", "--include-untracked"]);
+    std::fs::write(root.join("README.md"), "# edited\n").unwrap();
+
+    r.ensure("e1", Some(remote.spec("rp")));
+    let (s, cloned) = r.settled("e1").await;
+    assert!(!cloned, "moved, not cloned again");
+    let dir = r.managed(Some("rp"));
+    assert_eq!(s.path.as_deref(), Some(&*dir.to_string_lossy()));
+    assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# edited\n");
+    assert_eq!(git(&dir, &["branch", "--show-current"]), "feat");
+    assert_eq!(git(&dir, &["stash", "list"]).lines().count(), 1);
+    assert!(!root.with_extension("moving").exists() && !root.join(".git").exists());
+
+    // Interrupted after the first rename, then after the new `<repoId>/` was made: completed either way.
+    for made_root in [false, true] {
+        std::fs::rename(&dir, root.with_extension("moving")).unwrap();
+        std::fs::remove_dir(&root).unwrap();
+        if made_root {
+            std::fs::create_dir(&root).unwrap();
+        }
+        let id = format!("again-{made_root}");
+        r.ensure(&id, Some(remote.spec("rp")));
+        let (s, cloned) = r.settled(&id).await;
+        assert!(!cloned && s.state == WorkspaceStateKind::Ready, "{:?}", s.error);
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "# edited\n");
+        assert!(!root.with_extension("moving").exists());
+    }
 }
 
 #[tokio::test]

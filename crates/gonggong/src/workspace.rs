@@ -19,15 +19,60 @@ use std::time::SystemTime;
 use tokio::sync::{oneshot, watch};
 
 /// `<home>/workspaces/<groupId>/<botId>/<repoId | _empty>/` — isolated per group, bot and repo (a new repo = new dir).
-pub fn managed_path(home: &Path, group: &str, bot: &str, repo_id: Option<&str>) -> PathBuf {
+/// A repo's clone sits one level below, see `managed_path`.
+pub fn managed_root(home: &Path, group: &str, bot: &str, repo_id: Option<&str>) -> PathBuf {
     home.join("workspaces").join(group).join(bot).join(repo_id.unwrap_or("_empty"))
 }
 
-/// The directory a (group, bot) works in: the /cd directory, else the managed path.
+/// Where the managed workspace goes: `<repoId>/<repo name>/` (named like a clone of one's own), or `_empty/`.
+pub fn managed_path(home: &Path, group: &str, bot: &str, repo: Option<&RepoSpec>) -> PathBuf {
+    let root = managed_root(home, group, bot, repo.map(|r| &*r.id));
+    match repo {
+        Some(r) => root.join(repo_name(&r.url)),
+        None => root,
+    }
+}
+
+/// The last path segment of a repo URL (https, ssh, scp-like or local path) without `.git`, in safe characters only;
+/// `repo` when nothing usable is left.
+pub fn repo_name(url: &str) -> String {
+    let path = url.trim_end_matches(['/', '\\']);
+    let last = path.rsplit(['/', '\\', ':']).next().unwrap_or_default();
+    let last = last.strip_suffix(".git").unwrap_or(last);
+    let name: String = last.chars().filter(|c| c.is_ascii_alphanumeric() || "._-".contains(*c)).collect();
+    if name.trim_start_matches('.').is_empty() { "repo".into() } else { name }
+}
+
+/// A clone made before workspaces were named after their repo: the clone root is `<repoId>/` itself.
+fn legacy_clone(root: &Path) -> bool {
+    root.join(".git").exists()
+}
+
+/// The managed workspace as it is on disk now: a clone in the old layout until it is moved (see `migrate`).
+fn current_path(home: &Path, group: &str, bot: &str, repo: Option<&RepoSpec>) -> PathBuf {
+    let root = managed_root(home, group, bot, repo.map(|r| &*r.id));
+    if repo.is_some() && legacy_clone(&root) { root } else { managed_path(home, group, bot, repo) }
+}
+
+/// The clone under `<repoId>/` when only its id is known (force sync): `<repoId>/` itself in the old layout, else
+/// its one clone below.
+pub fn managed_clone(home: &Path, group: &str, bot: &str, repo_id: Option<&str>) -> PathBuf {
+    let root = managed_root(home, group, bot, repo_id);
+    if repo_id.is_none() || legacy_clone(&root) {
+        return root;
+    }
+    let mut clones: Vec<PathBuf> = subdirs(&root)
+        .filter(|(name, p)| !name.ends_with(".partial") && p.join(".git").exists())
+        .map(|(_, p)| p)
+        .collect();
+    if clones.len() == 1 { clones.remove(0) } else { root }
+}
+
+/// The directory a (group, bot) works in: the /cd directory, else the managed workspace.
 pub fn workspace_dir(home: &Path, group: &str, bot: &str, spec: &WorkspaceSpec) -> PathBuf {
     match &spec.cd_path {
         Some(path) => PathBuf::from(path),
-        None => managed_path(home, group, bot, spec.repo.as_ref().map(|r| &*r.id)),
+        None => current_path(home, group, bot, spec.repo.as_ref()),
     }
 }
 
@@ -195,7 +240,7 @@ impl Workspaces {
 
     /// repo.find: the owner's local clones of the group repo, and where a managed clone would go instead.
     pub async fn find(&self, req: RepoFind) -> RepoFound {
-        let managed = managed_path(&self.home, &req.group_id, &req.bot_id, Some(&req.repo.id));
+        let managed = managed_path(&self.home, &req.group_id, &req.bot_id, Some(&req.repo));
         let want = normalize_remote(&req.repo.url);
         let paths = tokio::task::spawn_blocking(move || find_clones(&user_home(), &want)).await.unwrap_or_default();
         RepoFound {
@@ -218,14 +263,13 @@ impl Workspaces {
         }
         let lock = self.lock(&start.group_id, &start.bot.id);
         let _guard = lock.lock().await;
-        let dir =
-            managed_path(&self.home, &start.group_id, &start.bot.id, start.workspace.repo.as_ref().map(|r| &*r.id));
+        let dir = self.settle(&start.group_id, &start.bot.id, start.workspace.repo.as_ref()).await?;
         prepare(&dir, start.workspace.repo.as_ref(), || {}).await.map_err(|f| f.message)?;
         Ok(dir)
     }
 
     async fn managed(&self, group: &str, bot: &str, repo: Option<&RepoSpec>, on_clone: impl FnOnce()) -> Outcome {
-        let dir = managed_path(&self.home, group, bot, repo.map(|r| &*r.id));
+        let dir = self.settle(group, bot, repo).await?;
         prepare(&dir, repo, on_clone).await?;
         let git = match repo {
             Some(_) => git::status(&dir, &[], WorkspaceKind::Managed).await.ok(),
@@ -233,6 +277,45 @@ impl Workspaces {
         };
         Ok((dir, git, vec![]))
     }
+}
+
+impl Workspaces {
+    /// The managed workspace to use, under the (group, bot) lock: a clone in the old layout is moved to
+    /// `<repoId>/<repo name>/` first, unless a turn is still running in it (then it is moved by a later one).
+    async fn settle(&self, group: &str, bot: &str, repo: Option<&RepoSpec>) -> Result<PathBuf, String> {
+        let root = managed_root(&self.home, group, bot, repo.map(|r| &*r.id));
+        let dir = managed_path(&self.home, group, bot, repo);
+        if repo.is_none() {
+            return Ok(dir);
+        }
+        let busy = |p: &Path| {
+            let key = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+            self.dirs.lock().unwrap().get(&key).is_some_and(|h| !h.borrow().is_empty())
+        };
+        if legacy_clone(&root) && busy(&root) {
+            return Ok(root);
+        }
+        migrate(&root, &dir).await.map_err(|e| t!("无法移动工作区 {path}: {e}", path = root.display(), e = e))?;
+        Ok(dir)
+    }
+}
+
+/// Moves a clone in the old layout (`<repoId>/` itself) to `<repoId>/<name>/` by renames only, so local changes,
+/// branches and stashes stay: `<repoId>` → `<repoId>.moving`, a new `<repoId>/`, then `.moving` → `<repoId>/<name>`.
+/// An interrupted move is completed the next time.
+async fn migrate(root: &Path, dir: &Path) -> std::io::Result<()> {
+    let moving = root.with_extension("moving");
+    if !tokio::fs::try_exists(&moving).await? {
+        if !legacy_clone(root) || tokio::fs::try_exists(dir).await? {
+            return Ok(());
+        }
+        tokio::fs::rename(root, &moving).await?;
+    }
+    tokio::fs::create_dir_all(root).await?;
+    if tokio::fs::try_exists(dir).await? {
+        return Ok(());
+    }
+    tokio::fs::rename(&moving, dir).await
 }
 
 /// `None` = still cloning.
@@ -298,7 +381,9 @@ async fn is_clone_root(dir: &Path) -> bool {
 /// owner's preferred protocol first, then the other one; the URL that worked becomes `origin`.
 async fn clone(dir: &Path, repo: &RepoSpec) -> Result<(), Failed> {
     let parent = dir.parent().expect("managed paths have a parent");
-    let partial = dir.with_extension("partial");
+    let mut partial = dir.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
     let io = |e: std::io::Error| t!("无法创建工作区 {path}: {e}", path = dir.display(), e = e);
     tokio::fs::create_dir_all(parent).await.map_err(io)?;
     if dir.exists() {
@@ -616,7 +701,7 @@ pub fn list(home: &Path, pairs: &[Pair]) -> Vec<Entry> {
             (WorkspaceKind::Cd, Some(cd)) => (EntryKind::Cd, PathBuf::from(cd)),
             _ => (
                 if p.repo_id.is_some() { EntryKind::Managed } else { EntryKind::Empty },
-                managed_path(home, &p.group_id, &p.bot_id, p.repo_id.as_deref()),
+                managed_root(home, &p.group_id, &p.bot_id, p.repo_id.as_deref()),
             ),
         };
         claimed.insert(real(&path));
@@ -670,12 +755,13 @@ fn subdirs(dir: &Path) -> impl Iterator<Item = (String, PathBuf)> {
     })
 }
 
-/// `<root>/<group>/<bot>/<repo | _empty>` dirs; symlinks and interrupted clones (`*.partial`) are not workspaces.
+/// `<root>/<group>/<bot>/<repo | _empty>` dirs, holding the clone or (old layout) being it; symlinks, interrupted
+/// clones (`*.partial`) and interrupted moves (`*.moving`) are not workspaces.
 fn managed_dirs(root: &Path) -> Vec<(String, String, PathBuf)> {
     let mut out = vec![];
     for (group, g) in subdirs(root) {
         for (bot, b) in subdirs(&g) {
-            let leaves = subdirs(&b).filter(|(name, _)| !name.ends_with(".partial"));
+            let leaves = subdirs(&b).filter(|(name, _)| !name.ends_with(".partial") && !name.ends_with(".moving"));
             out.extend(leaves.map(|(_, path)| (group.clone(), bot.clone(), path)));
         }
     }
@@ -913,6 +999,30 @@ mod tests {
             assert!(delete(h, &link).is_err());
             assert!(cd.path().join("mine.go").exists());
         }
+    }
+
+    #[test]
+    fn lists_and_deletes_both_layouts_and_finds_the_clone_by_repo_id() {
+        let home = tempfile::tempdir().unwrap();
+        let (h, ws) = (home.path(), home.path().join("workspaces"));
+        file(&ws.join("old/bw/r1/.git/HEAD"), 10);
+        file(&ws.join("new/bw/r2/pay-server/.git/HEAD"), 20);
+        file(&ws.join("new/bw/r2/pay-server/a"), 30);
+        file(&ws.join("new/bw/r2/pay-server.partial/x"), 5);
+        file(&ws.join("mid/bw/r3.moving/.git/HEAD"), 7);
+        let rows: Vec<_> = list(h, &[]).into_iter().map(|e| (e.path.clone(), e.size, e.deletable())).collect();
+        assert_eq!(rows, vec![(ws.join("new/bw/r2"), Some(55), true), (ws.join("old/bw/r1"), Some(10), true)]);
+
+        assert_eq!(managed_clone(h, "old", "bw", Some("r1")), ws.join("old/bw/r1"));
+        assert_eq!(managed_clone(h, "new", "bw", Some("r2")), ws.join("new/bw/r2/pay-server"));
+        assert_eq!(managed_clone(h, "none", "bw", Some("r9")), ws.join("none/bw/r9"));
+        assert_eq!(managed_clone(h, "new", "bw", None), ws.join("new/bw/_empty"));
+
+        for e in list(h, &[]) {
+            delete(h, &e).unwrap();
+        }
+        assert!(!ws.join("new").exists() && !ws.join("old").exists());
+        assert!(ws.join("mid/bw/r3.moving/.git/HEAD").exists(), "an interrupted move is never offered for deletion");
     }
 
     #[test]

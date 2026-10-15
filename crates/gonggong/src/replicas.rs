@@ -303,7 +303,7 @@ impl Replicas {
         let (me, out) = (self.clone(), out.clone());
         tokio::spawn(async move {
             let lock = me.lock(&init.group, &init.bot).await;
-            let work = crate::workspace::managed_path(&me.home, &init.group, &init.bot, init.repo_id.as_deref());
+            let work = crate::workspace::managed_clone(&me.home, &init.group, &init.bot, init.repo_id.as_deref());
             let r = me.shared(Replica::new(&me.home, &init.group, &init.bot, work));
             let result = match init.role {
                 SyncRole::Leave => r.forget().map_err(Reason::from),
