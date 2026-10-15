@@ -105,7 +105,7 @@ function RunConfigChip({
         items={[]}
         onSelect={() => {}}
       >
-        {text}
+        <span className="run-config__label">{text}</span>
       </MenuButton>
     )
   const available = live.catalog
@@ -145,6 +145,7 @@ function RunConfigChip({
       aria-label={name}
       align="end"
       placement="above"
+      title={text}
       items={items}
       onSelect={(v) => {
         if (v === 'save') return void save()
@@ -155,7 +156,7 @@ function RunConfigChip({
         set({ ...pick, effort: v.slice(2) })
       }}
     >
-      {text}
+      <span className="run-config__label">{text}</span>
       {pick ? <span className="run-config__once">{t('仅本条')}</span> : null}
       <Icon name="chevron-updown" size={10} weight={2.2} />
     </MenuButton>

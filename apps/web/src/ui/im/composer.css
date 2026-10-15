@@ -91,6 +91,8 @@
   box-shadow: var(--shadow-outline, none);
 }
 .pn-composer__accessory {
+  display: flex;
+  min-width: 0;
   margin-left: auto;
   margin-right: var(--space-8);
   font-size: var(--text-subheadline-size);
