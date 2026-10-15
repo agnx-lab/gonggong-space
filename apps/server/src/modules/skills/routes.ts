@@ -5,7 +5,7 @@ import {
   type SkillDetailDto,
   type SkillFile,
   type SkillVersionDto,
-  ToggleInheritedSkillReq,
+  ToggleInheritedReq,
   UpdateSkillReq,
 } from '@gonggong/protocol'
 import { and, asc, eq, isNull } from 'drizzle-orm'
@@ -17,7 +17,8 @@ import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
 import { requireUser } from '../auth/session.js'
 import { requireAdmin } from '../groups/service.js'
-import { type Authorize, eachLayer, type Layer } from '../mcp/routes.js'
+import { type Authorize, eachLayer } from '../mcp/routes.js'
+import type { Layer } from '../mcp/service.js'
 import {
   createSkill,
   deleteSkill,
@@ -137,7 +138,7 @@ function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
   app.put<P>('/api/groups/:id/inherited-skills/:name', async (req) => {
     const me = await requireUser(ctx, req)
     const { group } = await requireAdmin(ctx, req.params.id, me.id)
-    const { enabled } = ToggleInheritedSkillReq.parse(req.body)
+    const { enabled } = ToggleInheritedReq.parse(req.body)
     const all = await list(group.id)
     const found = all.find((s) => s.name === req.params.name) ?? fail('not_found', 'Skill 不存在')
     await setInherited(ctx, group.id, found.name, enabled, me.id)

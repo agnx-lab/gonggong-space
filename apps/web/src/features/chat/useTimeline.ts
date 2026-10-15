@@ -73,7 +73,7 @@ const edit = (s: TimelineState, { message: e }: Edited): TimelineState => ({
   ...s,
   messages: s.messages.map((m) =>
     m.id === e.id
-      ? { ...m, body: e.body, editedAt: e.editedAt }
+      ? { ...m, body: e.body, editedAt: e.editedAt, mcpSecret: e.mcpSecret }
       : m.quote?.kind === 'message' && m.quote.id === e.id
         ? { ...m, quote: { ...m.quote, text: e.body } }
         : m,

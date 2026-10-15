@@ -29,6 +29,7 @@ import type { MessageMeta } from '../messages/service.js'
 import { closeOwnPreview, exposeGui, exposePreview } from '../previews/service.js'
 import { answerText } from '../questions/dto.js'
 import { listFeishuMessages } from './feishu.js'
+import { mcpCreate, mcpDelete, mcpGet, mcpList, mcpSecretRequest, mcpToggle, mcpUpdate } from './mcp.js'
 import { scheduleCreate, scheduleDelete, scheduleList, scheduleUpdate } from './schedules.js'
 import {
   listSkillVersions,
@@ -392,6 +393,13 @@ const TOOLS: { [N in GonggongToolName]: (ctx: Ctx, s: Scope, a: Args<N>) => Prom
   skill_toggle: (ctx, s, a) => skillToggle(ctx, s.run, a),
   skill_versions: (ctx, s, a) => listSkillVersions(ctx, s.run, a),
   skill_rollback: (ctx, s, a) => skillRollback(ctx, s.run, a),
+  mcp_list: (ctx, s) => mcpList(ctx, s.run),
+  mcp_get: (ctx, s, a) => mcpGet(ctx, s.run, a),
+  mcp_create: (ctx, s, a) => mcpCreate(ctx, s.run, a),
+  mcp_update: (ctx, s, a) => mcpUpdate(ctx, s.run, a),
+  mcp_toggle: (ctx, s, a) => mcpToggle(ctx, s.run, a),
+  mcp_delete: (ctx, s, a) => mcpDelete(ctx, s.run, a),
+  mcp_secret_request: (ctx, s, a) => mcpSecretRequest(ctx, s.run, a),
 }
 
 export async function callTool(

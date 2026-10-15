@@ -776,6 +776,43 @@ export const mcpServers = pgTable(
   (t) => [unique().on(t.scope, t.teamId, t.groupId, t.name).nullsNotDistinct()],
 )
 
+/** Inherited (platform / team) MCP servers a group's admins turned off for that group alone. */
+export const groupMcpOverrides = pgTable(
+  'group_mcp_overrides',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.name] })],
+)
+
+/**
+ * A 填写密钥 card a bot posted for an MCP server: only `user_id` (the run's originator) fills `keys`, written straight
+ * into the server's env / headers; the values never reach the agent, the message or the audit log.
+ */
+export const mcpSecretRequests = pgTable('mcp_secret_requests', {
+  id: id(),
+  mcpId: uuid('mcp_id')
+    .notNull()
+    .references(() => mcpServers.id, { onDelete: 'cascade' }),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
+  runId: uuid('run_id').references(() => runs.id),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id),
+  keys: jsonb('keys').$type<string[]>().notNull(),
+  forceNewSession: boolean('force_new_session').notNull().default(false),
+  messageId: uuid('message_id'),
+  filledAt: ts('filled_at'),
+  createdAt: createdAt(),
+})
+
 /** Team skills (plan 团队Skill), layered like `mcp_servers`; `name` / `description` mirror the current version. */
 export const skills = pgTable(
   'skills',

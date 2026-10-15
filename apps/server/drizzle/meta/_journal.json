@@ -421,6 +421,13 @@
       "when": 1792029768522,
       "tag": "0059_strong_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792032239138,
+      "tag": "0060_yielding_omega_red",
+      "breakpoints": true
     }
   ]
 }

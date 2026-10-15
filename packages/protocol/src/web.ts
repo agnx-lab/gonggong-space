@@ -735,6 +735,15 @@ export const ReactionsDto = z.object({
 })
 export type ReactionsDto = z.infer<typeof ReactionsDto>
 
+/** A 填写密钥 card: `userId` (the run's originator) fills `keys` of MCP server `name`. */
+export const McpSecretCard = z.object({
+  id: z.string(),
+  name: z.string(),
+  keys: z.array(z.string()),
+  userId: z.string(),
+  filled: z.boolean(),
+})
+export type McpSecretCard = z.infer<typeof McpSecretCard>
 export const MessageDto = z.object({
   id: z.string(),
   seq: z.number().int(),
@@ -769,6 +778,8 @@ export const MessageDto = z.object({
   i18n: I18nText.optional(),
   /** A force-sync conflict card (F11): the held change and whose replica it is. */
   syncConflict: z.object({ id: z.string(), botId: z.string() }).nullable().optional(),
+  /** A bot's 填写密钥 card for an MCP server. */
+  mcpSecret: McpSecretCard.optional(),
 })
 export type MessageDto = z.infer<typeof MessageDto>
 
@@ -1155,6 +1166,14 @@ export const SaveMcpReq = z.object({
   /** 「强制相关 bot 下一轮开新会话」 (spec §7.4), default off. */
   forceNewSession: z.boolean().default(false),
 })
+/** A platform / team server in effect for the group, which its admins may turn off for the group alone. */
+export const InheritedMcpDto = McpServerDto.extend({
+  scope: z.enum(['platform', 'team']),
+  enabledInGroup: z.boolean(),
+})
+export type InheritedMcpDto = z.infer<typeof InheritedMcpDto>
+/** POST /api/mcp-secrets/:id — the values go straight into the server's env / headers. */
+export const FillMcpSecretReq = z.object({ values: z.record(z.string(), z.string().min(1).max(8192)) })
 
 // ── Team skills (plan 团队Skill): platform → team → group layers, versioned ────
 export const SKILL_MAX_BYTES = 5 * 1024 * 1024
@@ -1200,7 +1219,7 @@ export const InheritedSkillDto = z.object({
   enabledInGroup: z.boolean(),
 })
 export type InheritedSkillDto = z.infer<typeof InheritedSkillDto>
-export const ToggleInheritedSkillReq = z.object({ enabled: z.boolean() })
+export const ToggleInheritedReq = z.object({ enabled: z.boolean() })
 
 // ── Search (⌘K, plan D9) ────────────────────────────────────────────────────
 export const SearchQuery = z.object({ q: z.string().min(1).max(200), tab: z.enum(['msg', 'file', 'run']) })

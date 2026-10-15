@@ -359,6 +359,11 @@ export const en = {
   'MCP 名称不能为空': 'MCP name is required',
   'gonggong 是系统内置 MCP 的名称': 'gonggong is the name of the built-in MCP',
   'MCP 不存在': 'MCP not found',
+  密钥请求不存在: 'Secret request not found',
+  仅发起人可以填写: 'Only the person who started the turn can fill these in',
+  密钥已填写: 'The secrets are already filled in',
+  请填写全部密钥: 'Fill in every secret',
+  'MCP 配置已变更，没有 {key}': 'The MCP config has changed and no longer has {key}',
   'MCP 名称已存在': 'An MCP with this name already exists',
 
   // Skills

@@ -51,7 +51,7 @@ test('a bot schedules a task through gonggong; a member schedules one in the pan
     await expect(dailyCard.getByText('启用中')).toBeVisible({ timeout: 60_000 })
     await expect(main.getByText(/已创建定时任务「日报」/)).toBeVisible()
 
-    await main.getByRole('button', { name: '群设置' }).click()
+    await main.getByRole('button', { name: '群设置', exact: true }).click()
     const drawer = page.getByRole('complementary', { name: '群设置' })
     await drawer.getByText('定时任务', { exact: true }).click()
     await expect(drawer.locator('.sc-row', { hasText: '日报' })).toBeVisible()

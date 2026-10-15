@@ -75,7 +75,7 @@ test('picks a recent repo and moves my bot to a local checkout', async ({ page }
     await bindManaged(page.request, groupId, [bot.id])
 
     const main = page.getByRole('main')
-    await main.getByRole('button', { name: '群设置' }).click()
+    await main.getByRole('button', { name: '群设置', exact: true }).click()
     const drawer = page.getByRole('complementary', { name: '群设置' })
     await drawer.getByRole('button', { name: /仓库与工作区/ }).click()
     const row = page.getByRole('dialog', { name: /^仓库与工作区/ }).getByTestId(`rw-bot-${bot.id}`)

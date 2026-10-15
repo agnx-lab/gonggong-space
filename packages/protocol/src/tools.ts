@@ -203,6 +203,80 @@ export const SkillRollbackArgs = z.object({
   version: z.number().int().min(1).describe('skill_versions 列出的版本号；当前版本切回该版本，不新增版本'),
 })
 
+const mcpName = z.string().min(1).max(64).describe('MCP 名称（mcp_list 可查）')
+const mcpLayer = z
+  .enum(['platform', 'team', 'group'])
+  .describe('作用层级：group = 仅本群，team = 本群所属团队的所有群，platform = 全平台。默认 group')
+const forceNewSession = z
+  .boolean()
+  .describe(
+    'true = 相关 Bot 下一轮开新会话以立即生效（会丢失当前会话上下文）；默认 false，已有会话继续用旧配置',
+  )
+  .optional()
+const secretValues = z
+  .record(z.string(), z.string())
+  .describe('值只能写占位符 ${secret:名称}，真实值用 mcp_secret_request 让发起人在卡片里填写')
+const McpConfigArg = z.discriminatedUnion('transport', [
+  z.object({
+    transport: z.literal('stdio'),
+    name: mcpName,
+    command: z.string().min(1).describe('启动命令，如 npx'),
+    args: z.array(z.string()).describe('命令参数，不要写密钥').default([]),
+    env: secretValues.describe('环境变量；值只能写占位符 ${secret:名称}').default({}),
+  }),
+  z.object({
+    transport: z.literal('http'),
+    name: mcpName,
+    url: z.string().min(1).describe('MCP 服务地址，不要把密钥写进地址'),
+    headers: secretValues.describe('请求头；值只能写占位符 ${secret:名称}').default({}),
+  }),
+])
+export const McpListArgs = z.object({})
+export const McpGetArgs = z.object({
+  name: mcpName,
+  layer: mcpLayer.describe('读哪一层的同名 MCP，默认本群实际生效的那一个').optional(),
+})
+export const McpCreateArgs = z.object({
+  layer: mcpLayer.optional(),
+  config: McpConfigArg,
+  enabled: z.boolean().describe('默认 true').optional(),
+  forceNewSession,
+})
+export const McpUpdateArgs = z.object({
+  name: mcpName,
+  layer: mcpLayer.optional(),
+  config: McpConfigArg.describe(
+    '完整的新配置（整体替换；改 name 即重命名）。已有的 env / headers 键写占位符即保留原值',
+  ),
+  forceNewSession,
+})
+export const McpToggleArgs = z.object({
+  name: mcpName,
+  layer: mcpLayer.optional(),
+  enabled: z
+    .boolean()
+    .describe(
+      'true = 启用，false = 停用（保留配置）。layer=group 且本群没有同名群层 MCP 时，开关的是本群继承的平台层/团队层 MCP，只影响本群',
+    ),
+  forceNewSession,
+})
+export const McpDeleteArgs = z.object({ name: mcpName, layer: mcpLayer.optional(), forceNewSession })
+export const McpSecretRequestArgs = z.object({
+  name: mcpName,
+  layer: mcpLayer.optional(),
+  keys: z
+    .array(z.string().min(1).max(128))
+    .min(1)
+    .max(20)
+    .describe('要填写的 env 键（stdio）或请求头名（http），须已在配置里'),
+  forceNewSession,
+})
+
+const MCP_WRITE =
+  '以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。'
+const MCP_SECRET =
+  'env / headers 的值一律视为密钥：只能写占位符 ${secret:名称}，不接受明文；真实值用 mcp_secret_request 让发起人在群里的卡片上填写，你看不到也不要在对话里索要。'
+
 const SKILL_WRITE =
   '以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员；平台层只读。改动下一轮生效。'
 const SKILL_FORMAT =
@@ -338,6 +412,44 @@ export const GONGGONG_TOOLS = {
     title: GONGGONG_TOOL_TITLES.skill_rollback,
     description: `把 Skill 回滚到某个历史版本。${SKILL_WRITE}`,
     input: SkillRollbackArgs,
+  },
+  mcp_list: {
+    title: GONGGONG_TOOL_TITLES.mcp_list,
+    description:
+      '本群可见的 MCP（平台、团队、群三层，含已停用和本群已关闭的）：名称、层级、类型、启动命令或地址、是否生效（同名时下层覆盖上层）、发起人能否修改；密钥只显示是否已填写。',
+    input: McpListArgs,
+  },
+  mcp_get: {
+    title: GONGGONG_TOOL_TITLES.mcp_get,
+    description: '查看一个 MCP 的配置，密钥打码，只显示是否已填写。',
+    input: McpGetArgs,
+  },
+  mcp_create: {
+    title: GONGGONG_TOOL_TITLES.mcp_create,
+    description: `新建 MCP（stdio：command/args/env；http：url/headers）。${MCP_SECRET}${MCP_WRITE}`,
+    input: McpCreateArgs,
+  },
+  mcp_update: {
+    title: GONGGONG_TOOL_TITLES.mcp_update,
+    description: `修改 MCP 的配置。${MCP_SECRET}${MCP_WRITE}`,
+    input: McpUpdateArgs,
+  },
+  mcp_toggle: {
+    title: GONGGONG_TOOL_TITLES.mcp_toggle,
+    description: `启用或停用 MCP。要在本群关掉继承自团队或平台的 MCP（不影响其他群）时，用 layer=group 并给出它的名称，需发起人为本群管理员。${MCP_WRITE}`,
+    input: McpToggleArgs,
+  },
+  mcp_delete: {
+    title: GONGGONG_TOOL_TITLES.mcp_delete,
+    description: `删除 MCP，不可恢复；只想暂时不用时用 mcp_toggle 停用。${MCP_WRITE}`,
+    input: McpDeleteArgs,
+  },
+  mcp_secret_request: {
+    title: GONGGONG_TOOL_TITLES.mcp_secret_request,
+    description:
+      '在群里发一张「填写密钥」卡片，请发起本轮的人填写 MCP 的密钥（密码框）；填写后直接写入配置，不经过你，也不进聊天记录和日志。' +
+      `工具立即返回，不等待填写；之后可用 mcp_get 查看是否已填写。${MCP_WRITE}`,
+    input: McpSecretRequestArgs,
   },
 } as const
 

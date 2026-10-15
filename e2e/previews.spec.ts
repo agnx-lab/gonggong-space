@@ -74,7 +74,7 @@ test('a bot hosts a dev server and publishes it; members open it, embed a static
     await expect(report$.getByRole('heading', { name: 'Hello 预览' })).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('iframe[title="静态报告"]')).toHaveAttribute('src', /path=%2Findex\.html/)
 
-    await main.getByRole('button', { name: '群设置' }).click()
+    await main.getByRole('button', { name: '群设置', exact: true }).click()
     const drawer = page.getByRole('complementary', { name: '群设置' })
     await drawer.getByText('预览与服务').click()
     await expect(drawer.getByText(/静态站点 site/)).toBeVisible()

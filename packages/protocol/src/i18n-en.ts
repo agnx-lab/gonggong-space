@@ -254,6 +254,8 @@ export const protocolEn = {
     'Scheduled task "{name}": the last run is still going, skipped this time',
   '定时任务「{name}」的候选 Bot 都不可用（{bots}），本次跳过':
     'Scheduled task "{name}": no candidate Bot is available ({bots}), skipped this time',
+  '{bot} 请 {user} 填写 MCP「{name}」的密钥：{keys}':
+    '{bot} asks {user} to fill in the secrets of MCP "{name}": {keys}',
   '定时任务「{name}」已停用：{reason}': 'Scheduled task "{name}" was turned off: {reason}',
   仅一次的任务已执行: 'it was a one-off and has run',
   '连续 {n} 次失败': 'it failed {n} times in a row',

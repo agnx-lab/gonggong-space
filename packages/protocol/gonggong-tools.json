@@ -645,5 +645,332 @@
       },
       "required": ["name", "version"]
     }
+  },
+  {
+    "name": "mcp_list",
+    "title": "MCP 列表",
+    "description": "本群可见的 MCP（平台、团队、群三层，含已停用和本群已关闭的）：名称、层级、类型、启动命令或地址、是否生效（同名时下层覆盖上层）、发起人能否修改；密钥只显示是否已填写。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "mcp_get",
+    "title": "查看 MCP",
+    "description": "查看一个 MCP 的配置，密钥打码，只显示是否已填写。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "MCP 名称（mcp_list 可查）"
+        },
+        "layer": {
+          "type": "string",
+          "enum": ["platform", "team", "group"],
+          "description": "读哪一层的同名 MCP，默认本群实际生效的那一个"
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "mcp_create",
+    "title": "新建 MCP",
+    "description": "新建 MCP（stdio：command/args/env；http：url/headers）。env / headers 的值一律视为密钥：只能写占位符 ${secret:名称}，不接受明文；真实值用 mcp_secret_request 让发起人在群里的卡片上填写，你看不到也不要在对话里索要。以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "layer": {
+          "type": "string",
+          "enum": ["platform", "team", "group"],
+          "description": "作用层级：group = 仅本群，team = 本群所属团队的所有群，platform = 全平台。默认 group"
+        },
+        "config": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "const": "stdio"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "MCP 名称（mcp_list 可查）"
+                },
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "启动命令，如 npx"
+                },
+                "args": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "命令参数，不要写密钥"
+                },
+                "env": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "环境变量；值只能写占位符 ${secret:名称}"
+                }
+              },
+              "required": ["transport", "name", "command"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "const": "http"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "MCP 名称（mcp_list 可查）"
+                },
+                "url": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "MCP 服务地址，不要把密钥写进地址"
+                },
+                "headers": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "请求头；值只能写占位符 ${secret:名称}"
+                }
+              },
+              "required": ["transport", "name", "url"]
+            }
+          ]
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "默认 true"
+        },
+        "forceNewSession": {
+          "type": "boolean",
+          "description": "true = 相关 Bot 下一轮开新会话以立即生效（会丢失当前会话上下文）；默认 false，已有会话继续用旧配置"
+        }
+      },
+      "required": ["config"]
+    }
+  },
+  {
+    "name": "mcp_update",
+    "title": "修改 MCP",
+    "description": "修改 MCP 的配置。env / headers 的值一律视为密钥：只能写占位符 ${secret:名称}，不接受明文；真实值用 mcp_secret_request 让发起人在群里的卡片上填写，你看不到也不要在对话里索要。以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "MCP 名称（mcp_list 可查）"
+        },
+        "layer": {
+          "type": "string",
+          "enum": ["platform", "team", "group"],
+          "description": "作用层级：group = 仅本群，team = 本群所属团队的所有群，platform = 全平台。默认 group"
+        },
+        "config": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "const": "stdio"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "MCP 名称（mcp_list 可查）"
+                },
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "启动命令，如 npx"
+                },
+                "args": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "命令参数，不要写密钥"
+                },
+                "env": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "环境变量；值只能写占位符 ${secret:名称}"
+                }
+              },
+              "required": ["transport", "name", "command"]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "type": "string",
+                  "const": "http"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "MCP 名称（mcp_list 可查）"
+                },
+                "url": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "MCP 服务地址，不要把密钥写进地址"
+                },
+                "headers": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "请求头；值只能写占位符 ${secret:名称}"
+                }
+              },
+              "required": ["transport", "name", "url"]
+            }
+          ],
+          "description": "完整的新配置（整体替换；改 name 即重命名）。已有的 env / headers 键写占位符即保留原值"
+        },
+        "forceNewSession": {
+          "type": "boolean",
+          "description": "true = 相关 Bot 下一轮开新会话以立即生效（会丢失当前会话上下文）；默认 false，已有会话继续用旧配置"
+        }
+      },
+      "required": ["name", "config"]
+    }
+  },
+  {
+    "name": "mcp_toggle",
+    "title": "启用/停用 MCP",
+    "description": "启用或停用 MCP。要在本群关掉继承自团队或平台的 MCP（不影响其他群）时，用 layer=group 并给出它的名称，需发起人为本群管理员。以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "MCP 名称（mcp_list 可查）"
+        },
+        "layer": {
+          "type": "string",
+          "enum": ["platform", "team", "group"],
+          "description": "作用层级：group = 仅本群，team = 本群所属团队的所有群，platform = 全平台。默认 group"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "true = 启用，false = 停用（保留配置）。layer=group 且本群没有同名群层 MCP 时，开关的是本群继承的平台层/团队层 MCP，只影响本群"
+        },
+        "forceNewSession": {
+          "type": "boolean",
+          "description": "true = 相关 Bot 下一轮开新会话以立即生效（会丢失当前会话上下文）；默认 false，已有会话继续用旧配置"
+        }
+      },
+      "required": ["name", "enabled"]
+    }
+  },
+  {
+    "name": "mcp_delete",
+    "title": "删除 MCP",
+    "description": "删除 MCP，不可恢复；只想暂时不用时用 mcp_toggle 停用。以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "MCP 名称（mcp_list 可查）"
+        },
+        "layer": {
+          "type": "string",
+          "enum": ["platform", "team", "group"],
+          "description": "作用层级：group = 仅本群，team = 本群所属团队的所有群，platform = 全平台。默认 group"
+        },
+        "forceNewSession": {
+          "type": "boolean",
+          "description": "true = 相关 Bot 下一轮开新会话以立即生效（会丢失当前会话上下文）；默认 false，已有会话继续用旧配置"
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "mcp_secret_request",
+    "title": "请求填写密钥",
+    "description": "在群里发一张「填写密钥」卡片，请发起本轮的人填写 MCP 的密钥（密码框）；填写后直接写入配置，不经过你，也不进聊天记录和日志。工具立即返回，不等待填写；之后可用 mcp_get 查看是否已填写。以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "MCP 名称（mcp_list 可查）"
+        },
+        "layer": {
+          "type": "string",
+          "enum": ["platform", "team", "group"],
+          "description": "作用层级：group = 仅本群，team = 本群所属团队的所有群，platform = 全平台。默认 group"
+        },
+        "keys": {
+          "minItems": 1,
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "要填写的 env 键（stdio）或请求头名（http），须已在配置里"
+        },
+        "forceNewSession": {
+          "type": "boolean",
+          "description": "true = 相关 Bot 下一轮开新会话以立即生效（会丢失当前会话上下文）；默认 false，已有会话继续用旧配置"
+        }
+      },
+      "required": ["name", "keys"]
+    }
   }
 ]

@@ -35,6 +35,7 @@ import {
 } from '../../ui'
 import { useBotCostume } from '../bots/avatars'
 import { AGENT_LABEL } from '../bots/model'
+import { McpSecretCard } from '../config/McpSecretCard'
 import { FeishuChatLink } from '../feishu/FeishuChatLink'
 import { GroupAvatar } from '../groups/GroupAvatar'
 import { GroupInfo, type InfoView, type SettingsTab } from '../groups/GroupInfo'
@@ -399,6 +400,7 @@ export function ChatView({
     if (m.scheduleId)
       return <ScheduleCard scheduleId={m.scheduleId} groupId={m.groupId} fallback={eventText(m)} />
     if (m.syncConflict) return <ConflictEvent m={m} conflict={m.syncConflict} />
+    if (m.mcpSecret) return <McpSecretCard m={m} card={m.mcpSecret} />
     if (m.kind === 'event') return <EventRow m={m} />
     if (m.recalled) return <RecallRow m={m} mine={m.authorId === meId} />
     if (m.kind === 'bot') return <BotReply m={m} compact={compact} />

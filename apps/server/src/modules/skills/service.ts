@@ -7,7 +7,8 @@ import type { Db } from '../../db/client.js'
 import { groupSkillOverrides, groups, skills, skillVersions, users } from '../../db/schema.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
-import { type Layer, RANK, type Scope } from '../mcp/routes.js'
+import { keptIn, turnedOff as offIn, setInherited as setOverride } from '../../lib/group-overrides.js'
+import { type Layer, RANK, type Scope } from '../mcp/service.js'
 
 export type SkillRow = typeof skills.$inferSelect
 type Version = typeof skillVersions.$inferSelect
@@ -271,19 +272,6 @@ export function mergeSkills<T extends { scope: string; name: string }>(rows: T[]
   return [...merged.values()].sort((a, b) => (a.name < b.name ? -1 : 1))
 }
 
-/** Names of inherited skills the group turned off; its own group-layer skills are not affected. */
-export async function turnedOff(db: Pick<Db, 'select'>, groupId: string) {
-  const rows = await db
-    .select({ name: groupSkillOverrides.name })
-    .from(groupSkillOverrides)
-    .where(eq(groupSkillOverrides.groupId, groupId))
-  return new Set(rows.map((r) => r.name))
-}
-
-/** Drops inherited rows the group turned off. */
-export const keptIn = (off: Set<string>) => (r: { scope: string; name: string }) =>
-  r.scope === 'group' || !off.has(r.name)
-
 /** Platform and team skills in effect above the group, merged, with whether the group keeps them on. */
 export async function inheritedSkills(db: Pick<Db, 'select'>, groupId: string) {
   const rows = await listed(db).where(
@@ -298,32 +286,16 @@ export async function inheritedSkills(db: Pick<Db, 'select'>, groupId: string) {
 }
 
 /** Turns inherited skill `name` on or off for the group alone; false when it already was. */
-export async function setInherited(
+export const setInherited = (
   ctx: Ctx,
   groupId: string,
   name: string,
   enabled: boolean,
   actorId: string,
   extra?: Extra,
-) {
-  const where = and(eq(groupSkillOverrides.groupId, groupId), eq(groupSkillOverrides.name, name))
-  const changed = enabled
-    ? await ctx.db.delete(groupSkillOverrides).where(where).returning()
-    : await ctx.db
-        .insert(groupSkillOverrides)
-        .values({ groupId, name, updatedBy: actorId, updatedAt: ctx.now() })
-        .onConflictDoNothing()
-        .returning()
-  if (!changed.length) return false
-  await audit(ctx, {
-    category: 'admin',
-    actorUserId: actorId,
-    groupId,
-    action: 'skill.group_toggle',
-    detail: { name, enabled, ...extra },
-  })
-  return true
-}
+) => setOverride(ctx, groupSkillOverrides, 'skill.group_toggle', groupId, name, enabled, actorId, extra)
+
+export const turnedOff = (db: Pick<Db, 'select'>, groupId: string) => offIn(db, groupSkillOverrides, groupId)
 
 /** Enabled skills for a run in the group, merged across layers (as `enabledMcpServers`). */
 export async function enabledSkills(db: Pick<Db, 'select'>, groupId: string) {

@@ -2,16 +2,14 @@ import type { GONGGONG_TOOLS, SkillFile } from '@gonggong/protocol'
 import { and, eq } from 'drizzle-orm'
 import type { z } from 'zod'
 import type { Ctx } from '../../context.js'
-import { groups, type runs, skills, skillVersions } from '../../db/schema.js'
-import { HttpError } from '../../lib/errors.js'
-import { requireAdmin } from '../groups/service.js'
-import { type Layer, RANK, type Scope } from '../mcp/routes.js'
+import { skills, skillVersions } from '../../db/schema.js'
+import { keptIn } from '../../lib/group-overrides.js'
+import { type Layer, RANK, type Scope } from '../mcp/service.js'
 import {
   createSkill,
   deleteSkill,
   findSkill,
   inheritedSkills,
-  keptIn,
   type Listed,
   listed,
   mergeSkills,
@@ -24,14 +22,12 @@ import {
   updateSkill,
   visibleIn,
 } from '../skills/service.js'
-import { requireTeam } from '../teams/service.js'
+import { canEdit, editable, LAYER, layerOf, type Run } from './layers.js'
 import { asTool, refuse, type ToolOutput } from './service.js'
 
-type Run = typeof runs.$inferSelect
 type Args<N extends keyof typeof GONGGONG_TOOLS> = z.infer<(typeof GONGGONG_TOOLS)[N]['input']>
 type Writable = 'group' | 'team'
 
-const LAYER: Record<Scope, string> = { platform: '平台层', team: '团队层', group: '群层' }
 const DENIED: Record<Writable, string> = {
   group: '发起人不是本群管理员，不能修改群层 Skill',
   team: '发起人不是本群所属团队的管理员，不能修改团队层 Skill',
@@ -40,29 +36,6 @@ const DENIED: Record<Writable, string> = {
 const PLATFORM: Layer = { scope: 'platform', teamId: null, groupId: null }
 
 const time = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
-
-async function teamOf(ctx: Ctx, run: Run) {
-  const [g] = await ctx.db.select({ teamId: groups.teamId }).from(groups).where(eq(groups.id, run.groupId))
-  return g!.teamId
-}
-
-async function layerOf(ctx: Ctx, run: Run, scope: Writable = 'group'): Promise<Layer> {
-  const teamId = await teamOf(ctx, run)
-  return { scope, teamId, groupId: scope === 'group' ? run.groupId : null }
-}
-
-/** Whether the run's originator may change the layer on the web (as `eachLayer`). */
-async function canEdit(ctx: Ctx, run: Run, l: Layer) {
-  try {
-    if (l.scope === 'group') await requireAdmin(ctx, run.groupId, run.originUserId)
-    else if (l.scope === 'team') await requireTeam(ctx, run.originUserId, l.teamId!, 'admin')
-    else return false
-    return true
-  } catch (e) {
-    if (e instanceof HttpError) return false
-    throw e
-  }
-}
 
 /** The originator's writable layer, refused with a correctable reason. */
 async function writable(ctx: Ctx, run: Run, scope: Writable = 'group') {
@@ -87,12 +60,8 @@ export async function skillList(ctx: Ctx, run: Run): Promise<ToolOutput> {
   const winner = new Map(
     mergeSkills(rows.map((r) => r.skill).filter((s) => s.enabled && keptIn(off)(s))).map((s) => [s.name, s]),
   )
-  const team = await teamOf(ctx, run)
-  const edit = {
-    platform: false,
-    team: await canEdit(ctx, run, { scope: 'team', teamId: team, groupId: null }),
-    group: await canEdit(ctx, run, { scope: 'group', teamId: team, groupId: run.groupId }),
-  }
+  // Platform skills are read-only for bots.
+  const edit = { ...(await editable(ctx, run)), platform: false }
   const lines = rows
     .sort(
       (a, b) =>

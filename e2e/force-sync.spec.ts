@@ -62,7 +62,7 @@ test('force sync: switch, distribute, concurrent edits, a held conflict, switch 
     const bar = page.locator('.sync-bar')
 
     await test.step('the admin switches to force sync with a base bot', async () => {
-      await main.getByRole('button', { name: '群设置' }).click()
+      await main.getByRole('button', { name: '群设置', exact: true }).click()
       await page
         .getByRole('complementary', { name: '群设置' })
         .getByRole('button', { name: /同步模式/ })

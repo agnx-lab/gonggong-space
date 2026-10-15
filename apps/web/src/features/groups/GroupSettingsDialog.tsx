@@ -18,7 +18,7 @@ import {
   TextField,
   toast,
 } from '../../ui'
-import { McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
+import { InheritedMcpList, McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
 import { InheritedSkillList, SkillLayerList } from '../config/SkillLayer'
 import { GroupFeishuTab } from '../feishu/GroupFeishuTab'
 import { RepoWorkspaceView } from '../repos/RepoWorkspaceView'
@@ -271,6 +271,7 @@ function GroupMcpTab({ group }: { group: GroupDto }) {
       <div className="gs-note">{t('只对本群生效；与团队层、平台层同名时以群层为准。')}</div>
       <McpLayerList layer={layer} tag={t('群层')} />
       <McpSaved force={layer.savedForce} />
+      <InheritedMcpList groupId={group.id} />
     </>
   )
 }

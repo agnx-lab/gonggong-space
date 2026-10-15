@@ -24,4 +24,11 @@ export const GONGGONG_TOOL_TITLES = {
   skill_toggle: '启用/停用 Skill',
   skill_versions: 'Skill 版本历史',
   skill_rollback: '回滚 Skill',
+  mcp_list: 'MCP 列表',
+  mcp_get: '查看 MCP',
+  mcp_create: '新建 MCP',
+  mcp_update: '修改 MCP',
+  mcp_toggle: '启用/停用 MCP',
+  mcp_delete: '删除 MCP',
+  mcp_secret_request: '请求填写密钥',
 } as const

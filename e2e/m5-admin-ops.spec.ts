@@ -77,7 +77,7 @@ test('group settings: name + notice, group params, mute/pin, leaving and dissolv
   const { api } = await memberWithMachine(page, 'set1')
   const group = await api.call<{ id: string }>('post', '/api/groups', { name: '设置前', kind: 'group' })
   await page.goto(`/g/${group.id}`)
-  await page.getByRole('button', { name: '群设置' }).click()
+  await page.getByRole('button', { name: '群设置', exact: true }).click()
   const settings = page.getByRole('complementary', { name: '群设置' })
   await settings.getByRole('button', { name: /基本信息/ }).click()
   const basic = page.getByRole('dialog', { name: /^基本信息/ })

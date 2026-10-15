@@ -1,4 +1,4 @@
-import { GONGGONG_TOOLS, type McpServer, type McpServerDto } from '@gonggong/protocol'
+import { GONGGONG_TOOLS, type InheritedMcpDto, type McpServer, type McpServerDto } from '@gonggong/protocol'
 import { type CSSProperties, useCallback, useEffect, useId, useState } from 'react'
 import { api, errorText } from '../../lib/api'
 import {
@@ -24,6 +24,7 @@ import {
   UnsupportedArt,
 } from '../../ui'
 import { AdminPage } from '../admin/AdminPage'
+import { InheritedList } from './InheritedList'
 import { SkillLayerList } from './SkillLayer'
 import './config.css'
 import { t } from '../../i18n'
@@ -69,6 +70,21 @@ const describeMcp = (c: McpServer) => {
   return [[c.command, ...c.args].join(' '), Object.keys(c.env).length ? `env ${keys(c.env)}` : '']
     .filter(Boolean)
     .join(' · ')
+}
+
+/** Platform and team MCP servers in effect for the group, each turned on or off for this group alone. */
+export function InheritedMcpList({ groupId }: { groupId: string }) {
+  return (
+    <InheritedList<InheritedMcpDto>
+      base={`/groups/${groupId}/inherited-mcp`}
+      row={(m) => ({
+        name: m.config.name,
+        label: m.config.name,
+        tags: [m.config.transport],
+        description: describeMcp(m.config),
+      })}
+    />
+  )
 }
 
 /** One MCP layer's draft list under `base` (`/admin/mcp`, `/teams/:id/mcp`, `/groups/:id/mcp`), saved as a batch. */
