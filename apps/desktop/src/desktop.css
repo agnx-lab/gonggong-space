@@ -287,6 +287,9 @@ code,
 .dk-toollog {
   display: block;
 }
+.dk-row--end {
+  justify-content: flex-end;
+}
 .dk-toollog > .ui-disc {
   width: 100%;
 }

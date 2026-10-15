@@ -10,7 +10,8 @@
       "version": "24.2.0",
       "latest": "24.3.0",
       "managed": true,
-      "path": "/Users/wl/.gonggong/runtime/current/bin/node"
+      "path": "/Users/wl/.gonggong/runtime/current/bin/node",
+      "upgradeCommand": null
     },
     {
       "kind": "claude",
@@ -18,15 +19,17 @@
       "version": "2.1.285",
       "latest": "2.1.285",
       "managed": true,
-      "path": "/Users/wl/.gonggong/tools/bin/claude"
+      "path": "/Users/wl/.gonggong/tools/bin/claude",
+      "upgradeCommand": null
     },
     {
       "kind": "codex",
-      "installed": false,
-      "version": null,
-      "latest": null,
+      "installed": true,
+      "version": "0.40.0",
+      "latest": "0.41.0",
       "managed": false,
-      "path": null
+      "path": "/opt/homebrew/bin/codex",
+      "upgradeCommand": "brew upgrade codex"
     }
   ],
   "settings": {

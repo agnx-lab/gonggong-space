@@ -67,6 +67,9 @@ pub struct ToolStatus {
     /// Installed by Gonggong under its home (and so upgradable by it).
     pub managed: bool,
     pub path: Option<String>,
+    /// How the user's own install is upgraded (and so upgradable by Gonggong too); `None` when managed or unknown.
+    #[serde(default)]
+    pub upgrade_command: Option<String>,
 }
 
 impl ToolStatus {
@@ -127,10 +130,104 @@ fn switch_current(home: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
+fn canonical(p: &Path) -> PathBuf {
+    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+}
+
 pub fn is_managed(home: &Path, path: &Path) -> bool {
-    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    let path = canon(path);
-    [tools_dir(home), runtime_dir(home)].iter().any(|d| path.starts_with(canon(d)))
+    let path = canonical(path);
+    [tools_dir(home), runtime_dir(home)].iter().any(|d| path.starts_with(canonical(d)))
+}
+
+/// How a CLI the user installed is upgraded, told by where it really lives (`path` resolved).
+#[derive(Debug, PartialEq)]
+enum SelfUpgrade {
+    Brew {
+        brew: PathBuf,
+        name: &'static str,
+    },
+    /// Claude Code's own updater (native installer, or npm).
+    ClaudeUpdate,
+    /// The npm global prefix it was installed into.
+    Npm {
+        prefix: PathBuf,
+    },
+}
+
+fn self_upgrade(kind: ToolKind, path: &Path) -> Option<SelfUpgrade> {
+    let pkg = kind.package()?;
+    let parts: Vec<_> = path.components().collect();
+    let at = |name: &str| parts.iter().position(|c| c.as_os_str() == name);
+    if let Some(i) = at("Cellar").or_else(|| at("Caskroom")) {
+        let brew = parts[..i].iter().collect::<PathBuf>().join("bin").join("brew");
+        return Some(SelfUpgrade::Brew { brew, name: if kind == ToolKind::Claude { "claude-code" } else { "codex" } });
+    }
+    if kind == ToolKind::Claude {
+        return Some(SelfUpgrade::ClaudeUpdate);
+    }
+    let i = at("node_modules")?;
+    let package: PathBuf = parts[i + 1..].iter().take(2).collect();
+    if package != Path::new(pkg) {
+        return None;
+    }
+    let mut prefix: PathBuf = parts[..i].iter().collect();
+    if !cfg!(windows) && prefix.ends_with("lib") {
+        prefix.pop();
+    }
+    Some(SelfUpgrade::Npm { prefix })
+}
+
+impl SelfUpgrade {
+    fn program(&self) -> &'static str {
+        match self {
+            SelfUpgrade::Brew { .. } => "brew",
+            SelfUpgrade::ClaudeUpdate => "claude",
+            SelfUpgrade::Npm { .. } => "npm",
+        }
+    }
+
+    fn command(&self) -> String {
+        match self {
+            SelfUpgrade::Brew { name, .. } => format!("brew upgrade {name}"),
+            SelfUpgrade::ClaudeUpdate => "claude update".into(),
+            SelfUpgrade::Npm { .. } => "npm i -g @openai/codex@latest".into(),
+        }
+    }
+
+    /// Never sudo: a prefix the user cannot write fails, and says so (`run_self`).
+    fn process(&self, home: &Path, tool: &Path, latest: &str) -> Result<tokio::process::Command> {
+        let settings = Settings::load(home)?;
+        let mut cmd = match self {
+            SelfUpgrade::Brew { brew, name } => {
+                let mut cmd = crate::proc::async_command(brew);
+                cmd.args(["upgrade", name]).env("PATH", prepend_path(brew.parent().context("brew has no dir")?));
+                cmd
+            }
+            SelfUpgrade::ClaudeUpdate => {
+                let mut cmd = crate::proc::async_command(tool);
+                cmd.arg("update").env("PATH", prepend_path(tool.parent().context("claude has no dir")?));
+                cmd
+            }
+            SelfUpgrade::Npm { prefix } => {
+                let bin = if cfg!(windows) { prefix.clone() } else { prefix.join("bin") };
+                let own = agents::file_names("npm").into_iter().map(|n| bin.join(n)).find(|p| p.is_file());
+                let mut cmd = match own {
+                    Some(npm) => {
+                        let mut cmd = crate::proc::async_command(npm);
+                        cmd.env("PATH", prepend_path(&bin));
+                        cmd
+                    }
+                    None => node(home).context(t!("未找到 npm"))?.npm()?,
+                };
+                cmd.args(["i", "-g", "--prefix"]).arg(prefix);
+                cmd.args(["--registry", settings.mirror.registry(), "--no-audit", "--no-fund"]);
+                cmd.arg(format!("@openai/codex@{latest}"));
+                cmd
+            }
+        };
+        cmd.envs(settings.child_env());
+        Ok(cmd)
+    }
 }
 
 /// PATH with `dir` first, so `#!/usr/bin/env node` scripts (npm, the agent CLIs' shims) run on that Node.
@@ -273,26 +370,57 @@ pub async fn install(home: &Path, kind: ToolKind, version: Option<&str>, progres
     Ok(with_latest(home, current(home, kind)?).await)
 }
 
-/// Upgrades a managed tool to the latest version; tools the user installed are left alone (their own updater may
-/// need network access we do not have).
+/// Upgrades a tool to the latest version: a managed one by installing it again, one the user installed the way they
+/// installed it (brew, `claude update`, or npm into its own prefix).
 pub async fn upgrade(home: &Path, kind: ToolKind, progress: Progress<'_>) -> Result<ToolStatus> {
     let status = current(home, kind)?;
     if !status.installed {
         bail!(t!("{tool} 未安装", tool = kind.label()));
     }
-    if !status.managed {
-        bail!(t!(
-            "{tool} 为自行安装（{path}），共工空间不代为升级，请用原安装方式升级",
-            tool = kind.label(),
-            path = status.path.as_deref().unwrap_or("-")
-        ));
-    }
+    let path = PathBuf::from(status.path.as_deref().unwrap_or_default());
+    let own = if status.managed {
+        None
+    } else {
+        Some(self_upgrade(kind, &canonical(&path)).with_context(|| {
+            t!(
+                "{tool} 为自行安装（{path}），无法判断安装方式，请用原安装方式升级",
+                tool = kind.label(),
+                path = path.display()
+            )
+        })?)
+    };
     let latest = latest(home, kind, true).await?;
     if status.version.as_deref().is_some_and(|v| !is_newer(&latest, v)) {
         progress(&t!("{tool} 已是最新版本 {v}", tool = kind.label(), v = latest));
         return Ok(ToolStatus { latest: Some(latest), ..status });
     }
-    install(home, kind, Some(&latest), progress).await
+    let Some(own) = own else { return install(home, kind, Some(&latest), progress).await };
+    {
+        let _busy = busy(home)?;
+        progress(&t!("升级自行安装的 {tool}：{command}", tool = kind.label(), command = own.command()));
+        run_self(own.process(home, &path, &latest)?, own.program(), kind, progress).await?;
+    }
+    Ok(with_latest(home, current(home, kind)?).await)
+}
+
+/// Runs a self-install upgrade; a permission error (a prefix only root can write) is told plainly.
+async fn run_self(cmd: tokio::process::Command, program: &str, kind: ToolKind, progress: Progress<'_>) -> Result<()> {
+    let denied = std::sync::atomic::AtomicBool::new(false);
+    let watch = |line: &str| {
+        let lower = line.to_lowercase();
+        if line.contains("EACCES") || line.contains("EPERM") || lower.contains("permission denied") {
+            denied.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        progress(line);
+    };
+    let res = exec(cmd, program, &watch).await;
+    if res.is_err() && denied.load(std::sync::atomic::Ordering::Relaxed) {
+        bail!(t!(
+            "没有写入权限，无法升级 {tool}（共工空间不使用 sudo）。可在本机终端自行升级，或改用共工空间托管安装",
+            tool = kind.label()
+        ));
+    }
+    res
 }
 
 async fn install_package(
@@ -314,15 +442,19 @@ async fn install_package(
     run(npm, progress).await
 }
 
-/// Runs `cmd`, reporting each output line; fails with the last lines when it exits non-zero.
-pub async fn run(mut cmd: tokio::process::Command, progress: Progress<'_>) -> Result<()> {
+/// Runs npm `cmd`, reporting each output line; fails with the last lines when it exits non-zero.
+pub async fn run(cmd: tokio::process::Command, progress: Progress<'_>) -> Result<()> {
+    exec(cmd, "npm", progress).await
+}
+
+async fn exec(mut cmd: tokio::process::Command, program: &str, progress: Progress<'_>) -> Result<()> {
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .context(t!("无法启动 npm"))?;
+        .with_context(|| t!("无法启动 {program}", program = program))?;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     forward(child.stdout.take().expect("piped"), tx.clone());
     forward(child.stderr.take().expect("piped"), tx);
@@ -336,7 +468,12 @@ pub async fn run(mut cmd: tokio::process::Command, progress: Progress<'_>) -> Re
     }
     let status = child.wait().await?;
     if !status.success() {
-        bail!(t!("npm 执行失败（{status}）：{output}", status = status, output = Vec::from(tail).join("\n")));
+        bail!(t!(
+            "{program} 执行失败（{status}）：{output}",
+            program = program,
+            status = status,
+            output = Vec::from(tail).join("\n")
+        ));
     }
     Ok(())
 }
@@ -582,6 +719,7 @@ pub fn node_status(home: &Path) -> ToolStatus {
         version: node.as_ref().map(|n| n.version.clone()),
         latest: None,
         path: node.map(|n| n.path.to_string_lossy().into_owned()),
+        upgrade_command: None,
     }
 }
 
@@ -592,13 +730,18 @@ pub fn agent_status(home: &Path, info: &AgentInfo) -> ToolStatus {
         AgentKind::Codex => ToolKind::Codex,
     };
     let path = info.path.as_deref().filter(|_| info.available);
+    let managed = path.is_some_and(|p| is_managed(home, Path::new(p)));
     ToolStatus {
         kind,
         installed: info.available,
         version: info.version.clone(),
         latest: None,
-        managed: path.is_some_and(|p| is_managed(home, Path::new(p))),
+        managed,
         path: path.map(String::from),
+        upgrade_command: path
+            .filter(|_| !managed)
+            .and_then(|p| self_upgrade(kind, &canonical(Path::new(p))))
+            .map(|s| s.command()),
     }
 }
 
@@ -639,7 +782,7 @@ pub enum AgentsCmd {
         #[arg(long)]
         version: Option<String>,
     },
-    /// Upgrade Gonggong-managed tools to their latest version.
+    /// Upgrade tools to their latest version (one you installed, the way you installed it).
     Upgrade {
         #[arg(required_unless_present = "all", conflicts_with = "all")]
         kind: Option<ToolKind>,
@@ -779,6 +922,51 @@ mod tests {
         assert!(current_runtime(home.path()).unwrap().ends_with("node-v22.1.0"));
         switch_current(home.path(), "node-v24.2.0").unwrap();
         assert!(current_runtime(home.path()).unwrap().ends_with("node-v24.2.0"));
+    }
+
+    #[test]
+    fn upgrades_a_self_installed_cli_the_way_it_was_installed() {
+        let how = |kind, path: &str| self_upgrade(kind, Path::new(path));
+        let brew = how(ToolKind::Codex, "/opt/homebrew/Caskroom/codex/0.40.0/codex-aarch64-apple-darwin").unwrap();
+        assert_eq!(brew, SelfUpgrade::Brew { brew: "/opt/homebrew/bin/brew".into(), name: "codex" });
+        assert_eq!(brew.command(), "brew upgrade codex");
+        let brew = how(ToolKind::Claude, "/usr/local/Caskroom/claude-code/2.1.0/claude").unwrap();
+        assert_eq!(brew, SelfUpgrade::Brew { brew: "/usr/local/bin/brew".into(), name: "claude-code" });
+        assert_eq!(brew.command(), "brew upgrade claude-code");
+        let linuxbrew = how(ToolKind::Codex, "/home/linuxbrew/.linuxbrew/Cellar/codex/0.40.0/bin/codex").unwrap();
+        assert_eq!(linuxbrew, SelfUpgrade::Brew { brew: "/home/linuxbrew/.linuxbrew/bin/brew".into(), name: "codex" });
+
+        let claude = how(ToolKind::Claude, "/Users/wl/.local/share/claude/versions/2.1.0").unwrap();
+        assert_eq!(claude, SelfUpgrade::ClaudeUpdate);
+        assert_eq!(claude.command(), "claude update");
+
+        let npm =
+            how(ToolKind::Codex, "/Users/wl/.nvm/versions/node/v22.1.0/lib/node_modules/@openai/codex/bin/codex.js");
+        assert_eq!(npm, Some(SelfUpgrade::Npm { prefix: "/Users/wl/.nvm/versions/node/v22.1.0".into() }));
+        assert_eq!(npm.unwrap().command(), "npm i -g @openai/codex@latest");
+
+        // A standalone binary is not npm's to replace; Node is never upgraded for the user.
+        assert_eq!(how(ToolKind::Codex, "/usr/local/bin/codex"), None);
+        assert_eq!(how(ToolKind::Node, "/opt/homebrew/Cellar/node/24.2.0/bin/node"), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_permission_error_says_why_and_points_to_the_managed_install() {
+        let mut cmd = crate::proc::async_command("sh");
+        cmd.args(["-c", "echo 'npm error code EACCES' >&2; echo 'npm error A complete log'; exit 1"]);
+        let lines = std::sync::Mutex::new(Vec::new());
+        let err =
+            run_self(cmd, "npm", ToolKind::Codex, &|l| lines.lock().unwrap().push(l.to_string())).await.unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("没有写入权限"), "{msg}");
+        assert!(msg.contains("托管安装"), "{msg}");
+        assert_eq!(lines.lock().unwrap().len(), 2);
+
+        let mut cmd = crate::proc::async_command("sh");
+        cmd.args(["-c", "echo boom; exit 3"]);
+        let msg = format!("{:#}", run_self(cmd, "npm", ToolKind::Codex, &|_| {}).await.unwrap_err());
+        assert!(msg.contains("boom") && !msg.contains("没有写入权限"), "{msg}");
     }
 
     #[test]

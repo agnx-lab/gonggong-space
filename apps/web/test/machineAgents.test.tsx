@@ -50,7 +50,15 @@ const mbp: MachineDto = {
 const TOOLS: ToolsStateDto = {
   tools: [
     { kind: 'node', installed: true, version: '22.1.0', latest: '22.9.0', managed: true, path: '/n' },
-    { kind: 'claude', installed: true, version: '2.1.0', latest: '2.1.285', managed: false, path: '/c' },
+    {
+      kind: 'claude',
+      installed: true,
+      version: '2.1.0',
+      latest: '2.1.285',
+      managed: false,
+      path: '/c',
+      upgradeCommand: 'claude update',
+    },
     { kind: 'codex', installed: false, version: null, latest: '0.159.2', managed: false, path: null },
   ],
   settings: { mirror: { kind: 'npmmirror' } },
@@ -195,6 +203,7 @@ describe('Agent 工具', () => {
     expect(claude.textContent).toContain('自行安装')
     expect(claude.textContent).toContain('有更新')
     expect(claude.textContent).toContain('claude update')
+    expect(within(claude).getByRole('button', { name: '升级到 2.1.285' })).toBeTruthy()
     expect(within(claude).queryByRole('button', { name: '安装共工空间托管版' })).toBeNull()
     const codex = screen.getByRole('region', { name: 'Codex' })
     expect(codex.textContent).toContain('未安装')
@@ -241,6 +250,28 @@ describe('Agent 工具', () => {
     })
     expect(screen.getByText('安装失败')).toBeTruthy()
     expect(screen.getByRole('log', { name: '安装日志' }).textContent).toContain('机器离线')
+  })
+
+  it('upgrades the user’s own install; when that fails it offers the managed install', async () => {
+    const calls = await openTools({
+      'POST /machines/m1/tools/claude/upgrade': { opId: 'op1' },
+      'POST /machines/m1/tools/claude/install': { opId: 'op2' },
+    })
+    const claude = () => screen.getByRole('region', { name: 'Claude Code' })
+    expect(within(claude()).queryByRole('button', { name: '改用共工空间托管安装' })).toBeNull()
+    fireEvent.click(within(claude()).getByRole('button', { name: '升级到 2.1.285' }))
+    await waitFor(() => expect(calls.some((c) => c.path === '/machines/m1/tools/claude/upgrade')).toBe(true))
+    emit({
+      t: 'machine.tools.result',
+      machineId: 'm1',
+      opId: 'op1',
+      ok: false,
+      error: '没有写入权限，无法升级 Claude Code',
+      state: null,
+    })
+    expect(screen.getByText('安装失败')).toBeTruthy()
+    fireEvent.click(within(claude()).getByRole('button', { name: '改用共工空间托管安装' }))
+    await waitFor(() => expect(calls.some((c) => c.path === '/machines/m1/tools/claude/install')).toBe(true))
   })
 
   it('saves a custom mirror with both addresses', async () => {

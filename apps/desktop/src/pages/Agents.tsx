@@ -1,5 +1,5 @@
 import { type AgentKind, compareVersions } from '@gonggong/protocol'
-import { hasUpdate, selfUpgradeCommand } from '@web/features/machines/tools'
+import { canUpgrade, hasUpdate } from '@web/features/machines/tools'
 import { Button, Disclosure, GroupBox, GroupRow, Icon, type IconName, Skeleton, Tag, toast } from '@web/ui'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { t } from '../i18n'
@@ -30,6 +30,7 @@ const TOOL_NAME: Record<ToolKind, string> = {
 /** The install / upgrade in progress or last run; one at a time per machine. */
 interface Op {
   kind: ToolKind
+  which: ToolOp
   lines: string[]
   running: boolean
   failed: boolean
@@ -81,7 +82,7 @@ export function AgentsPage(_: PageProps) {
 
   const runTool = async (kind: ToolKind, which: ToolOp) => {
     const opId = `${kind}-${Date.now()}`
-    setOp({ kind, lines: [], running: true, failed: false })
+    setOp({ kind, which, lines: [], running: true, failed: false })
     const unlisten = await onToolProgress(opId, (line) =>
       setOp((o) => o && { ...o, lines: [...o.lines, line] }),
     )
@@ -106,7 +107,17 @@ export function AgentsPage(_: PageProps) {
   const ops = (kind: ToolKind) => (
     <ToolActions tool={tool(kind)} busy={!!op?.running} onRun={(which) => runTool(kind, which)} />
   )
-  const log = (kind: ToolKind) => (op?.kind === kind ? <ToolLog op={op} /> : null)
+  const log = (kind: ToolKind) =>
+    op?.kind === kind ? (
+      <>
+        <ToolLog op={op} />
+        {op.failed && op.which === 'upgrade' && !tool(kind)?.managed ? (
+          <div className="dk-row dk-row--end">
+            <Button onClick={() => runTool(kind, 'install')}>{t('改用共工空间托管安装')}</Button>
+          </div>
+        ) : null}
+      </>
+    ) : null
 
   return (
     <>
@@ -142,7 +153,7 @@ export function AgentsPage(_: PageProps) {
   )
 }
 
-/** 安装 when missing, 升级 for a managed tool with an update; the user's own install is theirs to upgrade. */
+/** 安装 when missing, 升级 when there is an update (the user's own install is upgraded the way it was installed). */
 function ToolActions({
   tool: s,
   busy,
@@ -162,7 +173,7 @@ function ToolActions({
       </Button>
     )
   }
-  return s.managed && hasUpdate(s) ? (
+  return canUpgrade(s) ? (
     <Button variant="primary" disabled={busy} onClick={() => onRun('upgrade')}>
       {t('升级到 {version}', { version: s.latest ?? '' })}
     </Button>
@@ -193,7 +204,7 @@ function ToolLog({ op }: { op: Op }) {
 function toolRows(s: ToolStatus | undefined, loaded: boolean) {
   if (!loaded) return <GroupRow label={t('最新版本')} wideValue value={t('检查中…')} />
   if (!s?.installed) return null
-  const command = !s.managed && hasUpdate(s) ? selfUpgradeCommand(s.kind, s.path) : null
+  const command = !s.managed && hasUpdate(s) ? s.upgradeCommand : null
   return (
     <>
       <GroupRow label={t('来源')} wideValue value={s.managed ? t('共工空间托管') : t('自行安装')} />
@@ -210,7 +221,7 @@ function toolRows(s: ToolStatus | undefined, loaded: boolean) {
       {command ? (
         <GroupRow
           label={t('升级命令')}
-          description={t('自行安装的版本由你在本机终端升级')}
+          description={t('升级时按原安装方式运行，也可以在本机终端自己运行')}
           wideValue
           value={<span className="dk-mono">{command}</span>}
         />

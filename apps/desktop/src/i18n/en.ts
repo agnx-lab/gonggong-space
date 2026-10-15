@@ -49,7 +49,9 @@ export const en = {
   安装: 'Install',
   '升级到 {version}': 'Upgrade to {version}',
   升级命令: 'Upgrade command',
-  自行安装的版本由你在本机终端升级: 'Run it in a terminal on this machine to upgrade your own install',
+  '升级时按原安装方式运行，也可以在本机终端自己运行':
+    'Run the way it was installed when you upgrade; you can also run it in a terminal on this machine',
+  改用共工空间托管安装: 'Switch to the Gonggong Space managed install',
   '正在安装…': 'Installing…',
   安装失败: 'Installation failed',
   安装完成: 'Installation complete',

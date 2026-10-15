@@ -227,6 +227,8 @@ export interface ToolStatus {
   /** Installed by Gonggong (共工空间托管) rather than by the user (自行安装). */
   managed: boolean
   path: string | null
+  /** How the user's own install is upgraded (the daemon runs it on 升级); null when managed or unknown. */
+  upgradeCommand?: string | null
 }
 
 export type ToolOp = 'install' | 'upgrade'

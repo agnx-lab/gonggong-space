@@ -667,6 +667,8 @@ export const ToolStatus = z.object({
   /** Installed by Gonggong (and so upgradable by it). */
   managed: z.boolean(),
   path: z.string().nullable(),
+  /** How the user's own install is upgraded (Gonggong runs it on 升级); null when managed or unknown, absent from older daemons. */
+  upgradeCommand: z.string().nullable().optional(),
 })
 export type ToolStatus = z.infer<typeof ToolStatus>
 /** Where Node and the agent CLIs are downloaded from; npmmirror by default. */

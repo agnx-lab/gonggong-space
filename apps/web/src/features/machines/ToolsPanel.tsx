@@ -24,7 +24,7 @@ import {
   TextField,
   toast,
 } from '../../ui'
-import { hasUpdate, selfUpgradeCommand } from './tools'
+import { canUpgrade, hasUpdate } from './tools'
 
 const MIN_NODE = 22
 const TOOLS: { kind: ToolKind; name: string; sub: string }[] = [
@@ -48,6 +48,7 @@ const tooOld = (t: ToolStatus) =>
 /** The install / upgrade in progress or last run; the daemon runs one at a time per machine. */
 interface Op {
   kind: ToolKind
+  which: 'install' | 'upgrade'
   /** null until the server answers; lines of this machine arriving before that are ours. */
   opId: string | null
   lines: string[]
@@ -82,7 +83,7 @@ export function ToolsPanel({ machine }: { machine: MachineDto }) {
   )
 
   const run = async (kind: ToolKind, which: 'install' | 'upgrade') => {
-    setOp({ kind, opId: null, lines: [], running: true, failed: false })
+    setOp({ kind, which, opId: null, lines: [], running: true, failed: false })
     try {
       const { opId } = await api.post<ToolOpDto>(`${base}/${kind}/${which}`, {})
       setOp((o) => o && { ...o, opId })
@@ -142,6 +143,11 @@ export function ToolsPanel({ machine }: { machine: MachineDto }) {
                 </>
               ) : null}
               {op?.kind === kind ? <ToolLog op={op} /> : null}
+              {op?.kind === kind && op.failed && op.which === 'upgrade' && tool && !tool.managed ? (
+                <div className="mx-row mx-row--end">
+                  <Button onClick={() => void run(kind, 'install')}>{t('改用共工空间托管安装')}</Button>
+                </div>
+              ) : null}
             </GroupBox>
           </section>
         )
@@ -163,7 +169,7 @@ function Badge({ tool }: { tool: ToolStatus | undefined }) {
   return <Tag tone="green">{t('已安装 {version}', { version: tool.version ?? '' }).trim()}</Tag>
 }
 
-/** 安装 when missing, 升级到 X for a managed tool with an update; the user's own install is theirs to upgrade. */
+/** 安装 when missing, 升级到 X when there is an update (the user's own install is upgraded the way it was installed). */
 function ToolAction({
   tool,
   busy,
@@ -179,7 +185,7 @@ function ToolAction({
         {t('安装')}
       </Button>
     )
-  return tool.managed && hasUpdate(tool) ? (
+  return canUpgrade(tool) ? (
     <Button variant="primary" disabled={busy} onClick={() => onRun('upgrade')}>
       {t('升级到 {version}', { version: tool.latest ?? '' })}
     </Button>
@@ -187,14 +193,13 @@ function ToolAction({
 }
 
 function SelfUpgradeRow({ tool }: { tool: ToolStatus }) {
-  const command = !tool.managed && hasUpdate(tool) ? selfUpgradeCommand(tool.kind, tool.path) : null
-  if (!command) return null
+  if (tool.managed || !tool.upgradeCommand || !hasUpdate(tool)) return null
   return (
     <GroupRow
       label={t('升级命令')}
-      description={t('自行安装的版本由你在本机终端升级')}
+      description={t('升级时按原安装方式运行，也可以在本机终端自己运行')}
       wideValue
-      value={<span className="mx-mono">{command}</span>}
+      value={<span className="mx-mono">{tool.upgradeCommand}</span>}
     />
   )
 }

@@ -81,7 +81,13 @@ it('upgrades a managed tool and shows the upgrade command of the user’s own', 
   m.tools.mockResolvedValue([
     tool({ kind: 'node', version: '20.1.0', path: '/usr/local/bin/node' }),
     tool({ kind: 'claude', version: '2.1.4', latest: '2.2.0', managed: true }),
-    tool({ kind: 'codex', version: '0.150.0', latest: '0.159.2', path: '/opt/homebrew/bin/codex' }),
+    tool({
+      kind: 'codex',
+      version: '0.150.0',
+      latest: '0.159.2',
+      path: '/opt/homebrew/bin/codex',
+      upgradeCommand: 'brew upgrade codex',
+    }),
   ])
   m.agents.mockResolvedValue([
     CLAUDE,
@@ -98,6 +104,10 @@ it('upgrades a managed tool and shows the upgrade command of the user’s own', 
   expect(await codex.findByText('有更新')).toBeTruthy()
   expect(codex.getByText('brew upgrade codex')).toBeTruthy()
   expect(codex.queryByRole('button', { name: '安装共工空间托管版' })).toBeNull()
+  fireEvent.click(codex.getByRole('button', { name: '升级到 0.159.2' }))
+  await waitFor(() => expect(m.runTool).toHaveBeenCalledWith('upgrade', 'codex', expect.any(String)))
+  fireEvent.click(await codex.findByRole('button', { name: '改用共工空间托管安装' }))
+  await waitFor(() => expect(m.runTool).toHaveBeenCalledWith('install', 'codex', expect.any(String)))
 
   const claude = within(await card('Claude Code'))
   expect(await claude.findByText('有更新')).toBeTruthy()
