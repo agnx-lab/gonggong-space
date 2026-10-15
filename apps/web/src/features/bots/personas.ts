@@ -670,8 +670,8 @@ const BASE =
 const scenes = new Map<string, string>()
 
 /** The persona acting out a mascot action, as an SVG data URI; `words` lets its props spell things out. */
-export function personaScene(ip: Persona, act: MascotAction, words = true) {
-  const id = ip.key + act + (words ? '+' : '')
+export function personaScene(ip: Persona, act: MascotAction, words = true, still = false) {
+  const id = ip.key + act + (words ? '+' : '') + (still ? '=' : '')
   let src = scenes.get(id)
   if (!src) {
     const full = ip.acts[act]
@@ -688,7 +688,7 @@ export function personaScene(ip: Persona, act: MascotAction, words = true) {
       (WORKING.has(act) || act === 'idle' ? ip.motion : '') +
       (ex.css ?? '')
     const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-14 -16 68 68" style="--t:${ip.tempo}"><style>${style}@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>` +
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-14 -16 68 68" style="--t:${ip.tempo}"><style>${style}${still ? '*{animation:none!important}' : '@media (prefers-reduced-motion:reduce){*{animation:none!important}}'}</style>` +
       `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${ip.from}"/><stop offset="1" stop-color="${ip.to}"/></linearGradient><clipPath id="t"><rect width="40" height="40" rx="9"/></clipPath></defs>` +
       `<ellipse cx="20" cy="46.5" rx="14" ry="1.8" fill="#000" opacity=".1"/>${back}` +
       `<g class="fig"><rect width="40" height="40" rx="9" fill="url(#g)"/><g clip-path="url(#t)">${ip.glyph(ip.to, face(ip, st), st)}</g></g>${ex.fx ?? ''}${front}</svg>`

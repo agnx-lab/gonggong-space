@@ -1,7 +1,7 @@
 import type { BotDto, GroupDto, MachineDto } from '@gonggong/protocol'
 import { type MouseEvent, type PointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
-import { BotAvatar } from '../features/bots/avatars'
+import { BotAvatar, type PersonaRole, roleCostume } from '../features/bots/avatars'
 import { botStateText, PRESENCE } from '../features/bots/model'
 import { draftKey } from '../features/chat/MessageComposer'
 import { groupsApi } from '../features/groups/api'
@@ -13,8 +13,9 @@ import { api } from '../lib/api'
 import { attempt } from '../lib/errors'
 import { plainText } from '../lib/plain'
 import { useRealtimeStatus } from '../lib/realtime'
-import { Badge, Button, ContextMenu, ConversationContent, Icon } from '../ui'
+import { Badge, Button, ContextMenu, type ConversationActivity, ConversationContent, Icon } from '../ui'
 import { keyNav } from '../ui/im/keynav'
+import { activityOf, needsMe } from './convActivity'
 import { useInspector } from './inspector'
 import { useWorkbench } from './workbench'
 import { lastText, useWorkspace } from './workspace'
@@ -94,10 +95,35 @@ function useLongPress() {
   }
 }
 
+/** The row's live runs as its tag and preview show them, each bot in its own costume. */
+function useActivity(g: GroupDto) {
+  const bots = useWorkspace((s) => s.bots)
+  const a = activityOf(g.liveRuns)
+  if (!a) return { activity: undefined, alert: undefined }
+  const bot = (id: string) => bots.find((b) => b.id === id)
+  const costume = (id: string) => {
+    const role = bot(id)?.avatar
+    return role && role !== 'role-gong' ? roleCostume(role as PersonaRole) : undefined
+  }
+  const activity: ConversationActivity = {
+    tone: a.tone,
+    label: a.label,
+    title: a.title,
+    actors: a.actors.map((x) => ({ key: x.runId, action: x.action, costume: costume(x.botId) })),
+    more: a.more,
+  }
+  const alert = a.alert && {
+    flag: a.alert.flag,
+    text: t('{name}：{line}', { name: bot(a.alert.botId)?.name ?? 'Bot', line: a.alert.title }),
+  }
+  return { activity, alert: alert ?? undefined }
+}
+
 function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabStop: boolean }) {
   const dm = g.kind === 'dm'
   const navigate = useNavigate()
   const press = useLongPress()
+  const { activity, alert } = useActivity(g)
   const onMenu = (v: string) => {
     if (v === 'pin') void attempt(() => groupsApi.prefs(g.id, { pinned: !g.pinned }))
     else if (v === 'mute') void attempt(() => groupsApi.prefs(g.id, { muted: !g.muted }))
@@ -158,7 +184,8 @@ function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabS
             muted: g.muted,
             pinned: g.pinned,
             flagged: g.flagged,
-            live: g.liveRunIds.length > 0,
+            activity,
+            alert,
           }}
         />
       </NavLink>
@@ -220,8 +247,12 @@ function SetupGuide({
 /** 完成: marked done and no message since; a new one brings it back to its list. */
 const isDone = (g: GroupDto) => g.doneSeq != null && g.lastSeq <= g.doneSeq
 
-/** Pinned first; otherwise the server's order (creation time). */
-const byPin = (list: GroupDto[]) => [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned))
+/** Pinned first, then those waiting on the viewer (until handled); otherwise the server's order (creation time). */
+const byPin = (list: GroupDto[]) =>
+  [...list].sort(
+    (a, b) =>
+      Number(b.pinned) - Number(a.pinned) || Number(needsMe(b.liveRuns)) - Number(needsMe(a.liveRuns)),
+  )
 
 /** Positions the selection capsule under the current conversation so it slides between rows. */
 function useSelectionCapsule(groups: GroupDto[]) {

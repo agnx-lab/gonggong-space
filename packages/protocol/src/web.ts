@@ -42,6 +42,7 @@ import {
   ToolsSettings,
 } from './daemon.js'
 import { I18nText } from './i18n.js'
+import { LiveRun } from './live-run.js'
 import { GroupSchedulesDto } from './schedules.js'
 import { RunSyncDone, SyncStatusDto } from './sync.js'
 
@@ -614,6 +615,8 @@ export const GroupDto = z.object({
   foldRuns: z.boolean(),
   /** Bot turns live here (running, or waiting on an approval or answer); non-empty tags the conversation. */
   liveRunIds: z.array(z.string()),
+  /** Bot turns not ended yet (queued included), as the caller sees them: what the conversation list shows. */
+  liveRuns: z.array(LiveRun),
   /** The Feishu chat the group is bound to; absent when unbound. */
   feishu: z.object({ chatId: z.string(), name: z.string() }).optional(),
   /** DMs only: where the Bot works, null until its workspace is set up. */

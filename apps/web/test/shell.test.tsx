@@ -1,4 +1,4 @@
-import type { BotDto, GroupDto, MachineDto, UserDto } from '@gonggong/protocol'
+import type { BotDto, GroupDto, LiveRun, MachineDto, UserDto } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,6 +41,7 @@ const group = (id: string, name: string, o: Partial<GroupDto> = {}): GroupDto =>
   muted: false,
   foldRuns: false,
   liveRunIds: [],
+  liveRuns: [],
   ...o,
 })
 
@@ -214,13 +215,59 @@ describe('sidebar', () => {
 })
 
 describe('sidebar live runs', () => {
+  const live = (id: string, status: LiveRun['status'], o: Partial<LiveRun> = {}): LiveRun => ({
+    id,
+    botId: 'b1',
+    status,
+    needsMe: false,
+    ...o,
+  })
+
   it('tags conversations where an agent is running with the animated mascot', async () => {
-    mockApi(routes([group('g1', '退款 v2 迁移', { liveRunIds: ['r1'] }), group('g2', '闲聊')]))
+    mockApi(routes([group('g1', '退款 v2 迁移', { liveRuns: [live('r1', 'running')] }), group('g2', '闲聊')]))
     renderAt('/g/g1')
-    const live = await screen.findByTestId('group-item-g1')
-    const tag = within(live).getByText('运行中')
-    expect(tag.closest('.pn-conv__live')?.querySelector('.ui-mascot[data-action="run"]')).toBeTruthy()
+    const row = await screen.findByTestId('group-item-g1')
+    const tag = within(row).getByText('运行中')
+    expect(tag.closest('.pn-conv__live')?.querySelector('.ui-mascot[data-action="carry"]')).toBeTruthy()
     expect(within(screen.getByTestId('group-item-g2')).queryByText('运行中')).toBeNull()
+  })
+
+  it('shows the most urgent state, stacks the bots with only the first moving, and lifts what waits on me', async () => {
+    const runs = [
+      live('r1', 'running'),
+      live('r2', 'queued'),
+      live('r3', 'awaiting_approval', { needsMe: true, title: 'rm -rf build' }),
+      live('r4', 'running'),
+    ]
+    mockApi(
+      routes([
+        group('g1', '闲聊', { mentioned: true, unread: 1 }),
+        group('g2', '退款 v2 迁移', { liveRuns: runs, mentioned: true }),
+        group('g3', '置顶群', { pinned: true }),
+        group('g4', '别人审批', { liveRuns: [live('r5', 'awaiting_approval')] }),
+      ]),
+    )
+    renderAt('/g/g1')
+    const row = await screen.findByTestId('group-item-g2')
+    const tag = within(row).getByTitle('待审批 · 3 个运行中')
+    expect(tag.textContent).toBe('待审批')
+    const figures = [...(tag.closest('.pn-conv__live')?.querySelectorAll('.ui-mascot') ?? [])]
+    expect(
+      figures.map((f) => [f.getAttribute('data-action'), f.classList.contains('ui-mascot--still')]),
+    ).toEqual([
+      ['raise', false],
+      ['carry', true],
+      ['carry', true],
+    ])
+    expect(within(row).getByText('+1')).toBeTruthy()
+    expect(within(row).getByText('[待审批]')).toBeTruthy()
+    expect(within(row).getByText(/：rm -rf build$/)).toBeTruthy()
+    expect(within(row).queryByText('[有人@我]')).toBeNull()
+    expect(within(screen.getByTestId('group-item-g4')).getByText('等待审批')).toBeTruthy()
+    const order = [...document.querySelectorAll('[data-testid^="group-item-"]')].map((e) =>
+      e.getAttribute('data-testid'),
+    )
+    expect(order).toEqual(['group-item-g3', 'group-item-g2', 'group-item-g1', 'group-item-g4'])
   })
 })
 

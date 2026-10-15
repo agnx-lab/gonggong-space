@@ -67,6 +67,9 @@
   line-height: 16px;
 }
 .pn-conv__name {
+  /* Keeps up to about half the line before the tags give way. */
+  flex: 0 0 auto;
+  max-width: 55%;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -74,6 +77,7 @@
   min-width: 0;
 }
 .pn-conv__time {
+  flex: none;
   margin-left: auto;
   padding-left: var(--space-6);
   font-size: var(--text-subheadline-size);
@@ -90,6 +94,14 @@
 .pn-conv__live {
   gap: 1px;
   padding-left: 2px;
+  /* Gives way before the name does; the figures stay, the words ellipsize. */
+  flex: 0 4 auto;
+  min-width: 30px;
+  overflow: hidden;
+}
+.pn-conv__live-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* The figure fills only the middle of its 120-unit box, so it overhangs the 16px capsule to stay legible. */
 .pn-conv__live .ui-mascot {
@@ -99,6 +111,28 @@
 }
 .pn-conv__live .ui-mascot[data-action] .ui-mascot__prop {
   display: none;
+}
+/* Several bots overlap, the most urgent (the moving one) in front. */
+.pn-conv__actors {
+  display: inline-flex;
+  flex: none;
+}
+.pn-conv__actors > .ui-mascot {
+  position: relative;
+}
+.pn-conv__actors > .ui-mascot + .ui-mascot {
+  margin-left: -14px;
+}
+.pn-conv__actors > :nth-child(1) {
+  z-index: 3;
+}
+.pn-conv__actors > :nth-child(2) {
+  z-index: 2;
+}
+.pn-conv__more {
+  flex: none;
+  margin-right: 2px;
+  font-variant-numeric: tabular-nums;
 }
 .pn-conv__preview {
   flex: 1;

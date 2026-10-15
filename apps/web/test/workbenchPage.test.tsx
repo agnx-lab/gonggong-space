@@ -45,6 +45,7 @@ const group = (id: string, name: string): GroupDto => ({
   muted: false,
   foldRuns: false,
   liveRunIds: [],
+  liveRuns: [],
 })
 
 class FakeSocket {

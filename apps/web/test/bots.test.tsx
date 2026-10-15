@@ -635,6 +635,7 @@ describe('bot detail', () => {
         unread: 0,
         lastSeq: 0,
         liveRunIds: [],
+        liveRuns: [],
       },
     ]
     useSession.setState({ user: wang, status: 'ready' })
@@ -908,6 +909,7 @@ describe('bot page profile', () => {
       unread: 0,
       lastSeq: 0,
       liveRunIds: [],
+      liveRuns: [],
     })
     renderAt('/', li)
     const nav = screen.getByRole('navigation', { name: '会话列表' })
@@ -948,6 +950,7 @@ describe('bot page profile', () => {
         unread: 0,
         lastSeq: 0,
         liveRunIds: [],
+        liveRuns: [],
       },
     ]
     renderAt('/bot/b1', wang)

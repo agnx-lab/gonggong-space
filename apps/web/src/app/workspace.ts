@@ -1,12 +1,14 @@
-import type {
-  BotDto,
-  GroupBotStateDto,
-  GroupDto,
-  MachineDto,
-  MessageDto,
-  NotificationDto,
-  RunDto,
-  WebEvent,
+import {
+  type BotDto,
+  type GroupBotStateDto,
+  type GroupDto,
+  LIVE_RUN_STATUSES,
+  liveRunOf,
+  type MachineDto,
+  type MessageDto,
+  type NotificationDto,
+  type RunDto,
+  type WebEvent,
 } from '@gonggong/protocol'
 import { create } from 'zustand'
 import { otherTeam, refreshTeamsSoon } from '../features/teams/store'
@@ -59,11 +61,24 @@ export const lastText = (g: Pick<GroupDto, 'last' | 'lastI18n'>) => (g.lastI18n 
 
 const LIVE: RunDto['status'][] = ['running', 'awaiting_approval', 'awaiting_answer']
 
-function withRun(g: GroupDto, run: RunDto): GroupDto {
+function withRun(g: GroupDto, run: RunDto, bots: BotDto[]): GroupDto {
   if (g.id !== run.groupId) return g
   const had = g.liveRunIds.includes(run.id)
-  if (LIVE.includes(run.status) === had) return g
-  return { ...g, liveRunIds: had ? g.liveRunIds.filter((id) => id !== run.id) : [...g.liveRunIds, run.id] }
+  const liveRunIds =
+    LIVE.includes(run.status) === had
+      ? g.liveRunIds
+      : had
+        ? g.liveRunIds.filter((id) => id !== run.id)
+        : [...g.liveRunIds, run.id]
+  const others = g.liveRuns.filter((r) => r.id !== run.id)
+  const me = useSession.getState().user?.id ?? ''
+  const owner = bots.find((b) => b.id === run.botId)?.ownerId ?? null
+  const liveRuns = LIVE_RUN_STATUSES.includes(run.status)
+    ? g.liveRuns.some((r) => r.id === run.id)
+      ? g.liveRuns.map((r) => (r.id === run.id ? liveRunOf(run, me, owner) : r))
+      : [...others, liveRunOf(run, me, owner)]
+    : others
+  return { ...g, liveRunIds, liveRuns }
 }
 
 export const useWorkspace = create<WorkspaceState>()((set, get) => ({
@@ -88,7 +103,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
           g.id === e.message.groupId ? withMessage(g, e.message, s.activeGroupId) : g,
         ),
       }))
-    } else if (e.t === 'run.updated') set((s) => ({ groups: s.groups.map((g) => withRun(g, e.run)) }))
+    } else if (e.t === 'run.updated') set((s) => ({ groups: s.groups.map((g) => withRun(g, e.run, s.bots)) }))
     else if (e.t === 'bot.updated') {
       if (!otherTeam(e.bot.teamId)) set((s) => ({ bots: upsert(s.bots, e.bot) }))
     } else if (e.t === 'bot.removed') set((s) => ({ bots: s.bots.filter((b) => b.id !== e.botId) }))

@@ -1,4 +1,10 @@
 export default {
+  待审批: 'Needs approval',
+  待回答: 'Needs answer',
+  '{n} 个运行中': '{n} running',
+  '{label} · {n} 个运行中': '{label} · {n} running',
+  '[待审批] ': '[Needs approval] ',
+  '[待回答] ': '[Needs answer] ',
   共工空间: 'Gonggong Space',
   消息: 'Messages',
   通知: 'Notifications',

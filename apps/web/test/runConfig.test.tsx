@@ -62,6 +62,7 @@ const group: GroupDto = {
   muted: false,
   foldRuns: false,
   liveRunIds: [],
+  liveRuns: [],
 }
 
 const bot: BotDto = {

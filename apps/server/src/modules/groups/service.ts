@@ -1,7 +1,15 @@
-import type { GroupDto, I18nText } from '@gonggong/protocol'
+import {
+  type GroupDto,
+  type I18nText,
+  LIVE_RUN_STATUSES,
+  liveRunOf,
+  type Question,
+  type RunStatus,
+} from '@gonggong/protocol'
 import { and, asc, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import {
+  approvals,
   bots,
   feishuChats,
   groupBots,
@@ -9,6 +17,7 @@ import {
   groupRepos,
   groups,
   messages,
+  questionSets,
   runs,
   teamMembers,
   teams,
@@ -168,15 +177,68 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
           .where(inArray(messages.id, lastIds))
       : [],
     ctx.db
-      .select({ groupId: runs.groupId, id: runs.id })
+      .select({
+        groupId: runs.groupId,
+        id: runs.id,
+        botId: runs.botId,
+        status: runs.status,
+        originUserId: runs.originUserId,
+        ownerId: bots.ownerId,
+      })
       .from(runs)
-      .where(and(inArray(runs.groupId, gids), inArray(runs.status, LIVE)))
+      .innerJoin(bots, eq(bots.id, runs.botId))
+      .where(and(inArray(runs.groupId, gids), inArray(runs.status, LIVE_RUN_STATUSES)))
       .orderBy(asc(runs.queuedAt)),
     ctx.db
       .select({ groupId: feishuChats.groupId, chatId: feishuChats.chatId, name: feishuChats.name })
       .from(feishuChats)
       .where(and(inArray(feishuChats.groupId, gids), isNull(feishuChats.unboundAt))),
   ])
+
+  // What the waiting runs wait on: their pending approvals and questions.
+  const waiting = live
+    .filter((r) => r.status === 'awaiting_approval' || r.status === 'awaiting_answer')
+    .map((r) => r.id)
+  const [pendingApprovals, pendingQuestions] = waiting.length
+    ? await Promise.all([
+        ctx.db
+          .select({
+            runId: approvals.runId,
+            status: approvals.status,
+            title: approvals.title,
+            detail: approvals.detail,
+          })
+          .from(approvals)
+          .where(and(inArray(approvals.runId, waiting), eq(approvals.status, 'pending')))
+          .orderBy(asc(approvals.createdAt)),
+        ctx.db
+          .select({
+            runId: questionSets.runId,
+            status: questionSets.status,
+            questions: questionSets.questions,
+          })
+          .from(questionSets)
+          .where(and(inArray(questionSets.runId, waiting), eq(questionSets.status, 'pending')))
+          .orderBy(asc(questionSets.createdAt)),
+      ])
+    : [[], []]
+  const liveRuns = (groupId: string, userId: string) =>
+    live
+      .filter((r) => r.groupId === groupId)
+      .map((r) =>
+        liveRunOf(
+          {
+            ...r,
+            status: r.status as RunStatus,
+            approvals: pendingApprovals.filter((a) => a.runId === r.id),
+            questions: pendingQuestions
+              .filter((q) => q.runId === r.id)
+              .map((q) => ({ status: q.status, questions: q.questions as Question[] })),
+          },
+          userId,
+          r.ownerId,
+        ),
+      )
 
   return rows.map(({ group: g, title, me, lastSeq, unread, mentioned }) => {
     const repo = repos.find((r) => r.groupId === g.id)
@@ -218,7 +280,8 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
       flagged: me.flagged,
       muted: me.muted,
       foldRuns: me.foldRuns,
-      liveRunIds: live.filter((r) => r.groupId === g.id).map((r) => r.id),
+      liveRunIds: live.filter((r) => r.groupId === g.id && LIVE.includes(r.status)).map((r) => r.id),
+      liveRuns: liveRuns(g.id, me.userId),
       ...(chat && { feishu: { chatId: chat.chatId, name: chat.name } }),
       ...(g.kind === 'dm' && { workspacePath: gbots[0]?.workspacePath ?? null }),
     }

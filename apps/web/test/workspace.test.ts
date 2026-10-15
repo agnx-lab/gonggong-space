@@ -24,6 +24,7 @@ const g: GroupDto = {
   muted: false,
   foldRuns: false,
   liveRunIds: [],
+  liveRuns: [],
 }
 
 const msg = (o: Partial<MessageDto>): MessageDto => ({
@@ -109,24 +110,71 @@ it('ignores a replayed message and drops removed groups', () => {
 })
 
 it('keeps each group live runs in step with run updates', () => {
+  useSession.setState({ user: { id: 'me' } as never })
   useWorkspace.setState({
+    bots: [
+      { id: 'mine', ownerId: 'me' },
+      { id: 'theirs', ownerId: 'u2' },
+    ] as never,
     groups: [
-      { ...g, liveRunIds: ['r0'] },
+      {
+        ...g,
+        liveRunIds: ['r0'],
+        liveRuns: [{ id: 'r0', botId: 'mine', status: 'running', needsMe: false }],
+      },
       { ...g, id: 'g2' },
     ],
   })
   const { applyEvent } = useWorkspace.getState()
-  const run = (id: string, status: RunDto['status']) => ({ id, groupId: 'g1', status }) as RunDto
+  const run = (id: string, status: RunDto['status'], o: Partial<RunDto> = {}) =>
+    ({
+      id,
+      groupId: 'g1',
+      botId: 'mine',
+      status,
+      originUserId: 'u2',
+      approvals: [],
+      questions: [],
+      ...o,
+    }) as RunDto
   const live = () => useWorkspace.getState().groups.map((x) => x.liveRunIds)
+  const runs = () =>
+    useWorkspace.getState().groups.map((x) => x.liveRuns.map((r) => [r.id, r.status, r.needsMe]))
 
   applyEvent({ t: 'run.updated', run: run('r1', 'queued') })
   expect(live()).toEqual([['r0'], []])
+  expect(runs()).toEqual([
+    [
+      ['r0', 'running', false],
+      ['r1', 'queued', false],
+    ],
+    [],
+  ])
   applyEvent({ t: 'run.updated', run: run('r1', 'running') })
-  applyEvent({ t: 'run.updated', run: run('r1', 'awaiting_approval') })
+  const pending = {
+    status: 'pending',
+    title: '执行命令',
+    detail: 'rm -rf build',
+  } as RunDto['approvals'][number]
+  applyEvent({ t: 'run.updated', run: run('r1', 'awaiting_approval', { approvals: [pending] }) })
   expect(live()).toEqual([['r0', 'r1'], []])
+  expect(useWorkspace.getState().groups[0]!.liveRuns[1]).toEqual({
+    id: 'r1',
+    botId: 'mine',
+    status: 'awaiting_approval',
+    needsMe: true,
+    title: 'rm -rf build',
+  })
+  applyEvent({
+    t: 'run.updated',
+    run: run('r2', 'awaiting_approval', { botId: 'theirs', approvals: [pending] }),
+  })
+  expect(useWorkspace.getState().groups[0]!.liveRuns[2]?.needsMe).toBe(false)
   applyEvent({ t: 'run.updated', run: run('r0', 'completed') })
   applyEvent({ t: 'run.updated', run: run('r1', 'interrupted') })
+  applyEvent({ t: 'run.updated', run: run('r2', 'completed', { botId: 'theirs' }) })
   expect(live()).toEqual([[], []])
+  expect(runs()).toEqual([[], []])
 })
 
 it("keeps another team's groups, bots and notifications out of the open team", () => {

@@ -2,9 +2,9 @@ import { type CSSProperties, type ReactNode, useRef, useState } from 'react'
 import { t } from '../../i18n'
 import { cx } from '../../lib/cx'
 import { dateLocale, pad } from '../../lib/time'
-import { Avatar, type AvatarProps, Badge, Tag } from '../display'
+import { Avatar, type AvatarProps, Badge, Tag, type TagTone } from '../display'
 import { Icon } from '../icon'
-import { Mascot } from '../mascot'
+import { Mascot, type MascotAction, type MascotCostume } from '../mascot'
 import { keyNav } from './keynav'
 import type { TagSpec } from './types'
 import './conversation.css'
@@ -28,10 +28,23 @@ export interface Conversation {
   mention?: boolean
   urgent?: boolean
   draft?: string
-  /** An agent is at work here: 共字君 runs in a tag beside the name. */
-  live?: boolean
+  /** Agents at work here: a tag beside the name with their figures, most urgent first; only that one moves. */
+  activity?: ConversationActivity
+  /** Something waits on the viewer: it leads the preview, e.g.「[待审批] codex：rm -rf build」. */
+  alert?: { flag: string; text: string }
   /** 标记: a flag beside the name. */
   flagged?: boolean
+}
+
+export interface ConversationActivity {
+  tone: TagTone
+  label: string
+  /** The full state, e.g.「待审批 · 2 个运行中」; defaults to `label`. */
+  title?: string
+  /** A bot's costume, or 共字君 itself without one. */
+  actors: { key: string; action: MascotAction; costume?: MascotCostume }[]
+  /** Runs beyond the figures shown. */
+  more?: number
 }
 
 const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
@@ -48,7 +61,15 @@ export function listTime(iso: string, now = new Date()) {
 }
 
 const flagOf = (it: Conversation) =>
-  it.urgent ? t('[加急] ') : it.mention ? t('[有人@我] ') : it.draft ? t('[草稿] ') : null
+  it.urgent
+    ? t('[加急] ')
+    : it.alert
+      ? it.alert.flag
+      : it.mention
+        ? t('[有人@我] ')
+        : it.draft
+          ? t('[草稿] ')
+          : null
 
 /** Avatar and the two text lines of a row; ConversationItem wraps it in a button, routed lists in a link with class `pn-conv`. */
 export function ConversationContent({ item: it }: { item: Conversation }) {
@@ -75,12 +96,7 @@ export function ConversationContent({ item: it }: { item: Conversation }) {
               {t.label}
             </Tag>
           ))}
-          {it.live && (
-            <Tag tone="blue" className="pn-conv__live">
-              <Mascot action="run" size={22} />
-              {t('运行中')}
-            </Tag>
-          )}
+          {it.activity && <ActivityTag activity={it.activity} />}
           <span className="pn-conv__time">
             {it.pinned && <Icon name="pin" label={t('已置顶')} />}
             {it.time}
@@ -89,7 +105,7 @@ export function ConversationContent({ item: it }: { item: Conversation }) {
         <span className="pn-conv__line">
           <span className="pn-conv__preview">
             {flag && <span className="pn-conv__flag">{flag}</span>}
-            {it.draft || it.preview}
+            {it.alert ? it.alert.text : it.draft || it.preview}
           </span>
           {it.muted && <Icon name="bell-slash" className="pn-conv__muted" label={t('免打扰')} />}
           {it.unread ? (
@@ -102,6 +118,22 @@ export function ConversationContent({ item: it }: { item: Conversation }) {
         </span>
       </span>
     </>
+  )
+}
+
+function ActivityTag({ activity: a }: { activity: ConversationActivity }) {
+  return (
+    <Tag tone={a.tone} className="pn-conv__live">
+      <span className="pn-conv__actors">
+        {a.actors.map((x, i) => (
+          <Mascot key={x.key} action={x.action} costume={x.costume} size={22} still={i > 0} />
+        ))}
+      </span>
+      {a.more ? <span className="pn-conv__more">+{a.more}</span> : null}
+      <span className="pn-conv__live-label" title={a.title ?? a.label}>
+        {a.label}
+      </span>
+    </Tag>
   )
 }
 

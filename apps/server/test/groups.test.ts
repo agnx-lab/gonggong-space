@@ -1,7 +1,16 @@
 import type { GroupDto, TimelineDto } from '@gonggong/protocol'
 import { and, asc, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { auditLogs, groupBots, groupRepos, groups, messages, runs } from '../src/db/schema.js'
+import {
+  approvals,
+  auditLogs,
+  groupBots,
+  groupRepos,
+  groups,
+  messages,
+  questionSets,
+  runs,
+} from '../src/db/schema.js'
 import { publishGroup } from '../src/modules/groups/service.js'
 import { createTestApp, type TestApp } from './support/app.js'
 import { client, events } from './support/http.js'
@@ -189,7 +198,12 @@ describe('reading groups', () => {
   it('flags groups where a bot is running, waiting for approval or for an answer', async () => {
     const p = await people()
     const seedRun = async (name: string, status: string) => {
-      const g = await t.seed.group({ createdBy: p.wang.id, name, botIds: [p.wangBot.id] })
+      const g = await t.seed.group({
+        createdBy: p.wang.id,
+        name,
+        memberIds: [p.li.id],
+        botIds: [p.wangBot.id],
+      })
       const [m] = await t.db
         .insert(messages)
         .values({ groupId: g.id, kind: 'user', authorUserId: p.wang.id, body: '@Bot 干活' })
@@ -223,6 +237,43 @@ describe('reading groups', () => {
       完: [],
       空: [],
     })
+
+    const expiresAt = new Date(Date.now() + 600_000)
+    await t.db.insert(approvals).values({
+      runId: approval,
+      requestId: 'r1',
+      title: '执行命令',
+      toolKind: 'execute',
+      detail: 'rm -rf build',
+      options: [],
+      expiresAt,
+    })
+    await t.db.insert(questionSets).values({
+      runId: answer,
+      requestId: 'q1',
+      questions: [{ id: 'a', type: 'text', title: '用哪个库？', options: [], recommended: null }],
+      expiresAt,
+    })
+    const views = async (c: ReturnType<typeof client>) =>
+      Object.fromEntries((await c.get<GroupDto[]>('/api/groups')).body.map((g) => [g.name, g.liveRuns]))
+    const wang = await views(p.asWang)
+    expect(wang.批).toEqual([
+      {
+        id: approval,
+        botId: p.wangBot.id,
+        status: 'awaiting_approval',
+        needsMe: true,
+        title: 'rm -rf build',
+      },
+    ])
+    expect(wang.问).toEqual([
+      { id: answer, botId: p.wangBot.id, status: 'awaiting_answer', needsMe: true, title: '用哪个库？' },
+    ])
+    expect(wang.排).toEqual([expect.objectContaining({ status: 'queued', needsMe: false })])
+    expect([wang.跑?.length, wang.完, wang.空]).toEqual([1, [], []])
+    // Only the bot owner decides; the question is the trigger user's (also wang's) to answer.
+    const li = await views(p.asLi)
+    expect([li.批?.[0]?.needsMe, li.问?.[0]?.needsMe]).toEqual([false, false])
   })
 
   it('never moves the read cursor backwards', async () => {

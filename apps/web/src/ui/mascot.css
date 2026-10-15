@@ -674,8 +674,12 @@
   }
 }
 
+/* Outranks every action rule, compact ones (0,4,0) included, so the static poses stay but nothing moves. */
+.ui-mascot.ui-mascot--still[data-action][data-action] :is(g, path, rect, ellipse, circle, line, text) {
+  animation: none;
+  transition: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  /* Outranks every action rule, compact ones (0,4,0) included, so the static poses stay but nothing moves. */
   .ui-mascot.ui-mascot[data-action][data-action] :is(g, path, rect, ellipse, circle, line, text) {
     animation: none;
     transition: none;

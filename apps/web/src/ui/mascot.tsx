@@ -281,8 +281,8 @@ function Props({ jade }: { jade: string }) {
 /** A bot's character playing the mascot: one self-contained animated scene per action. */
 export interface MascotCostume {
   role: string
-  /** `words` is false when too small to read the props' captions. */
-  scene: (action: MascotAction, words: boolean) => string
+  /** `words` is false when too small to read the props' captions; a `still` scene holds its pose. */
+  scene: (action: MascotAction, words: boolean, still?: boolean) => string
 }
 
 /**
@@ -295,6 +295,7 @@ export function Mascot({
   size = 120,
   crop,
   costume,
+  still,
   label,
   className,
 }: {
@@ -302,6 +303,8 @@ export function Mascot({
   size?: number
   crop?: 'head'
   costume?: MascotCostume
+  /** Holds the action's pose without moving (beside a figure that does). */
+  still?: boolean
   label?: string
   className?: string
 }) {
@@ -310,7 +313,7 @@ export function Mascot({
     return (
       <img
         className={cx('ui-mascot', 'ui-mascot--role', className)}
-        src={costume.scene(action, size >= 64)}
+        src={costume.scene(action, size >= 64, still)}
         width={size}
         height={size}
         data-action={action}
@@ -327,7 +330,13 @@ export function Mascot({
   const compact = size < 48
   return (
     <svg
-      className={cx('ui-mascot', !full && 'ui-mascot--head', compact && 'ui-mascot--compact', className)}
+      className={cx(
+        'ui-mascot',
+        !full && 'ui-mascot--head',
+        compact && 'ui-mascot--compact',
+        still && 'ui-mascot--still',
+        className,
+      )}
       data-action={action}
       width={size}
       height={size}

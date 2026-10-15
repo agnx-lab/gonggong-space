@@ -95,7 +95,7 @@ export function roleCostume(key: PersonaRole): MascotCostume {
   if (!c) {
     const role = key.slice('role-'.length)
     const ip = PERSONAS.find((p) => p.key === role) as (typeof PERSONAS)[number]
-    c = { role, scene: (action, words) => personaScene(ip, action, words) }
+    c = { role, scene: (action, words, still) => personaScene(ip, action, words, still) }
     costumes.set(key, c)
   }
   return c

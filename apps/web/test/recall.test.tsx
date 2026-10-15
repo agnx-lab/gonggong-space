@@ -43,6 +43,7 @@ const group: GroupDto = {
   muted: false,
   foldRuns: false,
   liveRunIds: [],
+  liveRuns: [],
 }
 
 const HOUR = 3600_000

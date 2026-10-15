@@ -52,6 +52,7 @@ const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   muted: false,
   foldRuns: false,
   liveRunIds: [],
+  liveRuns: [],
   ...o,
 })
 
