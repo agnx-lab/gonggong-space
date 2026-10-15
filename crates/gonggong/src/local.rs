@@ -420,7 +420,7 @@ struct Segment {
 
 /// Splits a shell line into its simple commands at `&&`, `||`, `;`, `|` and newlines, dropping redirections to a file
 /// descriptor or /dev/null. A `$(…)` stays one word of its command and adds its own commands as nested. `None` if the
-/// shell could run or write anything else: backticks, `$((…))`, subshells, process substitution, other redirections,
+/// shell could run or write anything else: backticks, `$((…))` other than plain numbers and operators, subshells, process substitution, other redirections,
 /// heredocs, background jobs, unterminated quotes.
 fn segments(line: &str) -> Option<Vec<Segment>> {
     let (mut all, mut nested, mut words, mut word) = (Vec::new(), Vec::new(), Vec::<String>::new(), String::new());
@@ -451,8 +451,9 @@ fn segments(line: &str) -> Option<Vec<Segment>> {
             }
             '`' => return None,
             '$' if chars.next_if_eq(&'(').is_some() => {
-                if chars.peek() == Some(&'(') {
-                    return None;
+                if chars.next_if_eq(&'(').is_some() {
+                    word.push_str(&format!("$(({}))", arithmetic(&mut chars)?));
+                    continue;
                 }
                 let inner = substitution(&mut chars)?;
                 nested.extend(segments(&inner)?.into_iter().map(|s| Segment { nested: true, ..s }));
@@ -533,6 +534,23 @@ fn substitution(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<Stri
             ')' if depth == 0 => return Some(inner),
             ')' => depth -= 1,
             _ => {}
+        }
+        inner.push(c);
+    }
+    None
+}
+
+/// The text of a `$((…))` whose `$((` was just read, up to its closing `))`, if it holds only numbers and operators.
+/// Names are refused too: the shell evaluates a variable's value as an expression, and `a[$(id)]` there runs `id`.
+fn arithmetic(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<String> {
+    let (mut inner, mut depth) = (String::new(), 0usize);
+    while let Some(c) = chars.next() {
+        match c {
+            ')' if depth == 0 => return chars.next_if_eq(&')').map(|_| inner),
+            ')' => depth -= 1,
+            '(' => depth += 1,
+            _ if c.is_ascii_digit() || " \t+-*/%<>=!&|^~?:,".contains(c) => {}
+            _ => return None,
         }
         inner.push(c);
     }
@@ -704,7 +722,16 @@ mod tests {
             (Tier::Workspace, Approval::Ask, Some("path=/tmp; ls"), Ask),
             (Tier::Workspace, Approval::Ask, Some("x=--output=/tmp/y; git diff $x"), Ask),
             (Tier::Workspace, Approval::Ask, Some("git diff $(cat a)"), Ask),
-            (Tier::Workspace, Approval::Ask, Some("ls $((1 + 2))"), Ask),
+            // `$((…))` of numbers and operators expands to a number; names or substitutions in it are not trusted.
+            (Tier::Workspace, Approval::Ask, Some("echo $((1+2))"), Local),
+            (Tier::Workspace, Approval::Ask, Some("echo \"$(( (7 - 2) * 3 % 4 ))\" && ls"), Local),
+            (Tier::Workspace, Approval::Allowlist, Some("go build -p $((2*2))"), Local),
+            (Tier::Workspace, Approval::Ask, Some("echo $(( $(curl x) ))"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("x='a[$(id)]'; echo $((x))"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("echo $((`id`))"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("echo $((1+2)"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("echo $((1) )"), Ask),
+            (Tier::Workspace, Approval::Ask, Some("git log -n $((1+2))"), Ask),
             (Tier::Workspace, Approval::Ask, Some("ls $( (cat a) )"), Ask),
             (Tier::Workspace, Approval::Ask, Some("ls <(cat a)"), Ask),
             (Tier::Workspace, Approval::Ask, Some("ls `cat a`"), Ask),
