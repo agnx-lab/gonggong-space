@@ -23,12 +23,21 @@ export default {
   完成: 'Done',
   取消: 'Cancel',
   '等待客户端确认绑定…': 'Waiting for the client to confirm…',
-  '绑定后该机器归属于你，客户端会上报机器名、系统、CPU、内存与本机可用的 Claude Code / Codex；同一台机器重新绑定会恢复原记录。还没安装共工空间客户端？':
-    'Once bound, the machine is yours. The client reports its name, OS, CPU, memory and available Claude Code / Codex; rebinding the same machine restores its record. No Gonggong Space client yet?',
+  '绑定后该机器归属于你，客户端会上报机器名、系统、CPU、内存与本机可用的 Claude Code / Codex；同一台机器重新绑定会恢复原记录。':
+    'Once bound, the machine is yours. The client reports its name, OS, CPU, memory and available Claude Code / Codex; rebinding the same machine restores its record.',
+  '还没安装客户端？': 'No client installed yet?',
   'macOS（Apple 芯片）': 'macOS (Apple silicon)',
   'macOS（Intel）': 'macOS (Intel)',
-  'Linux {arch}（命令行）': 'Linux {arch} (CLI)',
+  'Linux x86_64（命令行）': 'Linux x86_64 (CLI)',
+  'Linux aarch64（命令行）': 'Linux aarch64 (CLI)',
   '前往 GitHub 下载': 'Download from GitHub',
+  下载共工空间客户端: 'Download the Gonggong Space client',
+  '本空间尚未发布客户端，可从 GitHub 获取最新版本':
+    'This space has not published a client yet; get the latest from GitHub',
+  '命令行客户端 · v{version}': 'Command-line client · v{version}',
+  '桌面客户端 · v{version}': 'Desktop app · v{version}',
+  '下载 {name}': 'Download {name}',
+  选择系统: 'Choose a system',
   已恢复原有机器: 'Existing machine restored',
   绑定成功: 'Bound',
   '{name} 之前绑定过，已沿用原机器记录与其上的 Bot（{os} · {arch}）':

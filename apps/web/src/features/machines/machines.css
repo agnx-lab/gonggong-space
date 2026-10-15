@@ -67,23 +67,6 @@
   flex: none;
   border-radius: var(--radius-capsule);
 }
-.bind__link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent-text);
-  font: inherit;
-}
-.bind__link:hover {
-  text-decoration: underline;
-}
-.bind__downloads {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-left: 4px;
-}
-
 /* 机器详情 */
 .machine__rename {
   display: flex;
@@ -475,4 +458,105 @@
   .machine-page__body {
     padding: var(--space-16);
   }
+}
+
+/* 绑定新机器 · 下载客户端 */
+.bind__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.bind__heading {
+  margin: 0;
+  font-size: var(--text-subheadline-size);
+  font-weight: 600;
+  color: var(--label-secondary);
+}
+.client-dl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+.client-dl__card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-12);
+  border-radius: var(--radius-menu);
+  background: var(--content-bg);
+  box-shadow: inset 0 0 0 1px var(--separator);
+}
+.client-dl__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: var(--radius-field);
+  background: var(--tint-blue);
+  color: var(--tint-blue-text);
+}
+.client-dl__text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.client-dl__title {
+  font-weight: 600;
+}
+.client-dl__sub {
+  font-size: var(--text-subheadline-size);
+  color: var(--label-secondary);
+}
+.ui-btn.client-dl__btn {
+  flex: none;
+  text-decoration: none;
+}
+.client-dl__options {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+.client-dl__option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 3px 10px;
+  border-radius: var(--radius-capsule);
+  box-shadow: inset 0 0 0 1px var(--separator);
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+  cursor: pointer;
+}
+.client-dl__option:hover {
+  color: var(--label);
+}
+.client-dl__radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.client-dl__option:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.client-dl__option:has(:checked) {
+  background: var(--tint-blue);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--tint-blue-text);
+}
+.client-dl__badge {
+  padding: 0 5px;
+  border-radius: var(--radius-capsule);
+  background: var(--accent-fill);
+  color: #fff;
+  font-size: 10px;
+  line-height: 15px;
 }

@@ -1,5 +1,5 @@
 import type { MachineDto } from '@gonggong/protocol'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BindMachineDialog } from '../src/features/machines/BindMachineDialog'
 import { realtime } from '../src/lib/realtime'
@@ -90,8 +90,17 @@ describe('bind machine dialog', () => {
     expect(screen.getByRole('button', { name: '取消' })).toBeTruthy()
   })
 
-  it('links the installers published on this server, or GitHub before any is published', async () => {
-    const sha256 = 'a'.repeat(64)
+  const sha256 = 'a'.repeat(64)
+  const published = {
+    version: '0.3.2',
+    builds: { 'linux-x86_64': { url: '/downloads/gonggong-0.3.2-linux-x86_64', sha256 } },
+    desktop: {
+      'macos-aarch64': { url: '/downloads/Gonggong_0.3.2_aarch64.dmg', sha256 },
+      'macos-x86_64': { url: '/downloads/Gonggong_0.3.2_x86_64.dmg', sha256 },
+      'windows-x86_64': { url: '/downloads/Gonggong_0.3.2_x64-setup.exe', sha256 },
+    },
+  }
+  const withDownloads = (downloads: unknown) =>
     mockApi({
       'POST /bind-codes': {
         code: 'K7QM-4X2P',
@@ -99,28 +108,53 @@ describe('bind machine dialog', () => {
         link: '',
       },
       'GET /machines': [],
-      'GET /client-downloads': {
-        version: '0.3.0',
-        builds: { 'linux-x86_64': { url: '/downloads/gonggong-0.3.0-linux-x86_64', sha256 } },
-        desktop: {
-          'macos-aarch64': { url: '/downloads/Gonggong_0.3.0_aarch64.dmg', sha256 },
-          'windows-x86_64': { url: '/downloads/Gonggong_0.3.0_x64-setup.exe', sha256 },
-        },
-      },
+      'GET /client-downloads': downloads,
     })
-    const { unmount } = render(<BindMachineDialog open onClose={() => {}} />)
-    expect((await screen.findByRole('link', { name: 'macOS（Apple 芯片）' })).getAttribute('href')).toBe(
-      '/downloads/Gonggong_0.3.0_aarch64.dmg',
-    )
-    expect(screen.getByRole('link', { name: 'Windows' }).getAttribute('href')).toBe(
-      '/downloads/Gonggong_0.3.0_x64-setup.exe',
-    )
-    expect(screen.getByRole('link', { name: 'Linux x86_64（命令行）' }).getAttribute('href')).toBe(
-      '/downloads/gonggong-0.3.0-linux-x86_64',
-    )
-    unmount()
+  const browser = (userAgent: string, architecture?: string) =>
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      userAgent,
+      userAgentData: architecture ? { getHighEntropyValues: async () => ({ architecture }) } : undefined,
+    })
+  const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/141.0 Safari/537.36'
+  const WIN = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0 Safari/537.36'
 
-    api()
+  it('recommends the installer for the browser system and lets the user pick another one', async () => {
+    browser(MAC, 'arm')
+    withDownloads(published)
+    render(<BindMachineDialog open onClose={() => {}} />)
+    const download = await screen.findByRole('link', { name: '下载 macOS（Apple 芯片）' })
+    expect(download.getAttribute('href')).toBe('/downloads/Gonggong_0.3.2_aarch64.dmg')
+    expect(screen.getByText('桌面客户端 · v0.3.2')).toBeTruthy()
+    const options = screen.getByRole('group', { name: '选择系统' })
+    const recommended = within(options).getByRole('radio', { name: /macOS（Apple 芯片）/ })
+    expect((recommended as HTMLInputElement).checked).toBe(true)
+    expect(within(recommended.closest('label') as HTMLElement).getByText('推荐')).toBeTruthy()
+
+    fireEvent.click(within(options).getByRole('radio', { name: /Linux x86_64（命令行）/ }))
+    expect(screen.getByRole('link', { name: '下载 Linux x86_64（命令行）' }).getAttribute('href')).toBe(
+      '/downloads/gonggong-0.3.2-linux-x86_64',
+    )
+    expect(screen.getByText('命令行客户端 · v0.3.2')).toBeTruthy()
+  })
+
+  it('tells Intel Macs and Windows apart', async () => {
+    browser(MAC, 'x86')
+    withDownloads(published)
+    const { unmount } = render(<BindMachineDialog open onClose={() => {}} />)
+    expect(await screen.findByRole('link', { name: '下载 macOS（Intel）' })).toBeTruthy()
+    unmount()
+    browser(WIN)
+    withDownloads(published)
+    render(<BindMachineDialog open onClose={() => {}} />)
+    expect((await screen.findByRole('link', { name: '下载 Windows' })).getAttribute('href')).toBe(
+      '/downloads/Gonggong_0.3.2_x64-setup.exe',
+    )
+  })
+
+  it('points to GitHub before any client is published', async () => {
+    browser(WIN)
+    withDownloads(null)
     render(<BindMachineDialog open onClose={() => {}} />)
     expect((await screen.findByRole('link', { name: '前往 GitHub 下载' })).getAttribute('href')).toBe(
       'https://github.com/yoqu/gonggong-space/releases/latest',
