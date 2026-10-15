@@ -79,7 +79,7 @@ const cells = (text: string) =>
   within(rowOf(text))
     .getAllByRole('gridcell')
     .map((c) => c.textContent)
-    .slice(0, 6)
+    .slice(0, 7)
 
 describe('管理后台 · 客户端发布', () => {
   it('shows every platform with its daemon and gg-cast builds and the machines that need them', async () => {
@@ -100,6 +100,7 @@ describe('管理后台 · 客户端发布', () => {
       `已发布 ${'a'.repeat(12)}`,
       '未发布',
       '未发布',
+      '未发布',
       '2',
     ])
     expect(cells('windows-x86_64')).toEqual([
@@ -108,9 +109,37 @@ describe('管理后台 · 客户端发布', () => {
       '未发布',
       '未发布',
       '未发布',
+      '未发布',
       '1',
     ])
-    expect(cells('linux-aarch64')[5]).toBe('0')
+    expect(cells('linux-aarch64')[6]).toBe('0')
+  })
+
+  it('shows whether each platform has a signed desktop update', async () => {
+    const build = (file: string) => ({ url: `/downloads/${file}`, sha256: sha('c') })
+    mockApi({
+      'GET /admin/daemon-release': {
+        ...release,
+        desktop: { 'windows-x86_64': build('Gonggong_0.2.0_x64-setup.exe') },
+        update: {
+          'macos-aarch64': build('Gonggong_0.2.0_aarch64.app.tar.gz'),
+          'macos-x86_64': build('Gonggong_0.2.0_x86_64.app.tar.gz'),
+        },
+        signature: {
+          'macos-aarch64': build('Gonggong_0.2.0_aarch64.app.tar.gz.sig'),
+          'windows-x86_64': build('Gonggong_0.2.0_x64-setup.exe.sig'),
+        },
+      },
+      'GET /admin/machines': [],
+    })
+    renderPage()
+    await screen.findByRole('gridcell', { name: 'macos-aarch64' })
+    expect(cells('macos-aarch64')[5]).toBe('已发布')
+    expect(cells('windows-x86_64')[5]).toBe('已发布')
+    expect(cells('macos-x86_64')[5]).toBe('缺少签名')
+    fireEvent.click(within(rowOf('macos-aarch64')).getByRole('button', { name: '操作' }))
+    expect(screen.getByRole('menuitem', { name: '移除 桌面端更新包…' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '移除 桌面端更新签名…' })).toBeTruthy()
   })
 
   it('uploads dropped release artifacts one by one and rejects other files without sending them', async () => {

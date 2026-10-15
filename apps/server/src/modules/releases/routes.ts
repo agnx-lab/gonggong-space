@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { access, mkdir, rename, unlink } from 'node:fs/promises'
+import { access, mkdir, readFile, rename, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import multipart from '@fastify/multipart'
@@ -61,8 +61,8 @@ async function saveRelease(ctx: Ctx, release: DaemonRelease) {
 
 /** Deletes a build this server hosts; external (CDN) urls are left alone. */
 async function removeHosted(url: string) {
-  const file = url.startsWith('/downloads/') ? url.slice('/downloads/'.length) : ''
-  if (FILE.test(file)) await unlink(join(downloads(), file)).catch(() => {})
+  const path = hostedPath(url)
+  if (path) await unlink(path).catch(() => {})
 }
 
 /** Stores one uploaded artifact (multipart) and records it in the release; audited as `actorId`'s. */
@@ -118,9 +118,15 @@ async function storeReleaseFile(ctx: Ctx, actorId: string, req: FastifyRequest) 
 }
 
 const hostedUrls = (r: DaemonRelease) =>
-  [...Object.values(r.builds), ...Object.values(r.cast ?? {}), ...Object.values(r.desktop ?? {})].map(
-    (b) => b.url,
+  [r.builds, r.cast, r.desktop, r.update, r.signature].flatMap((kind) =>
+    Object.values(kind ?? {}).map((b) => b.url),
   )
+
+/** The hosted file behind a `/downloads/<file>` url, or null for an external one. */
+function hostedPath(url: string) {
+  const file = url.startsWith('/downloads/') ? url.slice('/downloads/'.length) : ''
+  return FILE.test(file) ? join(downloads(), file) : null
+}
 
 export function releaseRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
@@ -136,6 +142,25 @@ export function releaseRoutes(ctx: Ctx) {
       const release = await daemonRelease(ctx)
       return release ? ClientDownloads.parse(release) : null
     })
+
+    // Tauri updater endpoint of the desktop app, checked before GitHub: 404 while this server hosts no signed update
+    // for the platform (the app then asks GitHub), 204 when the app is up to date. Public like /downloads.
+    app.get<{ Params: { target: string; arch: string; current: string } }>(
+      '/api/desktop-update/:target/:arch/:current',
+      async (req, reply) => {
+        const { target, arch, current } = req.params
+        const platform = `${target === 'darwin' ? 'macos' : target}-${arch}`
+        const release = await daemonRelease(ctx)
+        const pkg = (platform.startsWith('windows') ? release?.desktop : release?.update)?.[platform]
+        const sig = hostedPath(release?.signature?.[platform]?.url ?? '')
+        const signature = sig && (await readFile(sig, 'utf8').catch(() => null))
+        if (!release || !pkg || !signature) return fail('not_found', '没有可用的桌面端更新')
+        if (compareVersions(release.version, current) <= 0) return reply.code(204).send()
+        const proto = String(req.headers['x-forwarded-proto'] ?? req.protocol).split(',')[0]
+        const url = pkg.url.startsWith('/') ? `${proto}://${req.host}${pkg.url}` : pkg.url
+        return { version: release.version, url, signature: signature.trim() }
+      },
+    )
 
     app.put('/api/admin/daemon-release', async (req) => {
       const actor = await requireSysadmin(ctx, req)

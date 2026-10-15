@@ -80,8 +80,8 @@ export default {
   '平台默认值；团队管理员可在团队设置中覆盖部分参数，群管理员再在群设置中调整群级参数。':
     'Platform defaults; team admins override some of them in team settings, and group admins adjust group-level params in group settings.',
   客户端发布: 'Client releases',
-  '成员机器上的 daemon 连上后自动升级到这里的版本；gg-cast 在首次推送实时画面时按需下载；桌面端安装包与 Linux daemon 供成员在「绑定新机器」中下载。':
-    "Daemons on members' machines upgrade to this version when they connect; gg-cast downloads on demand the first time a live view is streamed; members download the desktop installers and the Linux daemon from Bind new machine.",
+  '成员机器上的 daemon 连上后自动升级到这里的版本；gg-cast 在首次推送实时画面时按需下载；桌面端安装包与 Linux daemon 供成员在「绑定新机器」中下载；桌面端优先从这里检查更新，未发布签名更新包的平台改查 GitHub。':
+    "Daemons on members' machines upgrade to this version when they connect; gg-cast downloads on demand the first time a live view is streamed; members download the desktop installers and the Linux daemon from Bind new machine; desktop apps check for updates here first, and on GitHub for platforms without a signed update package.",
   观测: 'Observability',
   用量: 'Usage',
   '公开链接#nav': 'Public links',
@@ -115,14 +115,21 @@ export default {
   '当前版本 {version}': 'Current version {version}',
   尚未发布: 'Not released yet',
   拖入发布产物: 'Drop release artifacts',
-  '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*.dmg / Gonggong_*-setup.exe 拖到这里。文件名决定平台与版本；更高的版本会替换整个发布。':
-    'After running scripts/release.sh, drop the gonggong-*, gg-cast-* and Gonggong_*.dmg / Gonggong_*-setup.exe files from dist/<version>/ here. File names determine platform and version; a higher version replaces the whole release.',
+  '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*（安装包、更新包与 .sig 签名）拖到这里。文件名决定平台与版本；更高的版本会替换整个发布。':
+    'After running scripts/release.sh, drop the gonggong-*, gg-cast-* and Gonggong_* files (installers, update packages and .sig signatures) from dist/<version>/ here. File names determine platform and version; a higher version replaces the whole release.',
   各平台发布文件: 'Release files by platform',
   平台: 'Platform',
   标识: 'ID',
   'gg-cast（实时画面）': 'gg-cast (live view)',
   桌面端: 'Desktop app',
   桌面端安装包: 'Desktop installer',
+  桌面端更新包: 'desktop update package',
+  桌面端更新签名: 'desktop update signature',
+  桌面端自动更新: 'Desktop auto update',
+  缺少签名: 'Signature missing',
+  缺少更新包: 'Package missing',
+  '该平台的桌面端将改从 GitHub 检查更新，直到重新上传。':
+    'Desktop apps on this platform check GitHub for updates until it is uploaded again.',
   '成员将无法在「绑定新机器」中下载该平台的安装包，直到重新上传。':
     'Members cannot download the installer for this platform from Bind new machine until it is uploaded again.',
   '移除 {kind}…': 'Remove {kind}…',

@@ -49,9 +49,24 @@ describe('parseReleaseFile', () => {
     })
     expect(parseReleaseFile('Gonggong_0.3.0_x86_64.dmg')?.platform).toBe('macos-x86_64')
     expect(parseReleaseFile('Gonggong_0.3.0_x64-setup.exe')?.platform).toBe('windows-x86_64')
+    expect(parseReleaseFile('Gonggong_0.3.2_aarch64.app.tar.gz')).toEqual({
+      kind: 'update',
+      version: '0.3.2',
+      platform: 'macos-aarch64',
+    })
+    expect(parseReleaseFile('Gonggong_0.3.2_x86_64.app.tar.gz.sig')).toEqual({
+      kind: 'signature',
+      version: '0.3.2',
+      platform: 'macos-x86_64',
+    })
+    expect(parseReleaseFile('Gonggong_0.3.2_x64-setup.exe.sig')).toEqual({
+      kind: 'signature',
+      version: '0.3.2',
+      platform: 'windows-x86_64',
+    })
     for (const bad of [
-      'Gonggong_0.3.0_aarch64.app.tar.gz',
-      'Gonggong_0.3.0_x64-setup.exe.sig',
+      'Gonggong_0.3.0_aarch64.dmg.sig',
+      'Gonggong_0.3.0_x64-setup.exe.tar.gz',
       'gg-cast',
       'gonggong-0.2.0-macos-aarch64.exe',
       'gonggong-0.2.0-windows-x86_64',

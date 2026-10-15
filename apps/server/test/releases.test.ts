@@ -237,6 +237,39 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
     expect(audit.json().at(-1).summary).toBe('上传 桌面端 0.2.0（macos-aarch64）')
   })
 
+  it('serves the desktop app update feed (Tauri updater) from hosted packages and signatures', async () => {
+    const cookie = await admin()
+    const feed = (path: string, headers: Record<string, string> = {}) =>
+      t.app.inject({ url: `/api/desktop-update/${path}`, headers: { host: 'gg.example.com', ...headers } })
+    expect((await feed('darwin/aarch64/0.3.1')).statusCode).toBe(404)
+
+    expect((await upload(cookie, 'Gonggong_0.3.2_aarch64.app.tar.gz', 'app')).status).toBe(200)
+    // Without its signature the package cannot be verified: still none, so the app falls back to GitHub.
+    expect((await feed('darwin/aarch64/0.3.1')).statusCode).toBe(404)
+    await upload(cookie, 'Gonggong_0.3.2_aarch64.app.tar.gz.sig', 'c2ln\n')
+    const mac = await feed('darwin/aarch64/0.3.1', { 'x-forwarded-proto': 'https' })
+    expect(mac.statusCode).toBe(200)
+    expect(mac.json()).toEqual({
+      version: '0.3.2',
+      url: 'https://gg.example.com/downloads/Gonggong_0.3.2_aarch64.app.tar.gz',
+      signature: 'c2ln',
+    })
+    expect((await feed('darwin/aarch64/0.3.2')).statusCode).toBe(204)
+    expect((await feed('darwin/x86_64/0.3.1')).statusCode).toBe(404)
+
+    // Windows: the NSIS installer is the update package.
+    await upload(cookie, 'Gonggong_0.3.2_x64-setup.exe', 'exe')
+    await upload(cookie, 'Gonggong_0.3.2_x64-setup.exe.sig', 'd2lu')
+    expect((await feed('windows/x86_64/0.3.0')).json()).toMatchObject({
+      url: 'http://gg.example.com/downloads/Gonggong_0.3.2_x64-setup.exe',
+      signature: 'd2lu',
+    })
+
+    await upload(cookie, 'gonggong-0.4.0-linux-x86_64', 'new')
+    expect(existsSync(downloaded('Gonggong_0.3.2_aarch64.app.tar.gz.sig'))).toBe(false)
+    expect((await feed('darwin/aarch64/0.3.1')).statusCode).toBe(404)
+  })
+
   it('removes one platform build and its file', async () => {
     const cookie = await admin()
     await upload(cookie, 'gonggong-0.2.0-macos-aarch64', 'a')

@@ -20,10 +20,19 @@ interface Row {
   builds?: Build
   cast?: Build
   desktop?: Build
+  update?: Build
+  signature?: Build
   machines: number
 }
 
-const KIND_LABEL: Record<ReleaseKind, string> = { builds: 'daemon', cast: 'gg-cast', desktop: t('桌面端') }
+const KINDS = ['builds', 'cast', 'desktop', 'update', 'signature'] as const
+const KIND_LABEL: Record<ReleaseKind, string> = {
+  builds: 'daemon',
+  cast: 'gg-cast',
+  desktop: t('桌面端'),
+  update: t('桌面端更新包'),
+  signature: t('桌面端更新签名'),
+}
 
 function platformText(key: string) {
   const os = key.slice(0, key.indexOf('-')) as keyof typeof OS_LABEL
@@ -37,6 +46,15 @@ function BuildCell({ build, needed }: { build?: Build; needed: boolean }) {
       <Tag tone="green">{t('已发布')}</Tag> <code>{build.sha256.slice(0, 12)}</code>
     </span>
   )
+}
+
+/** The desktop app updates from this server once the platform has a package (the setup.exe on Windows) and its signature. */
+function UpdateCell({ row }: { row: Row }) {
+  const pkg = row.id.startsWith('windows') ? row.desktop : row.update
+  if (!pkg && !row.signature) return <span>{t('未发布')}</span>
+  if (!row.signature) return <span className="admin-table__warn">{t('缺少签名')}</span>
+  if (!pkg) return <span className="admin-table__warn">{t('缺少更新包')}</span>
+  return <Tag tone="green">{t('已发布')}</Tag>
 }
 
 /** 管理后台 · 客户端发布: the daemon and gg-cast builds online daemons download (plan D17), uploaded from dist/<version>/. */
@@ -110,16 +128,12 @@ export function ReleasesPage() {
   const count = (key: string) => machines.filter((m) => `${m.os}-${m.arch}` === key).length
   const keys = new Set<string>([
     ...RELEASE_PLATFORMS,
-    ...Object.keys(release?.builds ?? {}),
-    ...Object.keys(release?.cast ?? {}),
-    ...Object.keys(release?.desktop ?? {}),
+    ...KINDS.flatMap((k) => Object.keys(release?.[k] ?? {})),
     ...machines.map((m) => `${m.os}-${m.arch}`),
   ])
   const rows: Row[] = [...keys].map((id) => ({
     id,
-    builds: release?.builds[id],
-    cast: release?.cast?.[id],
-    desktop: release?.desktop?.[id],
+    ...Object.fromEntries(KINDS.map((k) => [k, release?.[k]?.[id]])),
     machines: count(id),
   }))
 
@@ -127,7 +141,7 @@ export function ReleasesPage() {
     <AdminPage
       title={t('客户端发布')}
       desc={t(
-        '成员机器上的 daemon 连上后自动升级到这里的版本；gg-cast 在首次推送实时画面时按需下载；桌面端安装包与 Linux daemon 供成员在「绑定新机器」中下载。',
+        '成员机器上的 daemon 连上后自动升级到这里的版本；gg-cast 在首次推送实时画面时按需下载；桌面端安装包与 Linux daemon 供成员在「绑定新机器」中下载；桌面端优先从这里检查更新，未发布签名更新包的平台改查 GitHub。',
       )}
       subtitle={
         release === undefined
@@ -143,7 +157,7 @@ export function ReleasesPage() {
         onFiles={(files) => void upload(files)}
         title={t('拖入发布产物')}
         description={t(
-          '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*.dmg / Gonggong_*-setup.exe 拖到这里。文件名决定平台与版本；更高的版本会替换整个发布。',
+          '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*（安装包、更新包与 .sig 签名）拖到这里。文件名决定平台与版本；更高的版本会替换整个发布。',
         )}
         files={uploads}
         onRemove={(i) => setUploads((list) => list.filter((_, j) => j !== i))}
@@ -173,16 +187,15 @@ export function ReleasesPage() {
               title: t('桌面端安装包'),
               render: (r) => <BuildCell build={r.desktop} needed={false} />,
             },
+            { key: 'update', title: t('桌面端自动更新'), render: (r) => <UpdateCell row={r} /> },
             { key: 'machines', title: t('机器#count'), width: 72, align: 'right' },
           ]}
           rowActions={(r) =>
-            (['builds', 'cast', 'desktop'] as const)
-              .filter((k) => r[k])
-              .map((k) => ({
-                label: t('移除 {kind}…', { kind: KIND_LABEL[k] }),
-                value: k,
-                destructive: true,
-              }))
+            KINDS.filter((k) => r[k]).map((k) => ({
+              label: t('移除 {kind}…', { kind: KIND_LABEL[k] }),
+              value: k,
+              destructive: true,
+            }))
           }
           onRowAction={(kind, r) => setRemoving({ kind: kind as ReleaseKind, platform: r.id })}
         />
@@ -199,6 +212,8 @@ export function ReleasesPage() {
               builds: t('该平台的机器将不再自动升级，直到重新上传。'),
               cast: t('该平台的机器将无法推送实时画面，直到重新上传。'),
               desktop: t('成员将无法在「绑定新机器」中下载该平台的安装包，直到重新上传。'),
+              update: t('该平台的桌面端将改从 GitHub 检查更新，直到重新上传。'),
+              signature: t('该平台的桌面端将改从 GitHub 检查更新，直到重新上传。'),
             }[removing.kind]
           }
           onClose={() => setRemoving(null)}

@@ -94,6 +94,8 @@ export const en = {
   '启用账号 {account}': 'Enabled account {account}',
   '发布 daemon {version}（{platforms}）': 'Released daemon {version} ({platforms})',
   桌面端: 'desktop app',
+  桌面端更新包: 'desktop update package',
+  桌面端更新签名: 'desktop update signature',
   '上传 {kind} {version}（{platform}）': 'Uploaded {kind} {version} ({platform})',
   '移除 {kind} {version}（{platform}）': 'Removed {kind} {version} ({platform})',
   '吊销 {user} 的机器 {name}': "Revoked {user}'s machine {name}",
@@ -425,6 +427,7 @@ export const en = {
   '单个文件不能超过 {mb} MB': 'A file cannot exceed {mb} MB',
   未知的产物类型: 'Unknown artifact type',
   该平台没有已发布的文件: 'Nothing is released for this platform',
+  没有可用的桌面端更新: 'No desktop app update available',
   文件不存在: 'File not found',
 
   // Search

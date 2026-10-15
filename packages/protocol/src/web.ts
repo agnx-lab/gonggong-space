@@ -1294,6 +1294,10 @@ export const DaemonRelease = z.object({
   cast: z.record(z.string(), DaemonBuild).optional(),
   /** Desktop app installers (Tauri dmg / setup.exe) offered on the 绑定新机器 page. */
   desktop: z.record(z.string(), DaemonBuild).optional(),
+  /** Desktop app update packages (macOS `.app.tar.gz`; on Windows the setup.exe in `desktop` is the package). */
+  update: z.record(z.string(), DaemonBuild).optional(),
+  /** Tauri updater signatures (`.sig`) of the update packages, served in GET /api/desktop-update. */
+  signature: z.record(z.string(), DaemonBuild).optional(),
 })
 export type DaemonRelease = z.infer<typeof DaemonRelease>
 /** `<os>-<arch>` built by scripts/release.sh. */
@@ -1304,7 +1308,7 @@ export const RELEASE_PLATFORMS = [
   'linux-aarch64',
   'windows-x86_64',
 ] as const
-export const ReleaseKind = z.enum(['builds', 'cast', 'desktop'])
+export const ReleaseKind = z.enum(['builds', 'cast', 'desktop', 'update', 'signature'])
 export type ReleaseKind = z.infer<typeof ReleaseKind>
 export interface ReleaseFile {
   kind: ReleaseKind
@@ -1313,21 +1317,28 @@ export interface ReleaseFile {
 }
 const RELEASE_FILE =
   /^(gonggong|gg-cast)-(\d+\.\d+\.\d+)-((?:macos|linux)-(?:x86_64|aarch64)|windows-x86_64)(\.exe)?$/
-const DESKTOP_FILE = /^Gonggong_(\d+\.\d+\.\d+)_(aarch64\.dmg|x86_64\.dmg|x64-setup\.exe)$/
-const DESKTOP_PLATFORM: Record<string, string> = {
-  'aarch64.dmg': 'macos-aarch64',
-  'x86_64.dmg': 'macos-x86_64',
-  'x64-setup.exe': 'windows-x86_64',
+const DESKTOP_FILE =
+  /^Gonggong_(\d+\.\d+\.\d+)_(aarch64\.dmg|x86_64\.dmg|x64-setup\.exe(?:\.sig)?|(?:aarch64|x86_64)\.app\.tar\.gz(?:\.sig)?)$/
+const DESKTOP_PLATFORM: Record<string, [ReleaseKind, string]> = {
+  'aarch64.dmg': ['desktop', 'macos-aarch64'],
+  'x86_64.dmg': ['desktop', 'macos-x86_64'],
+  'x64-setup.exe': ['desktop', 'windows-x86_64'],
+  'x64-setup.exe.sig': ['signature', 'windows-x86_64'],
+  'aarch64.app.tar.gz': ['update', 'macos-aarch64'],
+  'x86_64.app.tar.gz': ['update', 'macos-x86_64'],
+  'aarch64.app.tar.gz.sig': ['signature', 'macos-aarch64'],
+  'x86_64.app.tar.gz.sig': ['signature', 'macos-x86_64'],
 }
 /**
  * POST /api/admin/daemon-release/files takes scripts/release.sh artifacts as named (`gonggong-0.2.0-macos-aarch64`,
- * `gg-cast-0.2.0-windows-x86_64.exe`, `Gonggong_0.2.0_aarch64.dmg`): the name alone says what the file is, so admins
- * just drop dist/<version>/.
+ * `gg-cast-0.2.0-windows-x86_64.exe`, `Gonggong_0.2.0_aarch64.dmg`, `Gonggong_0.2.0_aarch64.app.tar.gz(.sig)`): the name
+ * alone says what the file is, so admins just drop dist/<version>/.
  */
 export function parseReleaseFile(name: string): ReleaseFile | null {
   const [, desktopVersion, bundle] = DESKTOP_FILE.exec(name) ?? []
-  if (desktopVersion && bundle)
-    return { kind: 'desktop', version: desktopVersion, platform: DESKTOP_PLATFORM[bundle] as string }
+  const [desktopKind, desktopPlatform] = (bundle && DESKTOP_PLATFORM[bundle]) || []
+  if (desktopVersion && desktopKind && desktopPlatform)
+    return { kind: desktopKind, version: desktopVersion, platform: desktopPlatform }
   const [, prefix, version, platform, exe] = RELEASE_FILE.exec(name) ?? []
   if (!version || !platform || platform.startsWith('windows') !== Boolean(exe)) return null
   return { kind: prefix === 'gonggong' ? 'builds' : 'cast', version, platform }

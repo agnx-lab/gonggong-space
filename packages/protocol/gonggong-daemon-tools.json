@@ -125,7 +125,7 @@
   {
     "name": "client_release_publish",
     "title": "发布客户端到当前空间",
-    "description": "把本机构建好的一个客户端产物（gg daemon、gg-cast 或桌面端安装包 Gonggong_<版本>_*.dmg / *-setup.exe）上传到当前空间，成员的 daemon 随后自动升级、可在网页下载安装包。一次一个文件，有多个就逐个调用；只有系统管理员发起的对话可以发布。",
+    "description": "把本机构建好的一个客户端产物（gg daemon、gg-cast、桌面端安装包 Gonggong_<版本>_*.dmg / *-setup.exe，或桌面端更新包 Gonggong_<版本>_*.app.tar.gz 及其 .sig 签名、*-setup.exe.sig）上传到当前空间，成员的 daemon 随后自动升级、桌面端从这里检查更新、可在网页下载安装包。一次一个文件，有多个就逐个调用；只有系统管理员发起的对话可以发布。",
     "inputSchema": {
       "type": "object",
       "properties": {

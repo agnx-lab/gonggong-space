@@ -17,7 +17,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { readText } from '@tauri-apps/plugin-clipboard-manager'
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link'
 import { relaunch } from '@tauri-apps/plugin-process'
-import { check, type Update } from '@tauri-apps/plugin-updater'
+import { Update } from '@tauri-apps/plugin-updater'
 
 export type { Update }
 
@@ -348,8 +348,9 @@ export const ipc = {
   /** Shows the system prompt where macOS still does and opens the permission's pane in System Settings. */
   requestPermission: (kind: Permission) => invoke<void>('request_permission', { kind }),
   restartApp: () => invoke<void>('restart_app'),
-  /** The latest GitHub release when newer than this app (`plugins.updater` endpoint), else null. */
-  checkUpdate: () => check({ timeout: 30_000 }),
+  /** The bound server's update, else the latest GitHub release, when newer than this app; else null. */
+  checkUpdate: () =>
+    invoke<ConstructorParameters<typeof Update>[0] | null>('check_update').then((m) => m && new Update(m)),
   /** Stops the in-process daemon and its hosted services before an update relaunch. */
   stopDaemon: () => invoke<void>('stop_daemon'),
   relaunch: () => relaunch(),

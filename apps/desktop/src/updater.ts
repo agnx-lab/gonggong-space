@@ -1,5 +1,5 @@
 /**
- * App updates from GitHub Releases (Tauri updater, `plugins.updater` in tauri.conf.json): checked at launch and every
+ * App updates (Tauri updater) from the bound server, or GitHub Releases while it hosts none: checked at launch and every
  * 6 hours while 自动升级 is on, or from Settings; a found update downloads in the background and is installed when
  * the user restarts. The bundled daemon is stopped right before the relaunch.
  */

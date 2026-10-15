@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.2 — 2026-10-15
+
+- 桌面端私服优先更新：先向已绑定的服务器检查更新（`GET /api/desktop-update/:target/:arch/:current`），服务器发布了本平台的更新包与签名就从服务器下载，否则照旧检查 GitHub；「客户端发布」接受 `Gonggong_*.app.tar.gz(.sig)` 与 `*-setup.exe.sig`，新增「桌面端自动更新」列 / Server-first desktop updates: the app asks its server first and downloads from it once the platform's update package and signature are published, else GitHub as before; Client releases take `Gonggong_*.app.tar.gz(.sig)` and `*-setup.exe.sig`, with a new "Desktop auto update" column
+- Bot 通过内置 MCP 管理平台/团队/群三层 MCP，密钥经「填写密钥」卡片由发起人填写 / Bots manage platform, team and group MCP servers through the built-in MCP; secrets are filled in by the requester on a card
+- 群可单独关闭继承的 Skill 与 MCP / Groups can switch off inherited Skills and MCP servers
+- 飞书：Bot 发自定义卡片（`feishu_send_card`）、从飞书群创建共工群或反向创建、同步群成员、飞书通知 / Feishu: custom cards from Bots, create groups either way, member sync, notifications
+- 会话列表右键菜单（置顶、免打扰、标记、完成）、被 @ 提醒、聊天顶栏可点击、悬停名片一键 @ / Conversation context menu (pin, mute, mark, complete), mention alerts, clickable chat header, @ from hover cards
+- Bot 可在多个附加目录工作；入群不再静默克隆、等主人确认；群可解绑仓库、禁止直推基准分支 / Extra folders for Bots; joining no longer clones silently; unbind repos, block direct pushes to the base branch
+- 文件工作区「用本地应用打开」：由 Bot 所在机器用访达、Cursor、VS Code、终端等打开工作区 / "Open with" in the files workspace: the Bot's machine opens the workspace in Finder, Cursor, VS Code, a terminal…
+- 头像上传与裁剪、申请共享他人的 Bot、会话统计、Codex 启动前检查 CLI、手机端输入框与布局修复 / Avatar upload and crop, requesting shared Bots, conversation stats, Codex CLI check, mobile composer and layout fixes
+
 ## v0.3.1 — 2026-10-10
 
 - Bot 共享 / Bot sharing：主人可把 Bot 共享给团队成员，对方能私聊它（每个私聊独立托管工作区，命令审批仍归主人，主人可在通知里直接批准）并查看配置；取消共享后私聊转为只读 / Owners share a Bot with teammates, who can DM it (each DM in its own managed workspace; approvals stay with the owner, who can decide right from the notification) and see its settings; unsharing turns those DMs read-only

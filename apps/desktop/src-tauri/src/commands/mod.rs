@@ -12,6 +12,7 @@ mod settings;
 mod shell;
 mod tools;
 mod tunnels;
+mod updates;
 mod workspaces;
 
 use crate::i18n::tr;
@@ -37,6 +38,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static 
         settings::set_launch_at_login,
         settings::unbind,
         settings::stop_daemon,
+        updates::check_update,
         workspaces::workspaces,
         workspaces::reveal,
         workspaces::reset_cd,
