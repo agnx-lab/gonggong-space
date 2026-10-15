@@ -247,12 +247,26 @@ function SetupGuide({
 /** 完成: marked done and no message since; a new one brings it back to its list. */
 const isDone = (g: GroupDto) => g.doneSeq != null && g.lastSeq <= g.doneSeq
 
-/** Pinned first, then those waiting on the viewer (until handled); otherwise the server's order (creation time). */
+/** Pinned first, then those waiting on the viewer (until handled), then the latest message first. */
 const byPin = (list: GroupDto[]) =>
   [...list].sort(
     (a, b) =>
-      Number(b.pinned) - Number(a.pinned) || Number(needsMe(b.liveRuns)) - Number(needsMe(a.liveRuns)),
+      Number(b.pinned) - Number(a.pinned) ||
+      Number(needsMe(b.liveRuns)) - Number(needsMe(a.liveRuns)) ||
+      (b.lastAt ?? '').localeCompare(a.lastAt ?? ''),
   )
+
+/** While `held` (the pointer is over the list) rows keep their places so a click lands where it aimed; newcomers go last. */
+function useHeldOrder(list: GroupDto[], held: boolean) {
+  const shown = useRef<string[]>([])
+  if (!held) {
+    shown.current = list.map((g) => g.id)
+    return list
+  }
+  const at = new Map(shown.current.map((id, i) => [id, i]))
+  const place = (g: GroupDto) => at.get(g.id) ?? at.size
+  return [...list].sort((a, b) => place(a) - place(b))
+}
 
 /** Positions the selection capsule under the current conversation so it slides between rows. */
 function useSelectionCapsule(groups: GroupDto[]) {
@@ -382,19 +396,20 @@ export function Sidebar({
   // Unflagging the last one hides the filter; don't let it silently re-apply when a flag comes back.
   if (onlyFlagged && !anyFlagged) setOnlyFlagged(false)
   const shown = groups.filter((g) => !onlyFlagged || g.flagged)
+  const [hovered, setHovered] = useState(false)
   const done = shown.filter(isDone)
-  const open = shown.filter((g) => !isDone(g))
+  const open = useHeldOrder(byPin(shown.filter((g) => !isDone(g))), hovered)
   const lists = [
     {
       label: t('群#nav'),
-      items: byPin(open.filter((g) => g.kind === 'group')),
+      items: open.filter((g) => g.kind === 'group'),
       empty: t('还没有加入任何群'),
     },
     {
       label: t('私聊#nav'),
       add: onNewDm,
       addTitle: t('新建私聊'),
-      items: byPin(open.filter((g) => g.kind === 'dm')),
+      items: open.filter((g) => g.kind === 'dm'),
       empty: t('还没有私聊'),
     },
   ]
@@ -404,7 +419,12 @@ export function Sidebar({
   return (
     <div className="sidebar">
       {header}
-      <div ref={scroll} className="sidebar__scroll">
+      <div
+        ref={scroll}
+        className="sidebar__scroll"
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+      >
         <div>
           {guide && loaded && !(machines.length && bots.length && inGroup) ? (
             <SetupGuide

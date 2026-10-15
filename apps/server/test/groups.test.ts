@@ -167,6 +167,36 @@ describe('reading groups', () => {
     expect(wangEvents).toEqual([{ t: 'group.updated', group: expect.objectContaining({ unread: 0 }) }])
   })
 
+  it('lists the group with the latest message first, an empty one by when it was created', async () => {
+    const p = await people()
+    const a = await t.seed.group({ createdBy: p.wang.id, name: 'A' })
+    const b = await t.seed.group({ createdBy: p.wang.id, name: 'B' })
+    await t.db
+      .update(groups)
+      .set({ createdAt: new Date('2026-01-01T00:00:00Z') })
+      .where(eq(groups.id, a.id))
+    await t.db
+      .update(groups)
+      .set({ createdAt: new Date('2026-01-02T00:00:00Z') })
+      .where(eq(groups.id, b.id))
+    await t.db.update(messages).set({ createdAt: new Date('2026-01-01T00:00:00Z') })
+    const empty = await t.seed.group({ createdBy: p.wang.id, name: 'C' })
+    await t.db.delete(messages).where(eq(messages.groupId, empty.id))
+    await t.db
+      .update(groups)
+      .set({ createdAt: new Date('2026-01-03T00:00:00Z') })
+      .where(eq(groups.id, empty.id))
+    const list = async () => (await p.asWang.get<GroupDto[]>('/api/groups')).body
+    expect((await list()).map((g) => g.name)).toEqual(['C', 'B', 'A'])
+
+    await p.asWang.post(`/api/groups/${a.id}/messages`, { body: '新消息', clientId: 'client-0001' })
+    const after = await list()
+    expect(after.map((g) => g.name)).toEqual(['A', 'C', 'B'])
+    const sent = (await p.asWang.get<TimelineDto>(`/api/groups/${a.id}/timeline`)).body.messages.at(-1)!
+    expect(after[0]!.lastAt).toBe(sent.createdAt)
+    expect(after[1]!.lastAt).toBe('2026-01-03T00:00:00.000Z')
+  })
+
   it('pushes each member their own view of a group, in as many queries however many members', async () => {
     const p = await people()
     const more = await Promise.all([1, 2, 3, 4].map((i) => t.seed.user({ name: `成员${i}` })))

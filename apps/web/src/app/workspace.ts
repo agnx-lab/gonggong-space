@@ -52,6 +52,7 @@ function withMessage(g: GroupDto, m: MessageDto, activeGroupId: string | null): 
     lastSeq: m.seq,
     last: previewOf(m),
     lastI18n,
+    lastAt: m.createdAt,
     unread: g.unread + (counts ? 1 : 0),
     mentioned,
   }

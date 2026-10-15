@@ -170,6 +170,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
             authorUserId: messages.authorUserId,
             recalledAt: messages.recalledAt,
             meta: messages.meta,
+            createdAt: messages.createdAt,
           })
           .from(messages)
           .leftJoin(users, eq(users.id, messages.authorUserId))
@@ -240,7 +241,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
         ),
       )
 
-  return rows.map(({ group: g, title, me, lastSeq, unread, mentioned }) => {
+  const views = rows.map(({ group: g, title, me, lastSeq, unread, mentioned }) => {
     const repo = repos.find((r) => r.groupId === g.id)
     const chat = chats.find((c) => c.groupId === g.id)
     const gbots = groupBotRows.filter((b) => b.groupId === g.id)
@@ -275,6 +276,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
           ? zhText(lastI18n)
           : preview(last.kind, last.userName ?? last.botName, last.body),
       ...(lastI18n && { lastI18n }),
+      lastAt: (last?.createdAt ?? g.createdAt).toISOString(),
       pinned: me.pinned,
       doneSeq: me.doneSeq,
       flagged: me.flagged,
@@ -287,6 +289,8 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
     }
     return { userId: me.userId, group }
   })
+  // Latest message first, as the conversation list shows them.
+  return views.sort((a, b) => (b.group.lastAt ?? '').localeCompare(a.group.lastAt ?? ''))
 }
 
 export async function groupDto(ctx: Ctx, userId: string, groupId: string) {

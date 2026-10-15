@@ -271,6 +271,53 @@ describe('sidebar live runs', () => {
   })
 })
 
+describe('conversation order', () => {
+  const order = () =>
+    [...document.querySelectorAll('[data-testid^="group-item-"]')].map((e) =>
+      e.getAttribute('data-testid')?.slice(11),
+    )
+
+  it('sorts by the latest message, pinned first, and holds the order while the pointer is over the list', async () => {
+    mockApi(
+      routes([
+        group('g1', '旧群', { lastAt: '2026-10-01T00:00:00.000Z' }),
+        group('g2', '新群', { lastAt: '2026-10-03T00:00:00.000Z' }),
+        group('g3', '置顶群', { pinned: true, lastAt: '2026-09-01T00:00:00.000Z' }),
+        group('g4', '中间', { lastAt: '2026-10-02T00:00:00.000Z' }),
+      ]),
+    )
+    renderAt('/g/g2')
+    await screen.findByTestId('group-item-g1')
+    expect(order()).toEqual(['g3', 'g2', 'g4', 'g1'])
+
+    const list = screen.getByTestId('group-item-g1').closest('.sidebar__scroll')!
+    fireEvent.pointerEnter(list)
+    act(() =>
+      useWorkspace.getState().applyEvent({
+        t: 'message.new',
+        message: {
+          id: 'm9',
+          seq: 1,
+          groupId: 'g1',
+          kind: 'user',
+          authorId: 'u2',
+          authorName: '李建国',
+          body: '新消息',
+          mentions: [],
+          runId: null,
+          createdAt: '2026-10-04T00:00:00.000Z',
+          attachments: [],
+          quote: null,
+        },
+      }),
+    )
+    expect(within(screen.getByTestId('group-item-g1')).getByText(/新消息/)).toBeTruthy()
+    expect(order()).toEqual(['g3', 'g2', 'g4', 'g1'])
+    fireEvent.pointerLeave(list)
+    expect(order()).toEqual(['g3', 'g1', 'g2', 'g4'])
+  })
+})
+
 describe('home route', () => {
   it('opens the last opened group on desktop', async () => {
     localStorage.setItem('gonggong.lastGroup', 'g2')

@@ -605,6 +605,8 @@ export const GroupDto = z.object({
   last: z.string(),
   /** `last`'s translatable source for recall notes and events; `last` holds its Chinese rendering. */
   lastI18n: I18nText.optional(),
+  /** When the latest message was posted, else when the group was created: the list's order. Always sent by the server. */
+  lastAt: z.string().optional(),
   /** The requesting user's own prefs. */
   pinned: z.boolean(),
   /** 完成: the caller marked it done up to this seq; done while `lastSeq` has not passed it. Always sent by the server. */
