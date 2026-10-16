@@ -277,7 +277,10 @@ impl Handler for Engine {
                 );
             }
             ServerToDaemon::AppsList { request_id } => {
-                out.send(DaemonToServer::AppsListResult { request_id, apps: crate::open_apps::available() });
+                let out = out.clone();
+                tokio::spawn(async move {
+                    out.send(DaemonToServer::AppsListResult { request_id, apps: crate::open_apps::available().await })
+                });
             }
             ServerToDaemon::WorkspaceOpen(req) => {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
