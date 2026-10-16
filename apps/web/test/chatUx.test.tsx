@@ -252,6 +252,7 @@ describe('run card merged with the final reply', () => {
       kind: 'run',
       id: 'r1',
       who: '小王的 Claude 的运行卡片',
+      bot: '小王的 Claude',
     })
 
     push({ t: 'run.updated', run: run({ status: 'completed', endedAt: at }) })
@@ -578,6 +579,8 @@ describe('composer', () => {
     const block = document.querySelector('.pn-composer') as HTMLElement
     const chips = within(block).getByTestId('composer-chips')
     expect(within(chips).getByText('引用 李建国')).toBeTruthy()
+    expect(within(chips).getByText('引用内容一起发送')).toBeTruthy()
+    expect(within(chips).queryByRole('button', { name: /^@/ })).toBeNull()
     expect(await within(chips).findByText('shot.png')).toBeTruthy()
     expect(precedes(chips, box())).toBe(true)
     expect(precedes(box(), within(block).getByRole('button', { name: '发送' }))).toBe(true)

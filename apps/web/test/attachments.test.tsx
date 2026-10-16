@@ -332,7 +332,9 @@ describe('quotes', () => {
     fireEvent.click(within(reply).getByRole('button', { name: '引用回复' }))
     expect(composer().getByText('引用 小王的 Claude')).toBeTruthy()
     expect(composer().getByText('已修复')).toBeTruthy()
-    expect(composer().getByText('等同 @，引用内容一起发送')).toBeTruthy()
+    expect(composer().getByText('仅引用，不会触发 Bot；要让它处理请 @')).toBeTruthy()
+    fireEvent.click(composer().getByRole('button', { name: '@ 小王的 Claude' }))
+    expect(box().value).toBe('@小王的 Claude ')
     fireEvent.click(screen.getByRole('button', { name: '关闭引用' }))
     expect(composer().queryByText('引用 小王的 Claude')).toBeNull()
 
@@ -346,7 +348,7 @@ describe('quotes', () => {
       body: '再总结',
       quote: { kind: 'message', id: 'm3' },
     })
-    await waitFor(() => expect(screen.queryByText('等同 @，引用内容一起发送')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('仅引用，不会触发 Bot；要让它处理请 @')).toBeNull())
   })
 })
 

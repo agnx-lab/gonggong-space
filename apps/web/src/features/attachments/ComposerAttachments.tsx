@@ -2,6 +2,7 @@ import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS } from '@gonggong/protocol'
 import { type ChangeEvent, type RefObject, useCallback, useEffect, useRef, useState } from 'react'
 import { cx } from '../../lib/cx'
 import { Button, FileIcon, Icon, Lightbox, toast } from '../../ui'
+import { mentionInChat } from '../chat/mention'
 import { fmtSize, type Upload, uploadFile } from './api'
 import { type QuoteDraft, useQuote } from './quote'
 import './attachments.css'
@@ -129,12 +130,22 @@ export function FilePickers({
 
 export function QuoteChip({ quote }: { quote: QuoteDraft }) {
   const clear = useQuote((s) => s.clear)
+  const { bot } = quote
   return (
     <div className="quote-chip">
       <Icon name="quote" size={14} className="quote-chip__icon" />
       <span className="quote-chip__who">{t('引用 {who}', { who: quote.who })}</span>
       <span className="quote-chip__text">{quote.text}</span>
-      <span className="quote-chip__note">{t('等同 @，引用内容一起发送')}</span>
+      {bot ? (
+        <>
+          <span className="quote-chip__note">{t('仅引用，不会触发 Bot；要让它处理请 @')}</span>
+          <Button variant="plain" size="small" onClick={() => mentionInChat(quote.groupId, bot)}>
+            {t('@ {name}', { name: bot })}
+          </Button>
+        </>
+      ) : (
+        <span className="quote-chip__note">{t('引用内容一起发送')}</span>
+      )}
       <Button
         variant="plain"
         size="small"

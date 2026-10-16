@@ -283,7 +283,7 @@ export const RunStart = z.object({
     fallbackContext: z.array(ContextMessage),
     /** Files of the trigger message: written into the workspace; images also sent as ACP image content if supported. */
     attachments: z.array(Attachment),
-    /** Quoted bot message / run card (spec §8.6: quoting a bot = @ it, the quoted content is sent along). */
+    /** Quoted bot message / run card, sent along as context (spec §8.6: a quote never triggers a bot). */
     quote: z.object({ author: z.string(), body: z.string() }).nullable(),
   }),
   /** Global MCP servers (spec §7.2, P1 global layer), injected on session creation only (§7.4). */

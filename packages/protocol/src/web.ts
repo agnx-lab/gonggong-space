@@ -761,7 +761,7 @@ export const MessageDto = z.object({
   authorId: z.string().nullable(),
   authorName: z.string(),
   body: z.string(),
-  /** Bot ids this message triggers (explicit @ or quote). */
+  /** Bot ids this message triggers (explicit @; a quote only adds context). */
   mentions: z.array(z.string()),
   /** Member ids it @s (被 @ notifications); always sent by the server. */
   userMentions: z.array(z.string()).optional(),
@@ -1126,7 +1126,7 @@ export const SendMessageReq = z.object({
   clientId: z.string().min(8),
   /** Ids from POST /api/uploads. */
   attachmentIds: z.array(z.string()).max(MAX_ATTACHMENTS).default([]),
-  /** Quoting a bot's reply or run card triggers that bot (spec §8.6); quoting a human message only adds context. */
+  /** Quoting a bot's reply or run card only adds context; @ the bot to trigger it (spec §8.6). */
   quote: z
     .object({ kind: z.enum(['message', 'run']), id: z.string() })
     .nullable()

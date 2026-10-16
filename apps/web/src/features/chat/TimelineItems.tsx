@@ -228,12 +228,13 @@ const quoteMessage = (m: MessageDto) =>
     id: m.id,
     who: m.authorName,
     text: quoteLine(m.body),
+    bot: m.kind === 'bot' ? m.authorName : undefined,
   })
 
 const link = (groupId: string, query: string) => `${location.origin}/g/${groupId}?${query}`
 
-/** Quoting a bot = @ that bot (spec §8.6). */
-const BOT_QUOTE = t('引用回复等同 @ 该 Bot')
+/** Quoting a bot only adds context; @ it to trigger it (spec §8.6). */
+const BOT_QUOTE = t('引用回复不会触发 Bot')
 
 const messageTarget = (m: MessageDto, own = false, onEdit?: () => void): ActionTarget => ({
   message: m,
@@ -557,6 +558,7 @@ export const RunCard = memo(function RunCard({
             id: run.id,
             who: t('{name} 的运行卡片', { name: botName }),
             text: toolTitle(stepText(run)) || STATUS_LABEL[run.status],
+            bot: botName,
           }),
     copyText: reply?.body,
     branchable,

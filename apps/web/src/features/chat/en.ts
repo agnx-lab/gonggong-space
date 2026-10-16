@@ -149,7 +149,7 @@ export default {
   '{n} 条系统事件 · {last}': '{n} system {n:event|events} · {last}',
   你撤回了一条消息: 'You recalled a message',
   '{name} 撤回了一条消息': '{name} recalled a message',
-  '引用回复等同 @ 该 Bot': 'Quoting a reply @-mentions the Bot',
+  '引用回复不会触发 Bot': 'Quoting a reply does not trigger the Bot',
   '还有 {n} 个文件，查看完整改动': '{n} more {n:file|files}; view all changes',
   '让 {name} 处理': 'Hand to {name}',
   '{name} 的运行卡片': "{name}'s run card",

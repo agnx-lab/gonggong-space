@@ -147,13 +147,10 @@ async function quoteOf(ctx: Ctx, groupId: string, parentId: string | undefined) 
         ? { kind: 'run' as const, id: link.runId }
         : undefined
   if (!ref) return undefined
-  return resolveQuote(ctx, groupId, ref).then(
-    (q) => q.quote,
-    (err) => {
-      if (!(err instanceof HttpError)) throw err
-      return undefined
-    },
-  )
+  return resolveQuote(ctx, groupId, ref).catch((err) => {
+    if (!(err instanceof HttpError)) throw err
+    return undefined
+  })
 }
 
 const reply = (ctx: Ctx, app: FeishuAppRow, ev: Receive, card: object) =>

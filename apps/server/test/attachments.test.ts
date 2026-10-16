@@ -208,27 +208,33 @@ async function botReply(w: Awaited<ReturnType<typeof world>>, botId: string, bod
 }
 
 describe('quotes', () => {
-  it('quoting a bot reply triggers that bot and snapshots the quote', async () => {
+  it('quoting a bot reply only adds context; an @ triggers, and the quote rides along', async () => {
     const w = await world()
     const reply = await botReply(w, w.codex.id, '接口已改好\n细节见 diff')
-    const res = await send(w.cookies.li, w.g.id, {
-      body: '@小王的 Claude 帮看下',
-      quote: { kind: 'message', id: reply.id },
-    })
-    expect(res.body.mentions).toEqual([w.claude.id, w.codex.id])
-    expect(res.body.quote).toEqual({
+    const quote = { kind: 'message' as const, id: reply.id }
+    const plain = await send(w.cookies.li, w.g.id, { body: '帮看下', quote })
+    expect(plain.body.mentions).toEqual([])
+    expect(plain.body.quote).toEqual({
       kind: 'message',
       id: reply.id,
       who: '老李的 Codex',
       text: '接口已改好\n细节见 diff',
     })
-    expect(await t.db.select().from(runs).where(eq(runs.triggerMessageId, res.body.id))).toHaveLength(2)
+    expect(await t.db.select().from(runs).where(eq(runs.triggerMessageId, plain.body.id))).toHaveLength(0)
+
+    const at = await send(w.cookies.li, w.g.id, { body: '@小王的 Claude 帮看下', quote })
+    expect(at.body.mentions).toEqual([w.claude.id])
+    expect(at.body.quote).toEqual(plain.body.quote)
+    expect(await t.db.select().from(runs).where(eq(runs.triggerMessageId, at.body.id))).toHaveLength(1)
   })
 
-  it('quoting a run card triggers its bot once; quoting a human only adds context', async () => {
+  it('quoting a run card only adds context; an @ triggers its bot once; quoting a human only adds context', async () => {
     const w = await world()
     const trigger = (await send(w.cookies.li, w.g.id, { body: '@老李的 Codex 改接口' })).body
     const [run] = await t.db.select().from(runs).where(eq(runs.triggerMessageId, trigger.id))
+    const plain = await send(w.cookies.li, w.g.id, { body: '继续', quote: { kind: 'run', id: run!.id } })
+    expect(plain.body.mentions).toEqual([])
+    expect(await t.db.select().from(runs).where(eq(runs.triggerMessageId, plain.body.id))).toHaveLength(0)
     const res = await send(w.cookies.li, w.g.id, {
       body: '@老李的 Codex 继续',
       quote: { kind: 'run', id: run!.id },
@@ -243,6 +249,21 @@ describe('quotes', () => {
     expect(human.body.mentions).toEqual([])
     expect(human.body.quote).toMatchObject({ who: '李建国', text: '@老李的 Codex 改接口' })
     expect(await t.db.select().from(runs).where(eq(runs.triggerMessageId, human.body.id))).toHaveLength(0)
+  })
+
+  it('in a dm with a single bot a plain message still triggers it, quoted or not', async () => {
+    const w = await world()
+    const dm = await t.seed.group({ createdBy: w.wang.id, kind: 'dm', botIds: [w.codex.id] })
+    const [reply] = await t.db
+      .insert(messages)
+      .values({ groupId: dm.id, kind: 'bot', authorBotId: w.codex.id, body: '已定位', meta: {} })
+      .returning()
+    const res = await send(w.cookies.wang, dm.id, {
+      body: '怎么修',
+      quote: { kind: 'message', id: reply!.id },
+    })
+    expect(res.body.mentions).toEqual([w.codex.id])
+    expect(res.body.quote).toMatchObject({ who: '老李的 Codex', text: '已定位' })
   })
 
   it('refuses quotes from another group', async () => {

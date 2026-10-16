@@ -1,9 +1,10 @@
 import type { MessageDto } from '@gonggong/protocol'
 import { create } from 'zustand'
 
-export type QuoteDraft = NonNullable<MessageDto['quote']> & { groupId: string }
+/** `bot`: the name of the Bot a quoted reply or run card belongs to; quoting it only adds context (spec §8.6). */
+export type QuoteDraft = NonNullable<MessageDto['quote']> & { groupId: string; bot?: string }
 
-/** The composer's pending quote (spec §8.6): quoting a bot reply or run card = @ that bot. */
+/** The composer's pending quote (spec §8.6): a quote is context only; @ the Bot to trigger it. */
 export const useQuote = create<{
   quote: QuoteDraft | null
   set: (q: QuoteDraft) => void

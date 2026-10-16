@@ -76,9 +76,7 @@ export function messageRoutes(ctx: Ctx) {
       const target = appendTo ? await appendTarget(ctx, group.id, me.id, appendTo) : null
       const inGroup = await activeBots(ctx, group.id)
       const quoted = quote ? await resolveQuote(ctx, group.id, quote) : null
-      const quotedBot = quoted?.botId
-      const byQuote = quotedBot && inGroup.some((b) => b.id === quotedBot) ? [quotedBot] : []
-      const explicit = [...new Set([...parseMentions(body, inGroup), ...byQuote])]
+      const explicit = parseMentions(body, inGroup)
       // A dm with a single bot needs no @: plain messages and commands are addressed to it.
       const soleDmBot = group.kind === 'dm' && inGroup.length === 1 && !target ? inGroup[0] : undefined
       const parsed = parseCommand(body, inGroup)
@@ -124,7 +122,7 @@ export function messageRoutes(ctx: Ctx) {
           ...(Object.keys(picks).length > 0 && { runOptions: picks }),
         }
         if (files.length) meta.attachments = files
-        if (quoted) meta.quote = quoted.quote
+        if (quoted) meta.quote = quoted
         const [inserted] = (await tx
           .insert(messages)
           .values({ id, groupId: group.id, kind: 'user', authorUserId: me.id, body, meta })
