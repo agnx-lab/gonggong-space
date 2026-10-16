@@ -528,6 +528,8 @@ export const runs = pgTable(
     /** { input?, output?, total?, costUsd? } or null when the adapter did not report. */
     usage: jsonb('usage'),
     newSessionReason: text('new_session_reason'),
+    /** The ACP session the run ended with (run.done); a reply branches from its run's session. */
+    sessionAfter: text('session_after'),
     summary: text('summary').notNull().default(''),
     queuedAt: createdAt(),
     startedAt: ts('started_at'),

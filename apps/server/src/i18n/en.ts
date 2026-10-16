@@ -587,4 +587,14 @@ export const en = {
   '正在由 Bot 合并，请等待本轮结束': 'The Bot is merging; wait for its turn to end',
   二进制文件: 'Binary file',
   '文件过大，无法预览': 'File too large to preview',
+
+  // Branching a bot reply into a new direct chat
+  '只能从 Bot 的回复分支': 'Only a Bot reply can be branched',
+  这条回复没有可分支的会话: 'This reply has no session to branch from',
+  '{bot} 离线，无法分支': "{bot} is offline, can't branch",
+  '{bot} 所在机器的 daemon 版本过旧，请升级后再分支':
+    "The daemon on {bot}'s machine is too old to branch; please upgrade",
+  '{bot} 无响应，无法分支': "{bot} did not respond, can't branch",
+  '分支失败：{error}': 'Branching failed: {error}',
+  未知错误: 'Unknown error',
 } satisfies Record<string, string>

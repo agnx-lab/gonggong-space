@@ -356,7 +356,7 @@ acp
       protocolVersion: acp.PROTOCOL_VERSION,
       agentCapabilities: {
         loadSession: false,
-        sessionCapabilities: { resume: {} },
+        sessionCapabilities: { resume: {}, fork: {} },
         promptCapabilities: { image: true },
       },
     }
@@ -366,6 +366,11 @@ acp
     if (!ctx.params.sessionId.startsWith('mock-'))
       throw acp.RequestError.resourceNotFound(ctx.params.sessionId)
     return open(ctx.params.sessionId, ctx.params)
+  })
+  .onRequest('session/fork', (ctx) => {
+    if (!ctx.params.sessionId.startsWith('mock-'))
+      throw acp.RequestError.resourceNotFound(ctx.params.sessionId)
+    return open(`mock-${crypto.randomUUID()}`, ctx.params)
   })
   .onRequest('session/set_mode', (ctx) => {
     sessions.get(ctx.params.sessionId).mode = ctx.params.modeId

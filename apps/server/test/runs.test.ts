@@ -329,6 +329,8 @@ describe('run engine', () => {
     expect(events.map((e) => e.kind)).toEqual(['text', 'thought', 'tool', 'usage'])
     const [gb] = await t.db.select().from(groupBots).where(eq(groupBots.botId, w.bot.id))
     expect(gb?.sessionId).toBe('sess-1')
+    const [ended] = await t.db.select().from(runs).where(eq(runs.id, runId))
+    expect(ended?.sessionAfter).toBe('sess-1')
   })
 
   it('stores and publishes the workspace git status reported with run.done', async () => {

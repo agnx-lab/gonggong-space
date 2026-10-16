@@ -556,6 +556,7 @@ export const RunCard = memo(function RunCard({
             text: toolTitle(stepText(run)) || STATUS_LABEL[run.status],
           }),
     copyText: reply?.body,
+    branchable: run.status === 'completed',
   }
   const diff = () => openTab({ kind: 'run', runId: run.id, view: 'diff', file: null })
   const process = (

@@ -1,5 +1,7 @@
 import type { BotDto, GroupDto, MessageDto, UserCardDto, UserDto } from '@gonggong/protocol'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render as renderBare, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
@@ -8,6 +10,9 @@ import { mentionInChat, useMention } from '../src/features/chat/mention'
 import { BotReply } from '../src/features/chat/TimelineItems'
 import { UserCardTrigger } from '../src/features/users'
 import { mockApi } from './mockApi'
+
+/** Message rows open the chat's router (branch navigation), so every render gets one. */
+const render = (ui: ReactElement) => renderBare(<MemoryRouter>{ui}</MemoryRouter>)
 
 const me = { id: 'u1', name: '王磊', role: 'member' } as UserDto
 const group = {

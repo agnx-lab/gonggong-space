@@ -1,7 +1,12 @@
 import type { MessageDto } from '@gonggong/protocol'
-import { render, screen } from '@testing-library/react'
+import { render as renderBare, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import { MessageActions } from '../src/features/chat/MessageActions'
+
+/** Message rows open the chat's router (branch navigation), so every render gets one. */
+const render = (ui: ReactElement) => renderBare(<MemoryRouter>{ui}</MemoryRouter>)
 
 const msg = {
   id: 'm1',

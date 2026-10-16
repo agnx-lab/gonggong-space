@@ -596,6 +596,14 @@ export const WorkspaceOpenResult = z.object({
   error: z.string().nullable(),
 })
 
+/** Answer to session.fork: the forked session's id, or why the adapter could not fork. */
+export const SessionForkResult = z.object({
+  t: z.literal('session.fork.result'),
+  requestId: z.string(),
+  sessionId: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
 /** Answer to dir.list. */
 export const DirResult = z.object({
   t: z.literal('dir.result'),
@@ -661,7 +669,7 @@ export const CastState = z.object({
  * Provider settings live on the machine only: the server relays them in memory and never stores or logs them.
  */
 /** `sync`: takes part in force sync; a replica on a daemon without it sits out (runs go unsynced). */
-export const DaemonFeature = z.enum(['tools', 'providers', 'ccSwitch', 'sync'])
+export const DaemonFeature = z.enum(['tools', 'providers', 'ccSwitch', 'sync', 'sessionFork'])
 export type DaemonFeature = z.infer<typeof DaemonFeature>
 
 export const ToolKind = z.enum(['node', 'claude', 'codex'])
@@ -858,6 +866,7 @@ export const DaemonToServer = z.discriminatedUnion('t', [
   AgentsUpdate,
   AppsListResult,
   WorkspaceOpenResult,
+  SessionForkResult,
   CommandsUpdate,
   DirResult,
   RepoFound,
@@ -1031,6 +1040,20 @@ export const FilesRead = z.object({
   maxBytes: z.number().int(),
 })
 
+/**
+ * Forks the ACP session `sessionId` (session/fork) in the bot's workspace directory, which is where the adapter keeps
+ * the session; answered by session.fork.result with the new session's id.
+ */
+export const SessionFork = z.object({
+  t: z.literal('session.fork'),
+  requestId: z.string(),
+  agent: AgentKind,
+  groupId: z.string(),
+  botId: z.string(),
+  workspace: WorkspaceSpec,
+  sessionId: z.string(),
+})
+
 /** Look for local clones of the group repo under the home dir, for confirming a joining bot's workspace. */
 export const RepoFind = z.object({
   t: z.literal('repo.find'),
@@ -1168,6 +1191,7 @@ export const ServerToDaemon = z.discriminatedUnion('t', [
   DirList,
   AppsList,
   WorkspaceOpen,
+  SessionFork,
   RepoFind,
   FilesList,
   FilesTree,

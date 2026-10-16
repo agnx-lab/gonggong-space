@@ -199,6 +199,39 @@ async fn streams_a_turn_and_asks_the_owner_beyond_the_tier() {
 }
 
 #[tokio::test]
+async fn session_fork_copies_a_turns_session_into_a_new_one() {
+    let mut r = rig(Duration::from_secs(60));
+    r.run(start("r1", "mock:echo"));
+    let (_, done) = r.finish("r1").await;
+    let parent = done.session_id.expect("the turn reports its session");
+
+    r.send(ServerToDaemon::SessionFork(SessionFork {
+        request_id: "f1".into(),
+        agent: AgentKind::Claude,
+        group_id: "g1".into(),
+        bot_id: "b1".into(),
+        workspace: WorkspaceSpec {
+            repo: None,
+            cd_path: Some(r.workspace().display().to_string()),
+            protect_base: false,
+            extra_dirs: vec![],
+        },
+        session_id: parent.clone(),
+    }));
+    let DaemonToServer::SessionForkResult { request_id, session_id, error } = r.next().await else {
+        panic!("expected session.fork.result");
+    };
+    assert_eq!(request_id, "f1");
+    assert_eq!(error, None);
+    let forked = session_id.expect("the fork reports the new session");
+    assert_ne!(forked, parent);
+
+    r.run(RunStart { resume_session_id: Some(forked.clone()), ..start("r2", "mock:echo") });
+    let (_, done) = r.finish("r2").await;
+    assert_eq!(done.session_id.as_deref(), Some(forked.as_str()));
+}
+
+#[tokio::test]
 async fn a_rejected_or_timed_out_request_lets_the_agent_carry_on() {
     let mut r = rig(Duration::from_secs(60));
     r.run(start("r1", "写个文件"));

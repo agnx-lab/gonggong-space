@@ -1016,6 +1016,9 @@ export const DecideApprovalReq = z.object({ optionId: z.string() })
 export const InterruptChoiceReq = z.object({ choice: z.enum(['keep', 'discard']) })
 /** POST /api/runs/:id/stop | stop-chain — how many unfinished runs were stopped. */
 export const StopRes = z.object({ stopped: z.number().int() })
+/** Answer to POST /api/messages/:id/branch: the new private chat with the bot. */
+export const BranchMessageRes = z.object({ groupId: z.string() })
+export type BranchMessageRes = z.infer<typeof BranchMessageRes>
 export type StopRes = z.infer<typeof StopRes>
 /** Whether the stop reached the bot's machine; the task's end then shows in the run process. */
 export const TaskStopRes = z.object({ sent: z.boolean() })

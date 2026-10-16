@@ -149,6 +149,24 @@ impl Engine {
 
     /// What the agent's adapter offers (models and their thought levels), from a throwaway session.
     pub async fn probe(&self, kind: AgentKind) -> anyhow::Result<AgentCatalog> {
+        let agent = self.throwaway_agent(kind).await?;
+        let dir = self.0.config.home.join("probe");
+        tokio::fs::create_dir_all(&dir).await?;
+        let probe = session::probe(agent, &dir);
+        match tokio::time::timeout(PROBE_TIMEOUT, probe).await {
+            Ok(result) => result.map_err(anyhow::Error::msg),
+            Err(_) => bail!(t!("探测 {kind} 可选模型超时", kind = format!("{kind:?}"))),
+        }
+    }
+
+    /// Forks `session` in its workspace `dir` (session/fork): the copy is a new session of the same adapter.
+    pub async fn fork_session(&self, kind: AgentKind, dir: &Path, session: &str) -> Result<String, String> {
+        let agent = self.throwaway_agent(kind).await.map_err(|e| e.to_string())?;
+        session::fork(agent, dir, session).await
+    }
+
+    /// The adapter of `kind` for a session no bot runs in (probe, fork): official credentials, no bot settings.
+    async fn throwaway_agent(&self, kind: AgentKind) -> anyhow::Result<AcpAgent> {
         let local = LocalSettings::load(&self.0.config.home)?;
         let bot = RunBot {
             id: String::new(),
@@ -164,14 +182,7 @@ impl Engine {
             git: None,
         };
         let official = Selection::Official(Store::load(&self.0.config.home)?.official(kind));
-        let agent = AcpAgent::new(self.0.adapter(&bot, &local, &official).await?);
-        let dir = self.0.config.home.join("probe");
-        tokio::fs::create_dir_all(&dir).await?;
-        let probe = session::probe(agent, &dir);
-        match tokio::time::timeout(PROBE_TIMEOUT, probe).await {
-            Ok(result) => result.map_err(anyhow::Error::msg),
-            Err(_) => bail!(t!("探测 {kind} 可选模型超时", kind = format!("{kind:?}"))),
-        }
+        Ok(AcpAgent::new(self.0.adapter(&bot, &local, &official).await?))
     }
 }
 
@@ -387,6 +398,17 @@ impl Handler for Engine {
                         repos,
                         error,
                     });
+                });
+            }
+            ServerToDaemon::SessionFork(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let (engine, out) = (self.clone(), out.clone());
+                tokio::spawn(async move {
+                    let (session_id, error) = match engine.fork_session(req.agent, &dir, &req.session_id).await {
+                        Ok(id) => (Some(id), None),
+                        Err(e) => (None, Some(e)),
+                    };
+                    out.send(DaemonToServer::SessionForkResult { request_id: req.request_id, session_id, error });
                 });
             }
             ServerToDaemon::RepoProbe(req) => {

@@ -441,6 +441,7 @@ async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
         patchRepos: done.repos,
         ...(done.usage && { usage: done.usage }),
         ...(done.newSessionReason && { newSessionReason: done.newSessionReason }),
+        sessionAfter: done.sessionId,
         endedAt: ctx.now(),
         finalizing: true,
         appendsApplied: done.appendsApplied,

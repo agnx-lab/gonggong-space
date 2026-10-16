@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  type BranchMessageRes,
   EditMessageReq,
   parseMentions,
   SendMessageReq,
@@ -21,6 +22,7 @@ import { reactionsFor } from '../reactions/service.js'
 import { listRuns } from '../runs/dto.js'
 import { triggerRuns } from '../runs/trigger.js'
 import { appendTarget, sendAppend } from './append.js'
+import { branchMessage } from './branch.js'
 import { editMessage } from './edit.js'
 import { memberMentions, notifyMentions } from './mentions.js'
 import { resolveQuote } from './quote.js'
@@ -143,6 +145,13 @@ export function messageRoutes(ctx: Ctx) {
       }
       return dto
     })
+
+    app.post<{ Params: { id: string } }>(
+      '/api/messages/:id/branch',
+      async (req): Promise<BranchMessageRes> => ({
+        groupId: await branchMessage(ctx, await requireUser(ctx, req), req.params.id),
+      }),
+    )
 
     app.post<{ Params: { id: string } }>('/api/messages/:id/recall', async (req) =>
       recallMessage(ctx, await requireUser(ctx, req), req.params.id),

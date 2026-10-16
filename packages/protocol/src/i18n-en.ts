@@ -305,5 +305,9 @@ export const protocolEn = {
   等待服务器确认同步提交超时: 'Timed out waiting for the server to confirm the sync submit',
   '副本内容与 v{version} 不一致': 'The replica does not match v{version}',
   'daemon 版本过旧，请升级': 'The daemon is too old to sync, please upgrade',
+  '分支自「{group}」，以下是分支点之前的对话：\n{summary}':
+    'Branched from 「{group}」; the conversation before the branch point:\n{summary}',
+  '分支自「{group}」，分支点之前没有对话':
+    'Branched from 「{group}」; there was no conversation before the branch point',
 } satisfies Record<string, string>
 export type ProtocolKey = keyof typeof protocolEn

@@ -4,9 +4,9 @@ use crate::ccswitch;
 use crate::config::{Mirror, Settings};
 use crate::local::LocalSettings;
 use crate::protocol::{
-    AgentCatalog, AgentInfo, Choice, DaemonToServer, FEATURE_CC_SWITCH, FEATURE_PROVIDERS, FEATURE_SYNC, FEATURE_TOOLS,
-    ModelChoice, ModelMap, ProviderInput, ProviderStateItem, ProvidersAction, ProvidersCmd, ProvidersResult,
-    ToolsAction, ToolsCmd, ToolsSettings,
+    AgentCatalog, AgentInfo, Choice, DaemonToServer, FEATURE_CC_SWITCH, FEATURE_PROVIDERS, FEATURE_SESSION_FORK,
+    FEATURE_SYNC, FEATURE_TOOLS, ModelChoice, ModelMap, ProviderInput, ProviderStateItem, ProvidersAction,
+    ProvidersCmd, ProvidersResult, ToolsAction, ToolsCmd, ToolsSettings,
 };
 use crate::providers::{self, API_KEY, AUTH_TOKEN, INHERIT, Provider, Selection, Store};
 use crate::service::Outbox;
@@ -45,7 +45,12 @@ impl Manage {
     }
 
     pub fn features(&self) -> Vec<String> {
-        let mut features = vec![FEATURE_TOOLS.to_string(), FEATURE_PROVIDERS.to_string(), FEATURE_SYNC.to_string()];
+        let mut features = vec![
+            FEATURE_TOOLS.to_string(),
+            FEATURE_PROVIDERS.to_string(),
+            FEATURE_SYNC.to_string(),
+            FEATURE_SESSION_FORK.to_string(),
+        ];
         if self.0.cc_switch.is_dir() {
             features.push(FEATURE_CC_SWITCH.into());
         }
@@ -650,9 +655,9 @@ mod tests {
     fn features_include_cc_switch_only_when_present() {
         let home = tempfile::tempdir().unwrap();
         let without = Manage::new(home.path().into(), home.path().join(".cc-switch"));
-        assert_eq!(without.features(), vec!["tools", "providers", "sync"]);
+        assert_eq!(without.features(), vec!["tools", "providers", "sync", "sessionFork"]);
         std::fs::create_dir(home.path().join(".cc-switch")).unwrap();
-        assert_eq!(without.features(), vec!["tools", "providers", "sync", "ccSwitch"]);
+        assert_eq!(without.features(), vec!["tools", "providers", "sync", "sessionFork", "ccSwitch"]);
     }
 
     #[tokio::test]

@@ -1,9 +1,14 @@
 import type { MessageDto, UserCardDto } from '@gonggong/protocol'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render as renderBare, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BotReply, UserMessage } from '../src/features/chat/TimelineItems'
 import { UserCardTrigger } from '../src/features/users'
 import { mockApi } from './mockApi'
+
+/** Message rows open the chat's router (branch navigation), so every render gets one. */
+const render = (ui: ReactElement) => renderBare(<MemoryRouter>{ui}</MemoryRouter>)
 
 let n = 0
 let id = ''

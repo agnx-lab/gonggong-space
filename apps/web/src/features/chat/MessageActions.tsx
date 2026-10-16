@@ -1,5 +1,6 @@
-import { type MessageDto, RECALL_WINDOW_MS } from '@gonggong/protocol'
+import { type BranchMessageRes, type MessageDto, RECALL_WINDOW_MS } from '@gonggong/protocol'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { ApiError, api } from '../../lib/api'
 import { copyWithToast } from '../../lib/clipboard'
 import { toastError } from '../../lib/errors'
@@ -18,6 +19,14 @@ async function recall(m: MessageDto) {
   } catch (e) {
     const late = e instanceof ApiError && e.code === 'recall_expired'
     toast({ type: 'error', message: late ? t('超过 24 小时，无法撤回') : (e as Error).message })
+  }
+}
+
+async function branch(m: MessageDto, open: (groupId: string) => void) {
+  try {
+    open((await api.post<BranchMessageRes>(`/messages/${m.id}/branch`)).groupId)
+  } catch (e) {
+    toastError(e)
   }
 }
 
@@ -107,6 +116,8 @@ export interface ActionTarget {
   own?: boolean
   /** Opens the inline editor of my own message (编辑). */
   onEdit?: () => void
+  /** A bot reply whose run completed: 分支到新聊天 (the server refuses any other message). */
+  branchable?: boolean
 }
 
 /**
@@ -116,12 +127,15 @@ export interface ActionTarget {
 function useMessageMenu(target: ActionTarget) {
   const [picking, setPicking] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const navigate = useNavigate()
   const mine = target.own && target.message ? target.message : null
   const recallable = !!mine && Date.now() - Date.parse(mine.createdAt) < RECALL_WINDOW_MS
   // Commands are not editable (the server refuses them too).
   const editable = recallable && !!target.onEdit && !!mine?.body && !mine.body.trimStart().startsWith('/')
+  const branchable = !!target.branchable && !!target.message
   const more: MenuItem[] = [
     { value: 'link', label: t('复制链接'), icon: 'link' },
+    ...(branchable ? [{ value: 'branch', label: t('分支到新聊天'), icon: 'git-branch' as const }] : []),
     ...(editable ? [{ value: 'edit', label: t('编辑'), icon: 'textformat' as const }] : []),
     ...(mine && recallable ? [{ value: 'recall', label: t('撤回'), icon: 'undo' as const }] : []),
     ...(mine ? [{ value: 'delete', label: t('删除'), icon: 'trash' as const, destructive: true }] : []),
@@ -139,6 +153,8 @@ function useMessageMenu(target: ActionTarget) {
     else if (value === 'copy' && target.copyText !== undefined)
       void copyWithToast(target.copyText, t('已复制'))
     else if (value === 'link') void copyWithToast(target.link, t('链接已复制'))
+    else if (value === 'branch' && target.message)
+      void branch(target.message, (groupId) => navigate(`/g/${groupId}`))
     else if (value === 'edit') target.onEdit?.()
     else if (value === 'recall' && mine) void recall(mine)
     else if (value === 'delete') setDeleting(true)

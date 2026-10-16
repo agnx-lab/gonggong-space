@@ -1,0 +1,9 @@
+{
+  "t": "session.fork",
+  "requestId": "f1",
+  "agent": "claude",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": { "repo": null, "cdPath": "/Users/me/code/app" },
+  "sessionId": "s-1"
+}

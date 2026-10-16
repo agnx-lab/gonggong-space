@@ -502,6 +502,17 @@ pub struct FilesList {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionFork {
+    pub request_id: String,
+    pub agent: AgentKind,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceOpen {
     pub request_id: String,
     pub group_id: String,
@@ -975,6 +986,7 @@ pub const FEATURE_TOOLS: &str = "tools";
 pub const FEATURE_PROVIDERS: &str = "providers";
 pub const FEATURE_CC_SWITCH: &str = "ccSwitch";
 pub const FEATURE_SYNC: &str = "sync";
+pub const FEATURE_SESSION_FORK: &str = "sessionFork";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolsSettings {
@@ -1329,6 +1341,8 @@ pub enum DaemonToServer {
     AppsListResult { request_id: String, apps: Vec<String> },
     #[serde(rename = "workspace.open.result", rename_all = "camelCase")]
     WorkspaceOpenResult { request_id: String, error: Option<String> },
+    #[serde(rename = "session.fork.result", rename_all = "camelCase")]
+    SessionForkResult { request_id: String, session_id: Option<String>, error: Option<String> },
     #[serde(rename = "repo.found")]
     RepoFound(RepoFound),
     #[serde(rename = "files.result", rename_all = "camelCase")]
@@ -1487,6 +1501,8 @@ pub enum ServerToDaemon {
     AppsList { request_id: String },
     #[serde(rename = "workspace.open")]
     WorkspaceOpen(WorkspaceOpen),
+    #[serde(rename = "session.fork")]
+    SessionFork(SessionFork),
     #[serde(rename = "repo.find")]
     RepoFind(RepoFind),
     #[serde(rename = "question.answer", rename_all = "camelCase")]

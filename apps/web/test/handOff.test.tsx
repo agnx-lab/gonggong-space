@@ -1,9 +1,14 @@
 import type { BotDto, GroupDto, MessageDto } from '@gonggong/protocol'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render as renderBare, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useWorkspace } from '../src/app/workspace'
 import { useCite } from '../src/features/chat/cite'
 import { BotReply } from '../src/features/chat/TimelineItems'
+
+/** Message rows open the chat's router (branch navigation), so every render gets one. */
+const render = (ui: ReactElement) => renderBare(<MemoryRouter>{ui}</MemoryRouter>)
 
 const bot = (id: string, name: string) => ({ id, name, avatar: 'role-no', presence: 'online' }) as BotDto
 const reply = (o: Partial<MessageDto>): MessageDto => ({

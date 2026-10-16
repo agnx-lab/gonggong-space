@@ -22,12 +22,12 @@ use crate::turn::{
 use crate::workspace;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    self as acp, CancelNotification, ClientCapabilities, EnvVariable, HttpHeader, InitializeRequest,
-    InitializeResponse, LoadSessionRequest, McpServerHttp, McpServerStdio, Meta, NewSessionRequest, PermissionOption,
-    PermissionOptionId, PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
-    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions,
-    SessionConfigValueId, SessionId, SessionModeState, SessionNotification, SessionUpdate,
+    self as acp, CancelNotification, ClientCapabilities, EnvVariable, ForkSessionRequest, HttpHeader,
+    InitializeRequest, InitializeResponse, LoadSessionRequest, McpServerHttp, McpServerStdio, Meta, NewSessionRequest,
+    PermissionOption, PermissionOptionId, PermissionOptionKind, PromptRequest, PromptResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest,
+    SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason, Usage as AcpUsage,
 };
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, Handled, UntypedMessage};
@@ -820,6 +820,27 @@ pub(crate) async fn probe(agent: AcpAgent, cwd: &std::path::Path) -> Result<Agen
         })
         .await
         .map_err(|e| describe(&e))
+}
+
+/// Forks `session` in `cwd` (session/fork, unstable) and returns the new session's id. The adapter copies the whole
+/// session, so the copy starts from the session's state as of its last turn.
+pub(crate) async fn fork(agent: AcpAgent, cwd: &std::path::Path, session: &str) -> Result<String, String> {
+    let forked = Client
+        .builder()
+        .connect_with(agent, async |cx: ConnectionTo<Agent>| {
+            let init = InitializeRequest::new(ProtocolVersion::V1)
+                .client_capabilities(ClientCapabilities::new().meta(client_meta()));
+            let init = cx.send_request(init).block_task().await?;
+            if init.agent_capabilities.session_capabilities.fork.is_none() {
+                return Ok(None);
+            }
+            let req = ForkSessionRequest::new(SessionId::new(session), cwd);
+            let res = cx.send_request(req).block_task().await?;
+            Ok(Some(res.session_id.0.to_string()))
+        })
+        .await
+        .map_err(|e| describe(&e))?;
+    forked.ok_or_else(|| t!("适配器不支持分支会话").to_string())
 }
 
 /// A select option of the given category: (config id, current value, choices).

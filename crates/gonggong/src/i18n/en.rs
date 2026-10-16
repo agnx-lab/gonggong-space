@@ -356,6 +356,7 @@ pub(super) const EN: &[(&str, &str)] = &[
     ),
     ("无法写入 {path}", "Can't write {path}"),
     ("探测 {kind} 可选模型超时", "Timed out probing {kind} models"),
+    ("适配器不支持分支会话", "The adapter cannot branch sessions"),
     ("该轮已结束或不在本机运行", "This turn has ended or isn't running on this machine"),
     ("读取工作区改动超时", "Timed out reading workspace changes"),
     (

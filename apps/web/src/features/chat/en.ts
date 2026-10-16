@@ -198,4 +198,5 @@ export default {
   有未提交改动: 'Uncommitted changes',
   '{changes} · {ago}检查': '{changes} · checked {ago}',
   附加目录: 'Extra directories',
+  分支到新聊天: 'Branch to new chat',
 } satisfies Record<string, string>
