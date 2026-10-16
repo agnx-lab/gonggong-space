@@ -11,7 +11,7 @@
 
 ## 命令
 - `pnpm db:up` 启动项目内 PostgreSQL（端口 54329，不碰系统服务）
-- `pnpm -r test`、`cargo test --workspace`、`pnpm typecheck`、`pnpm lint`（biome）
+- `pnpm check`（推送前自检：typecheck + lint + 按改动范围选的测试，`--all` 跑全量）；`pnpm -r test`、`cargo test --workspace`、`pnpm typecheck`、`pnpm lint`（biome）
 - HTTPS 开发：`bash scripts/dev-cert.sh` 生成自签证书并打印 `GONGGONG_TLS_CERT/GONGGONG_TLS_KEY`，daemon 用 `gg login --server https://127.0.0.1:<port>`（不校验证书，见 `docs/plan/安全说明.md`）
 - `pnpm e2e`；迁移：改 `schema.ts` 后 `pnpm --filter @gonggong/server db:generate`
 

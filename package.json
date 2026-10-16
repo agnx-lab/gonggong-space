@@ -15,6 +15,7 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "test": "node --test tools/*.test.mjs && pnpm -r test && cargo test --workspace",
+    "check": "bash scripts/check.sh",
     "e2e": "playwright test -c e2e"
   },
   "devDependencies": {

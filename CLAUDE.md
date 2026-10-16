@@ -11,7 +11,7 @@
 
 ## 命令
 - `pnpm db:up` 启动项目内 PostgreSQL（端口 54329，不碰系统服务）
-- `pnpm -r test`、`cargo test --workspace`、`pnpm typecheck`、`pnpm lint`（biome）
+- `pnpm check`（推送前自检：typecheck + lint + 按改动范围选的测试，`--all` 跑全量）；`pnpm -r test`、`cargo test --workspace`、`pnpm typecheck`、`pnpm lint`（biome）
 - HTTPS 开发：`bash scripts/dev-cert.sh` 生成自签证书并打印 `GONGGONG_TLS_CERT/GONGGONG_TLS_KEY`，daemon 用 `gg login --server https://127.0.0.1:<port>`（不校验证书，见 `docs/plan/安全说明.md`）
 - `pnpm e2e`；迁移：改 `schema.ts` 后 `pnpm --filter @gonggong/server db:generate`
 
@@ -25,7 +25,8 @@
 
 ## 规则
 - **TDD**：先写失败测试（验收 → 集成 → 单元），再实现。切片完成 = 本切片测试全绿 + 全量不回归 + typecheck + lint。
-- **完成即自检**：提交前跑 `pnpm typecheck && pnpm lint && pnpm test`（全部包含 desktop 与 cargo，与 Jenkins 一致），再审查一遍 diff 并修完问题。改 `apps/web/src/ui/` 等共享代码时，同时检查所有使用方（desktop 复用 web 组件）。机器负载高时并行测试会偶发超时，失败用例要单独重跑确认，不能直接忽略。
+- **完成即自检**：推送前跑 `pnpm check`（typecheck + lint + 按改动范围选的套件，见 `scripts/check.sh`；`pnpm check --all` 跑全量），再审查一遍 diff 并修完问题。Jenkins 跑全量兜底，挂了由提交人立即修。并行子代理只跑本包测试，合并后由集成者跑一次 `pnpm check`。改 `apps/web/src/ui/` 等共享代码时，同时检查所有使用方（desktop 复用 web 组件）。机器负载高时并行测试会偶发超时，失败用例要单独重跑确认，不能直接忽略。
+- daemon 集成测试写在 `crates/gonggong/tests/it/`（合成一个测试二进制）；只有改进程级状态（环境变量、全局 tracing）的测试才单独放 `tests/*.rs`。
 - 服务端测试用 `test/support/db.ts` 的 `createTestDb()`（每个文件独立数据库），用 `test/support/app.ts` 的种子助手造数据，不要依赖其他切片的 HTTP 流程。
 - 协议变化：先改 `packages/protocol`，daemon 消息同步加 fixture 并更新 `crates/gonggong/src/protocol.rs`。
 - 代码、注释、标识符用英文；界面文案用中文，与原型一致。注释非必要不写，只解释「为什么」。
