@@ -1,8 +1,11 @@
 import { createContext, isValidElement, memo, type ReactNode, useContext, useMemo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useWorkbench } from '../../app/workbench'
 import { t } from '../../i18n'
+import { api } from '../../lib/api'
 import { CodeBlock, splitMentions, toast } from '../../ui'
+import { openTab } from '../workbench/open'
 
 const copyFailed = () => toast({ type: 'error', message: t('复制失败') })
 
@@ -46,6 +49,84 @@ function trimAutolinks(node: MdNode) {
 
 const remarkPlugins = [remarkGfm, () => trimAutolinks]
 
+/** A file name with an extension (`a.ts`, `Markdown.test.tsx`) or a dotfile (`.env`); `v1.2` is not one. */
+const FILE_NAME = /(?:^|\/)\.?[\w@-][\w@.-]*\.[A-Za-z]\w{0,7}$|(?:^|\/)\.[\w-]+$/
+/** `path`, `path:from`, `path:from-to`, or `:from-to` alone (the previous file of the reply). */
+const FILE_REF = /^([\w@.-]+(?:\/[\w@.-]+)*)?(?::(\d+)(?:-(\d+))?)?$/
+
+type FileRefProps = {
+  path: string
+  from?: number
+  to?: number
+}
+
+/** Inline code naming a workspace file, with its line range; `last` is the file the reply named before. */
+function fileRef(code: string, last: string | null): FileRefProps | null {
+  const m = FILE_REF.exec(code)
+  if (!m || (!m[1] && !m[2])) return null
+  const from = m[2] === undefined ? undefined : Number(m[2])
+  const to = m[3] === undefined ? from : Number(m[3])
+  if (from !== undefined && to !== undefined && to < from) return null
+  const lines = from === undefined ? {} : { from, to }
+  if (m[1] === undefined) return last ? { path: last, ...lines } : null
+  const path = m[1].replace(/^\.\//, '')
+  if (!FILE_NAME.test(path) || path.split('/').includes('..')) return null
+  return { path, ...lines }
+}
+
+/**
+ * Inline code that names a workspace file becomes a `file-ref` node; a bare `:from-to` reuses the file named
+ * just before it in the same reply. Runs last, so mentions and autolinks never see the code.
+ */
+const remarkFileRefs = () => (tree: MdNode) => {
+  let last: string | null = null
+  const visit = (node: MdNode) => {
+    if (!node.children || node.type === 'link') return
+    node.children = node.children.map((c) => {
+      if (c.type !== 'inlineCode') {
+        visit(c)
+        return c
+      }
+      const ref = fileRef(c.value ?? '', last)
+      if (!ref) return c
+      last = ref.path
+      return {
+        type: 'fileRef',
+        data: { hName: 'file-ref', hProperties: ref },
+        children: [{ type: 'text', value: c.value }],
+      }
+    })
+  }
+  visit(tree)
+}
+
+/** A workspace file a bot named: opens it in a file tab when the bot's workspace has it, else says so. */
+function FileRef({
+  botId,
+  path,
+  from,
+  to,
+  children,
+}: FileRefProps & { botId: string; children?: ReactNode }) {
+  const groupId = useWorkbench((s) => s.groupId)
+  const open = async () => {
+    if (!groupId) return
+    const line = from === undefined ? undefined : { from, to: to ?? from }
+    try {
+      await api.get(`/groups/${groupId}/bots/${botId}/files/text?path=${encodeURIComponent(path)}`)
+    } catch {
+      toast({ type: 'error', message: t('工作区里没找到') })
+      return
+    }
+    openTab({ kind: 'file', source: { botId, path, ...(line ? { line } : {}) } })
+  }
+  return (
+    <button type="button" className="md-file-ref" onClick={open}>
+      <code>{children}</code>
+    </button>
+  )
+}
+
 /** Names a reply may @ in this chat; without it (files, process view) an @ is plain text. */
 interface Names {
   members: string[]
@@ -86,7 +167,7 @@ function remarkMentions({ members, bots, me }: Names) {
   return () => visit
 }
 
-const components: Components = {
+const baseComponents: Components = {
   pre: ({ children }) => {
     const { text, language } = fenced(children)
     return <CodeBlock code={text} language={language} onCopyError={copyFailed} />
@@ -99,10 +180,21 @@ const components: Components = {
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
 }
 
-/** Bot reply rendering: GFM (tables, task lists) + Pane code blocks with copy. */
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+/** Bot reply rendering: GFM (tables, task lists) + Pane code blocks with copy; `botId` makes file names in code clickable. */
+export const Markdown = memo(function Markdown({ text, botId }: { text: string; botId?: string }) {
   const names = useContext(MentionNames)
-  const plugins = useMemo(() => (names ? [...remarkPlugins, remarkMentions(names)] : remarkPlugins), [names])
+  const plugins = useMemo(
+    () => [...remarkPlugins, ...(names ? [remarkMentions(names)] : []), ...(botId ? [remarkFileRefs] : [])],
+    [names, botId],
+  )
+  const components = useMemo(
+    () =>
+      ({
+        ...baseComponents,
+        'file-ref': (p: FileRefProps & { children?: ReactNode }) => <FileRef {...p} botId={botId ?? ''} />,
+      }) as Components,
+    [botId],
+  )
   return (
     <div className="md">
       <ReactMarkdown remarkPlugins={plugins} components={components}>

@@ -471,7 +471,7 @@ function ReplyMessage({
           />
         ) : (
           <Clamp>
-            <Markdown text={m.body} />
+            <Markdown text={m.body} botId={m.authorId ?? undefined} />
           </Clamp>
         )}
         <ReactionBar message={m} />

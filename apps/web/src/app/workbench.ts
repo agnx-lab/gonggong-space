@@ -2,6 +2,12 @@ import type { Attachment, DiffScope } from '@gonggong/protocol'
 import { create } from 'zustand'
 
 /** Right-hand workbench of the chat page (docs/plan/预览工作台-设计.md): tabs per group, three space modes. */
+/** 1-based inclusive line range of a file. */
+export interface LineRange {
+  from: number
+  to: number
+}
+
 export type WorkbenchTab =
   | { kind: 'web'; previewId: string; path: string }
   | { kind: 'miniprogram'; previewId: string }
@@ -11,7 +17,7 @@ export type WorkbenchTab =
   | { kind: 'files'; botId: string; dir: string; selected: string | null }
   | {
       kind: 'file'
-      source: { botId: string; path: string } | { attachment: Attachment; from: string }
+      source: { botId: string; path: string; line?: LineRange } | { attachment: Attachment; from: string }
     }
 
 export type WorkbenchMode = 'split' | 'focus' | 'full'
