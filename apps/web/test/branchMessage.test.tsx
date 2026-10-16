@@ -1,8 +1,8 @@
-import type { MessageDto } from '@gonggong/protocol'
+import type { MessageDto, RunDto } from '@gonggong/protocol'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { describe, expect, it } from 'vitest'
-import { type ActionTarget, MessageActions } from '../src/features/chat/MessageActions'
+import { type ActionTarget, branchableRuns, MessageActions } from '../src/features/chat/MessageActions'
 import { mockApi } from './mockApi'
 
 const reply = {
@@ -55,5 +55,18 @@ describe('分支到新聊天', () => {
     open(target({ branchable: false }))
     await screen.findByText('复制链接')
     expect(screen.queryByText('分支到新聊天')).toBeNull()
+  })
+
+  it('is offered only on each owned bot latest completed run', () => {
+    const run = (id: string, botId: string, status: string, startedAt: string | null) =>
+      ({ id, botId, status, startedAt }) as unknown as RunDto
+    const runs = [
+      run('r1', 'mine', 'completed', '2026-10-16T10:00:00Z'),
+      run('r2', 'mine', 'completed', '2026-10-16T11:00:00Z'),
+      run('r3', 'mine', 'interrupted', '2026-10-16T12:00:00Z'),
+      run('r4', 'theirs', 'completed', '2026-10-16T13:00:00Z'),
+      run('r5', 'theirs', 'completed', '2026-10-16T14:00:00Z'),
+    ]
+    expect([...branchableRuns(runs, (botId) => botId === 'mine')]).toEqual(['r2'])
   })
 })

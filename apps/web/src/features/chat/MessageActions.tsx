@@ -1,4 +1,4 @@
-import { type BranchMessageRes, type MessageDto, RECALL_WINDOW_MS } from '@gonggong/protocol'
+import { type BranchMessageRes, type MessageDto, RECALL_WINDOW_MS, type RunDto } from '@gonggong/protocol'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ApiError, api } from '../../lib/api'
@@ -105,6 +105,20 @@ function useLongPress(bar: RefObject<HTMLDivElement | null>) {
   }, [bar])
 }
 
+/**
+ * The runs whose reply may branch: each owned bot's latest completed run in the group. Mirrors the server's check in
+ * messages/branch.ts, so the menu is never offered where the server would refuse.
+ */
+export function branchableRuns(runs: RunDto[], isMine: (botId: string) => boolean): Set<string> {
+  const latest = new Map<string, { id: string; at: number }>()
+  for (const r of runs) {
+    if (r.status !== 'completed' || !r.startedAt || !isMine(r.botId)) continue
+    const at = Date.parse(r.startedAt)
+    if ((latest.get(r.botId)?.at ?? -Infinity) < at) latest.set(r.botId, { id: r.id, at })
+  }
+  return new Set(Array.from(latest.values(), (v) => v.id))
+}
+
 export interface ActionTarget {
   /** The message the actions act on; null for a run card without its reply yet (no reactions). */
   message: MessageDto | null
@@ -116,7 +130,7 @@ export interface ActionTarget {
   own?: boolean
   /** Opens the inline editor of my own message (编辑). */
   onEdit?: () => void
-  /** A bot reply whose run completed: 分支到新聊天 (the server refuses any other message). */
+  /** A bot reply on its owner's latest completed run: 分支到新聊天 (see branchableRuns). */
   branchable?: boolean
 }
 

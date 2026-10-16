@@ -53,6 +53,7 @@ import { GitBar } from './GitBar'
 import { continues, eventFolds, sameDay, unreadStart } from './grouping'
 import { LiveRunsBar } from './LiveRunsBar'
 import { MentionNames } from './Markdown'
+import { branchableRuns } from './MessageActions'
 import { MessageComposer } from './MessageComposer'
 import { ProviderBanner } from './ProviderBanner'
 import { repoName } from './repo'
@@ -340,6 +341,10 @@ export function ChatView({
     )
   }
   const runList = useMemo(() => Object.values(tl.runs), [tl.runs])
+  const branchable = useMemo(
+    () => branchableRuns(runList, (id) => botsById.get(id)?.ownerId === me?.id),
+    [runList, botsById, me?.id],
+  )
 
   const names = useMemo(
     () => [...bots.map((b) => b.name), ...group.members.map((m) => m.name)],
@@ -368,6 +373,7 @@ export function ChatView({
           r.triggerUserId ? userName(r.triggerUserId) : (byId.get(r.triggerMessageId)?.authorName ?? '—')
         }
         foldable={group.foldRuns}
+        branchable={branchable.has(r.id)}
       />
     )
   }

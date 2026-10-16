@@ -510,6 +510,7 @@ export const RunCard = memo(function RunCard({
   agent,
   trigger,
   foldable = false,
+  branchable = false,
 }: {
   run: RunDto
   reply?: MessageDto
@@ -518,6 +519,8 @@ export const RunCard = memo(function RunCard({
   trigger: string
   /** My 运行卡片默认折叠 pref (the reply stays visible); cards awaiting my decision always stay open. */
   foldable?: boolean
+  /** Offers 分支到新聊天 on the reply (see branchableRuns). */
+  branchable?: boolean
 }) {
   /** null until the user toggles, so the fold animation never plays on first render. */
   const [expanded, setExpanded] = useState<boolean | null>(null)
@@ -556,7 +559,7 @@ export const RunCard = memo(function RunCard({
             text: toolTitle(stepText(run)) || STATUS_LABEL[run.status],
           }),
     copyText: reply?.body,
-    branchable: run.status === 'completed',
+    branchable,
   }
   const diff = () => openTab({ kind: 'run', runId: run.id, view: 'diff', file: null })
   const process = (

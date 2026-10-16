@@ -5,7 +5,6 @@ import type { Ctx } from '../../context.js'
 import { bots, groupBots, messages, runs, users } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
-import { isSharedWith } from '../bots/shares.js'
 import { createGroup } from '../groups/create.js'
 import { requireMember } from '../groups/service.js'
 import { requestCd } from '../workspaces/cd.js'
@@ -32,6 +31,14 @@ export async function branchMessage(ctx: Ctx, me: { id: string; name: string }, 
   if (m.kind !== 'bot' || !m.runId || m.recalledAt) return fail('invalid', '只能从 Bot 的回复分支')
   const [run] = await ctx.db.select().from(runs).where(eq(runs.id, m.runId))
   if (run?.status !== 'completed' || !run.sessionAfter) return fail('invalid', '这条回复没有可分支的会话')
+  // The bot's session moves on with every completed round, so only its latest one can be forked.
+  const [latest] = await ctx.db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.groupId, group.id), eq(runs.botId, run.botId), eq(runs.status, 'completed')))
+    .orderBy(desc(runs.startedAt))
+    .limit(1)
+  if (latest?.id !== run.id) return fail('invalid', '只能从最新一轮分支')
   const [row] = await ctx.db
     .select({
       id: bots.id,
@@ -53,8 +60,8 @@ export async function branchMessage(ctx: Ctx, me: { id: string; name: string }, 
       ),
     )
   if (!row) return fail('not_found', '该 Bot 不在群内')
-  if (row.ownerId !== me.id && !(await isSharedWith(ctx, row.id, me.id)))
-    return fail('forbidden', '私聊只能拉入你自己或共享给你的 Bot')
+  // Only the owner: a fork of a shared bot would expose its session history to the sharee.
+  if (row.ownerId !== me.id) return fail('forbidden', '只能分支你自己的 Bot 的回复')
   const machineId = onlineMachine(ctx, row.machineId)
   if (!machineId) return fail('conflict', '{bot} 离线，无法分支', { bot: row.name })
   if (!ctx.hub.features(machineId).includes('sessionFork'))

@@ -591,6 +591,8 @@ export const en = {
   // Branching a bot reply into a new direct chat
   '只能从 Bot 的回复分支': 'Only a Bot reply can be branched',
   这条回复没有可分支的会话: 'This reply has no session to branch from',
+  只能从最新一轮分支: 'Only the latest round can be branched',
+  '只能分支你自己的 Bot 的回复': 'Only replies from your own Bots can be branched',
   '{bot} 离线，无法分支': "{bot} is offline, can't branch",
   '{bot} 所在机器的 daemon 版本过旧，请升级后再分支':
     "The daemon on {bot}'s machine is too old to branch; please upgrade",

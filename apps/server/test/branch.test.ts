@@ -51,6 +51,7 @@ async function world() {
         triggerMessageId: trigger.id,
         originUserId: wang.id,
         status,
+        startedAt: trigger.createdAt,
         sessionAfter,
       })
       .returning()
@@ -115,7 +116,7 @@ const dmsOf = (ownerId: string) =>
 describe('POST /api/messages/:id/branch', () => {
   it('opens a DM with the bot on the forked session, copies the binding and writes the summary first', async () => {
     const w = await world()
-    const res = await w.asWang.post<{ groupId: string }>(`/api/messages/${w.first.id}/branch`)
+    const res = await w.asWang.post<{ groupId: string }>(`/api/messages/${w.second.id}/branch`)
     expect(res.status).toBe(200)
 
     const [dm] = await dmsOf(w.wang.id)
@@ -126,7 +127,7 @@ describe('POST /api/messages/:id/branch', () => {
       .where(and(eq(groupBots.groupId, dm!.id), eq(groupBots.botId, w.bot.id)))
     expect(gb!.sessionId).toBe('sess-fork')
 
-    expect(w.forks).toEqual([{ sessionId: 'sess-1' }])
+    expect(w.forks).toEqual([{ sessionId: 'sess-2' }])
     expect(w.sent).toContainEqual(
       expect.objectContaining({ t: 'workspace.cd', groupId: dm!.id, botId: w.bot.id, path: '/code/app' }),
     )
@@ -138,15 +139,16 @@ describe('POST /api/messages/:id/branch', () => {
       .orderBy(messages.seq)
     const summary = events.map((e) => e.body).find((b) => b.includes('第一问'))
     expect(summary).toBeDefined()
-    expect(summary).not.toContain('第一答')
-    expect(events.some((e) => e.body.includes('第二'))).toBe(false)
+    expect(summary).toContain('第二问')
+    expect(summary).not.toContain('第二答')
+    expect(summary).not.toContain('已撤回')
   })
 
-  it('branches from a middle round on that round session, not the latest one', async () => {
+  it('refuses a reply from an earlier round, since its session has moved on', async () => {
     const w = await world()
-    const res = await w.asWang.post(`/api/messages/${w.second.id}/branch`)
-    expect(res.status).toBe(200)
-    expect(w.forks).toEqual([{ sessionId: 'sess-2' }])
+    expect((await w.asWang.post(`/api/messages/${w.first.id}/branch`)).status).toBe(400)
+    expect(w.forks).toEqual([])
+    expect(await dmsOf(w.wang.id)).toEqual([])
   })
 
   it('refuses a member message, an interrupted reply, a recalled reply and a non-member', async () => {
@@ -160,24 +162,22 @@ describe('POST /api/messages/:id/branch', () => {
     expect(await dmsOf(w.wang.id)).toEqual([])
   })
 
-  it('lets a member open the DM only when the bot is shared with them, checked before forking', async () => {
+  it('refuses a shared bot even when it is shared with the member, before forking', async () => {
     const w = await world()
-    expect((await w.asLi.post(`/api/messages/${w.first.id}/branch`)).status).toBe(403)
-    expect(w.forks).toEqual([])
+    expect((await w.asLi.post(`/api/messages/${w.second.id}/branch`)).status).toBe(403)
     await t.db.insert(botShares).values({ botId: w.bot.id, userId: w.li.id, createdBy: w.wang.id })
-    const res = await w.asLi.post<{ groupId: string }>(`/api/messages/${w.first.id}/branch`)
-    expect(res.status).toBe(200)
-    const [dm] = await t.db.select().from(groups).where(eq(groups.id, res.body.groupId))
-    expect(dm!.createdBy).toBe(w.li.id)
+    expect((await w.asLi.post(`/api/messages/${w.second.id}/branch`)).status).toBe(403)
+    expect(w.forks).toEqual([])
+    expect(await t.db.select().from(groups).where(eq(groups.createdBy, w.li.id))).toEqual([])
   })
 
   it('creates no DM when the bot is offline or the adapter cannot fork', async () => {
     const w = await world()
     w.setOnline(false)
-    expect((await w.asWang.post(`/api/messages/${w.first.id}/branch`)).status).toBe(409)
+    expect((await w.asWang.post(`/api/messages/${w.second.id}/branch`)).status).toBe(409)
     w.setOnline(true)
     w.setFork({ sessionId: null, error: '适配器不支持分支会话' })
-    const failed = await w.asWang.post<{ message?: string }>(`/api/messages/${w.first.id}/branch`)
+    const failed = await w.asWang.post<{ message?: string }>(`/api/messages/${w.second.id}/branch`)
     expect(failed.status).toBe(409)
     expect(failed.body.message).toContain('适配器不支持分支会话')
     expect(await dmsOf(w.wang.id)).toEqual([])
@@ -186,7 +186,7 @@ describe('POST /api/messages/:id/branch', () => {
   it('refuses when the reply carries no session to fork', async () => {
     const w = await world()
     await t.db.update(runs).set({ sessionAfter: null }).where(eq(runs.botId, w.bot.id))
-    expect((await w.asWang.post(`/api/messages/${w.first.id}/branch`)).status).toBe(400)
+    expect((await w.asWang.post(`/api/messages/${w.second.id}/branch`)).status).toBe(400)
     expect(w.forks).toEqual([])
   })
 })
