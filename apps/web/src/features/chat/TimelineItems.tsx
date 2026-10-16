@@ -52,6 +52,7 @@ import {
   STATUS_LABEL,
   TokenFact,
 } from './RunGraphics'
+import { reedit, useRecalled } from './recalled'
 import './recall.css'
 import { t } from '../../i18n'
 
@@ -209,10 +210,14 @@ export const EventFold = memo(function EventFold({
   )
 })
 
-/** A recalled message: the Pane recalled notice in place of the content (no 重新编辑: the body is gone). */
+/** A recalled message: the Pane recalled notice in place of the content; 重新编辑 while I still hold what I recalled. */
 export const RecallRow = memo(function RecallRow({ m, mine }: { m: MessageDto; mine: boolean }) {
+  const held = useRecalled((s) => mine && m.id in s.drafts)
   return (
-    <ChatNotice kind="recalled">
+    <ChatNotice
+      kind="recalled"
+      action={held ? { label: t('重新编辑'), onClick: () => reedit(m.id) } : undefined}
+    >
       {mine ? t('你撤回了一条消息') : t('{name} 撤回了一条消息', { name: m.authorName })}
     </ChatNotice>
   )
@@ -236,10 +241,16 @@ const link = (groupId: string, query: string) => `${location.origin}/g/${groupId
 /** Quoting a bot only adds context; @ it to trigger it (spec §8.6). */
 const BOT_QUOTE = t('引用回复不会触发 Bot')
 
-const messageTarget = (m: MessageDto, own = false, onEdit?: () => void): ActionTarget => ({
+const messageTarget = (
+  m: MessageDto,
+  own = false,
+  onEdit?: () => void,
+  startedRuns?: (messageId: string) => string[],
+): ActionTarget => ({
   message: m,
   own,
   onEdit,
+  startedRuns: startedRuns && (() => startedRuns(m.id)),
   link: link(m.groupId, `msg=${m.id}`),
   quoteTitle: m.kind === 'bot' ? BOT_QUOTE : undefined,
   onQuote: () => quoteMessage(m),
@@ -308,6 +319,7 @@ export const UserMessage = memo(function UserMessage({
   fanOut = [],
   mine = false,
   compact = false,
+  startedRuns,
 }: {
   m: MessageDto
   names: string[]
@@ -316,6 +328,8 @@ export const UserMessage = memo(function UserMessage({
   fanOut?: string[]
   mine?: boolean
   compact?: boolean
+  /** Started runs by trigger message (stable, so rows stay memoized): 撤回 stops them. */
+  startedRuns?: (messageId: string) => string[]
 }) {
   const text = !!(m.body || m.quote)
   const [editing, setEditing] = useState(false)
@@ -323,7 +337,7 @@ export const UserMessage = memo(function UserMessage({
     (s) => s.groups.find((g) => g.id === m.groupId)?.members.find((x) => x.userId === m.authorId)?.avatar,
   )
   return (
-    <MessageMenu {...messageTarget(m, mine, mine ? () => setEditing(true) : undefined)}>
+    <MessageMenu {...messageTarget(m, mine, mine ? () => setEditing(true) : undefined, startedRuns)}>
       {(bar) => (
         <Message
           author={mine ? { name: m.authorName, avatar: avatar ?? undefined } : person(m, avatar ?? undefined)}

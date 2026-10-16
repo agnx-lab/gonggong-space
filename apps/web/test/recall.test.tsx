@@ -1,11 +1,18 @@
-import type { BotDto, GroupDto, MessageDto, UserDto, WebEvent } from '@gonggong/protocol'
+import type { BotDto, GroupDto, MessageDto, RunDto, UserDto, WebEvent } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
+import { uploadFile } from '../src/features/attachments/api'
+import { useRecalled } from '../src/features/chat/recalled'
 import { apiError, mockApi } from './mockApi'
+
+vi.mock('../src/features/attachments/api', async (orig) => ({
+  ...(await orig<typeof import('../src/features/attachments/api')>()),
+  uploadFile: vi.fn(),
+}))
 
 const me: UserDto = {
   id: 'u1',
@@ -75,13 +82,42 @@ class FakeSocket {
 }
 const push = (e: WebEvent) => act(() => FakeSocket.last!.onmessage!({ data: JSON.stringify(e) }))
 
-const renderChat = (messages: MessageDto[], routes: Record<string, unknown> = {}) => {
+const run = (o: Partial<RunDto>): RunDto => ({
+  id: 'r1',
+  groupId: 'g1',
+  botId: 'b1',
+  triggerMessageId: 'm1',
+  triggerUserId: 'u1',
+  hop: 1,
+  status: 'running',
+  step: '',
+  filesChanged: 0,
+  usage: null,
+  newSessionReason: null,
+  parentRunId: null,
+  hopMax: 3,
+  offlineWaitMin: 30,
+  originUserId: 'u1',
+  approvals: [],
+  questions: [],
+  interrupt: null,
+  stoppedBy: null,
+  delegation: { subagents: 0, subagentsRunning: 0, tasksRunning: 0 },
+  model: null,
+  effort: null,
+  queuedAt: new Date(Date.now() - HOUR).toISOString(),
+  startedAt: new Date(Date.now() - HOUR).toISOString(),
+  endedAt: null,
+  ...o,
+})
+
+const renderChat = (messages: MessageDto[], routes: Record<string, unknown> = {}, runs: RunDto[] = []) => {
   const calls = mockApi({
     'GET /groups': [group],
     'GET /bots': [] as BotDto[],
     'GET /machines': [],
     'GET /notifications': [],
-    'GET /groups/g1/timeline?limit=50': { messages, runs: [] },
+    'GET /groups/g1/timeline?limit=50': { messages, runs },
     'POST /groups/g1/read': group,
     ...routes,
   })
@@ -105,6 +141,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   useSession.setState({ user: me, status: 'ready' })
   useWorkspace.setState({ groups: [], bots: [], machines: [], activeGroupId: null })
+  useRecalled.setState({ drafts: {}, pending: null })
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -171,6 +208,96 @@ describe('recall', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '撤回' }))
     expect(await screen.findByText('超过 24 小时，无法撤回')).toBeTruthy()
     expect(screen.getByText('快到期')).toBeTruthy()
+  })
+})
+
+describe('重新编辑', () => {
+  const box = () =>
+    screen.getByPlaceholderText('输入消息，@ 触发 Bot 或引用文件，/ 查看命令') as HTMLTextAreaElement
+  const recallIt = async (text: string) => {
+    await openMore(text)
+    fireEvent.click(screen.getByRole('menuitem', { name: '撤回' }))
+    await screen.findByText('你撤回了一条消息')
+  }
+  const recalled = (m: MessageDto) => ({ 'POST /messages/m1/recall': { ...m, body: '', recalled: true } })
+
+  it('puts my recalled text, @ and quote back into the composer', async () => {
+    const m = msg({
+      seq: 1,
+      body: '@Claude 改成 v3',
+      quote: { kind: 'message', id: 'm0', who: '李建国', text: '方案 v2' },
+    })
+    renderChat([m], recalled(m))
+    await recallIt('@Claude 改成 v3')
+    fireEvent.click(screen.getByRole('button', { name: '重新编辑' }))
+    expect(box().value).toBe('@Claude 改成 v3')
+    expect(screen.getByText('方案 v2')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '重新编辑' })).toBeNull()
+  })
+
+  it('brings its attachments back as new uploads', async () => {
+    vi.mocked(uploadFile).mockImplementation((_g, f) => ({
+      done: Promise.resolve({ id: 'up1', name: f.name, size: f.size, mime: f.type }),
+      abort: vi.fn(),
+    }))
+    const m = msg({
+      seq: 1,
+      body: '看图',
+      attachments: [{ id: 'a1', name: 'shot.png', size: 3, mime: 'image/png', messageId: 'm1' }],
+    })
+    const calls = renderChat([m], { ...recalled(m), 'GET /attachments/a1': new Response('png') })
+    await recallIt('看图')
+    expect(calls.some((c) => c.path === '/attachments/a1')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '重新编辑' }))
+    expect(vi.mocked(uploadFile).mock.calls[0]?.[1]).toMatchObject({ name: 'shot.png', type: 'image/png' })
+  })
+
+  it('is offered for five minutes only', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const m = msg({ seq: 1, body: '晚点再说' })
+      renderChat([m], recalled(m))
+      await recallIt('晚点再说')
+      expect(screen.getByRole('button', { name: '重新编辑' })).toBeTruthy()
+      act(() => vi.advanceTimersByTime(5 * 60_000 - 1000))
+      expect(screen.getByRole('button', { name: '重新编辑' })).toBeTruthy()
+      act(() => vi.advanceTimersByTime(1000))
+      await waitFor(() => expect(screen.queryByRole('button', { name: '重新编辑' })).toBeNull())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("is not offered for others' recalls or ones made before this page loaded", async () => {
+    renderChat([
+      msg({ seq: 1, body: '', recalled: true }),
+      msg({ seq: 2, authorId: 'u2', authorName: '李建国', body: '机密方案' }),
+    ])
+    await screen.findByText('你撤回了一条消息')
+    push({ t: 'message.recalled', groupId: 'g1', messageId: 'm2' })
+    expect(screen.getByText('李建国 撤回了一条消息')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '重新编辑' })).toBeNull()
+  })
+
+  it('stops the bot runs my recalled message already started', async () => {
+    const m = msg({ seq: 1, body: '@Claude 部署' })
+    const calls = renderChat(
+      [m],
+      { ...recalled(m), 'POST /runs/r1/stop': { stopped: 1 }, 'POST /runs/r2/stop': { stopped: 1 } },
+      [
+        run({ id: 'r1', status: 'running' }),
+        run({ id: 'r2', status: 'awaiting_approval' }),
+        run({ id: 'r3', status: 'queued', startedAt: null }),
+        run({ id: 'r4', status: 'completed' }),
+        run({ id: 'r5', triggerMessageId: 'm9' }),
+      ],
+    )
+    await recallIt('@Claude 部署')
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === 'POST' && c.path.endsWith('/stop')).map((c) => c.path)).toEqual(
+        ['/runs/r1/stop', '/runs/r2/stop'],
+      ),
+    )
   })
 })
 

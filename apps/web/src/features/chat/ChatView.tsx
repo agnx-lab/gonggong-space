@@ -1,4 +1,4 @@
-import type { GroupDto, MessageDto, RunDto } from '@gonggong/protocol'
+import type { GroupDto, MessageDto, RunDto, RunStatus } from '@gonggong/protocol'
 import {
   type DragEvent,
   Fragment,
@@ -79,6 +79,8 @@ const LOAD_OLDER_PX = 40
 /** Older pages loaded at most while looking for a `?msg=` target. */
 const LINK_PAGES = 10
 const FLASH_MS = 2000
+/** Run states a recall of its trigger message stops (unstarted ones the server voids itself). */
+const STARTED: RunStatus[] = ['running', 'awaiting_approval', 'awaiting_answer']
 
 /** Files dragged over the chat (not text or links): shows the drop zone until they leave or land. */
 function useFileDrag() {
@@ -341,6 +343,15 @@ export function ChatView({
     )
   }
   const runList = useMemo(() => Object.values(tl.runs), [tl.runs])
+  const liveRuns = useRef(runList)
+  liveRuns.current = runList
+  const startedRuns = useCallback(
+    (messageId: string) =>
+      liveRuns.current
+        .filter((r) => r.triggerMessageId === messageId && STARTED.includes(r.status))
+        .map((r) => r.id),
+    [],
+  )
   const branchable = useMemo(
     () => branchableRuns(runList, (id) => botsById.get(id)?.ownerId === me?.id),
     [runList, botsById, me?.id],
@@ -418,6 +429,7 @@ export function ChatView({
         mine={m.authorId === meId}
         compact={compact}
         fanOut={fanOuts.get(m.id)}
+        startedRuns={startedRuns}
       />
     )
   }

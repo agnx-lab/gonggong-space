@@ -22,6 +22,7 @@ import { type Candidate, CandidatePopover, placeCommand, useCandidates } from '.
 import { useCite } from './cite'
 import { mentions, useMention } from './mention'
 import { mentionedBots, type Picks, RunConfigChips } from './RunConfigChips'
+import { useRecalled } from './recalled'
 import './composer.css'
 import { t } from '../../i18n'
 
@@ -170,6 +171,16 @@ export const MessageComposer = memo(function MessageComposer({
     const insert = `${c > 0 && !/\s/.test(draft[c - 1] ?? '') ? ' ' : ''}@${mention.name} `
     change(draft.slice(0, c) + insert + draft.slice(c), c + insert.length)
   }, [mention])
+
+  const recalled = useRecalled((s) => (s.pending?.groupId === group.id ? s.pending : null))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per handed-over message, onto the draft it was rendered with
+  useEffect(() => {
+    if (!recalled) return
+    useRecalled.setState({ pending: null })
+    change(draft.trim() ? `${recalled.body}\n${draft}` : recalled.body, recalled.body.length)
+    if (recalled.quote) useQuote.getState().set(recalled.quote)
+    if (recalled.files.length) uploads.add(recalled.files)
+  }, [recalled])
 
   const pick = (c: Candidate) => {
     if (!token) return

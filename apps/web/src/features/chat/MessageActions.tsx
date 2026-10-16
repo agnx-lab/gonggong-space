@@ -5,21 +5,51 @@ import { ApiError, api } from '../../lib/api'
 import { copyWithToast } from '../../lib/clipboard'
 import { toastError } from '../../lib/errors'
 import { Button, ContextMenu, Dialog, Icon, MenuButton, type MenuItem, Presence, toast } from '../../ui'
+import { attachmentUrl } from '../attachments/api'
 import { ReactionPicker } from '../reactions'
+import { keepRecalled, type RecalledDraft } from './recalled'
 import { applyLocal } from './useTimeline'
 import './recall.css'
 import { t } from '../../i18n'
 
 const LONG_PRESS_MS = 500
 
-async function recall(m: MessageDto) {
+/** Read before the recall, which erases the content for good: what 重新编辑 puts back. */
+async function snapshot(m: MessageDto): Promise<RecalledDraft> {
+  const read = await Promise.allSettled(
+    m.attachments.map(async (a) => {
+      const res = await fetch(attachmentUrl(a.id))
+      if (!res.ok) throw new Error(a.name)
+      return new File([await res.blob()], a.name, { type: a.mime })
+    }),
+  )
+  const lost = m.attachments.filter((_, i) => read[i]?.status === 'rejected').map((a) => a.name)
+  if (lost.length)
+    toast({
+      type: 'warning',
+      message: t('{names} 未能保留，重新编辑时需重新添加', { names: lost.join('、') }),
+    })
+  return {
+    groupId: m.groupId,
+    body: m.body,
+    quote: m.quote ? { ...m.quote, groupId: m.groupId } : null,
+    files: read.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : [])),
+  }
+}
+
+async function recall(m: MessageDto, started: string[]) {
+  const draft = await snapshot(m)
   try {
     await api.post(`/messages/${m.id}/recall`)
-    applyLocal({ t: 'message.recalled', groupId: m.groupId, messageId: m.id })
   } catch (e) {
     const late = e instanceof ApiError && e.code === 'recall_expired'
     toast({ type: 'error', message: late ? t('超过 24 小时，无法撤回') : (e as Error).message })
+    return
   }
+  keepRecalled(m.id, draft)
+  applyLocal({ t: 'message.recalled', groupId: m.groupId, messageId: m.id })
+  // The server voids only the runs that have not started; the started ones would go on with the recalled prompt.
+  for (const id of started) api.post(`/runs/${id}/stop`, {}).catch(toastError)
 }
 
 async function branch(m: MessageDto, open: (groupId: string) => void) {
@@ -130,6 +160,8 @@ export interface ActionTarget {
   own?: boolean
   /** Opens the inline editor of my own message (编辑). */
   onEdit?: () => void
+  /** Ids of the runs my own message triggered that have started: 撤回 stops them too. */
+  startedRuns?: () => string[]
   /** A bot reply on its owner's latest completed run: 分支到新聊天 (see branchableRuns). */
   branchable?: boolean
 }
@@ -170,7 +202,7 @@ function useMessageMenu(target: ActionTarget) {
     else if (value === 'branch' && target.message)
       void branch(target.message, (groupId) => navigate(`/g/${groupId}`))
     else if (value === 'edit') target.onEdit?.()
-    else if (value === 'recall' && mine) void recall(mine)
+    else if (value === 'recall' && mine) void recall(mine, target.startedRuns?.() ?? [])
     else if (value === 'delete') setDeleting(true)
   }
   const dialog = (
