@@ -202,7 +202,12 @@ async fn serves_a_workspace_dir_as_a_static_site() {
     assert!(services.list("g1", "b1").contains("static-dist · 运行中"));
     services.stop("g1", "b1", "static-dist").await.unwrap();
     assert_eq!(next_state(&mut rx).await.status, ServiceStatus::Exited);
-    assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err());
+    // A parallel test may already have bound the freed port, so check that our site is gone rather than the port.
+    let gone = match reqwest::get(format!("http://127.0.0.1:{port}/")).await {
+        Err(_) => true,
+        Ok(res) => res.text().await.unwrap_or_default() != "<h1>报告</h1>",
+    };
+    assert!(gone);
     let err = services.start_static(scope(root.path(), "b1", &out), "static-x", "../").await.unwrap_err();
     assert!(err.contains("工作区"), "{err}");
 }

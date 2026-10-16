@@ -1,5 +1,5 @@
 //! Provider injection and session pinning on the run path (design §4.3/§4.4), against the mock ACP agent.
-#[path = "support/provider_rig.rs"]
+#[path = "../support/provider_rig.rs"]
 mod provider_rig;
 
 use gonggong::protocol::*;

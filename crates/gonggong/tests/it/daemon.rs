@@ -109,7 +109,14 @@ async fn reports_connection_heartbeat_latency_reconnects_and_wipes_on_revoke() {
     assert_eq!(reason, RejectReason::Revoked);
     assert_eq!(wiped.len(), 2);
 
-    Daemon::start(options(home.path(), port)).expect("the lock is released once the daemon stopped").stop();
+    // The lock is released once the daemon stopped; a concurrent test's fork may briefly share it until it execs.
+    let restarted = (0..50).find_map(|_| {
+        Daemon::start(options(home.path(), port)).ok().or_else(|| {
+            std::thread::sleep(Duration::from_millis(20));
+            None
+        })
+    });
+    restarted.expect("the lock is released once the daemon stopped").stop();
 }
 
 #[tokio::test]

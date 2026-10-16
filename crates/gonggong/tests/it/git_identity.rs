@@ -1,5 +1,5 @@
 //! The bot's git identity reaches the agent process (plan G3), against the mock ACP agent.
-#[path = "support/provider_rig.rs"]
+#[path = "../support/provider_rig.rs"]
 mod provider_rig;
 
 use gonggong::config::Settings;
