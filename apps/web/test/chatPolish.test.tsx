@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { replyFiles } from '../src/features/chat/grouping'
@@ -76,5 +77,24 @@ describe('run token usage', () => {
     expect(fmtUsage({ totalTokens: 232_700 })).toBe('232.7k tokens')
     expect(fmtUsage({ totalTokens: 999_949 })).toBe('999.9k tokens')
     expect(fmtUsage({ totalTokens: 1_234_500 })).toBe('1.2M tokens')
+  })
+})
+
+describe('scroll containers do not show a horizontal bar', () => {
+  // The hover action bar sits outside the message column and is only faded out, so it still
+  // counts toward scroll width; overflow-x must be hidden or overflow-y: auto turns it into a scrollbar.
+  const ruleOf = (css: string, selector: string) => {
+    const start = css.indexOf(`${selector} {`)
+    return css.slice(start, css.indexOf('}', start))
+  }
+
+  it('hides the horizontal overflow of the chat timeline', () => {
+    const css = readFileSync('src/features/chat/timeline.css', 'utf8')
+    expect(ruleOf(css, '.chat-scroll')).toContain('overflow-x: hidden')
+  })
+
+  it('hides the horizontal overflow of the thread panel scroll area', () => {
+    const css = readFileSync('src/ui/im/panels.css', 'utf8')
+    expect(ruleOf(css, '.pn-threadpanel__scroll')).toContain('overflow-x: hidden')
   })
 })
