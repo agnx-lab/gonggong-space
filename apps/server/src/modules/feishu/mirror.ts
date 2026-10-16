@@ -7,9 +7,11 @@ import type { Db } from '../../db/client.js'
 import {
   approvals,
   bots,
+  feishuApps,
   feishuChats,
   feishuIdentities,
   feishuMessageLinks,
+  groups,
   messages,
   previews,
   questionSets,
@@ -228,9 +230,24 @@ export const cardBody = (card: object): FeishuBody => ({
   content: JSON.stringify(card),
 })
 
+async function appById(ctx: Ctx, appId: string) {
+  const [row] = await ctx.db.select().from(feishuApps).where(eq(feishuApps.appId, appId))
+  return row
+}
+
+/** A DM's binding is a user's single chat with a bot app: the app the chat's messages came in through. */
+async function singleChatApp(ctx: Ctx, chatId: string) {
+  const [link] = await ctx.db
+    .select({ appId: feishuMessageLinks.appId })
+    .from(feishuMessageLinks)
+    .where(and(eq(feishuMessageLinks.chatId, chatId), eq(feishuMessageLinks.direction, 'in')))
+    .limit(1)
+  return link && appById(ctx, link.appId)
+}
+
 /**
  * A web message that @-s bots goes to the bound chat through the main app: as its author when they authorized
- * Feishu, otherwise as 「名字：…」.
+ * Feishu, otherwise as 「名字：…」. A DM's single chat only has the bot app in it, which sends as 「名字：…」.
  */
 export async function mirrorUserMessage(
   ctx: Ctx,
@@ -240,10 +257,15 @@ export async function mirrorUserMessage(
   const chat = await boundChat(ctx.db, message.groupId)
   if (!chat?.syncOutbound) return
   enqueue(ctx, message.groupId, async () => {
-    const main = await mainApp(ctx)
-    if (!main) return
-    const app = credsOf(main)
-    const token = await userToken(ctx, author.id)
+    const [group] = await ctx.db
+      .select({ kind: groups.kind })
+      .from(groups)
+      .where(eq(groups.id, message.groupId))
+    const dm = group?.kind === 'dm'
+    const from = dm ? await singleChatApp(ctx, chat.chatId) : await mainApp(ctx)
+    if (!from) return
+    const app = credsOf(from)
+    const token = dm ? null : await userToken(ctx, author.id)
     let sent: { messageId: string } | null = null
     if (token)
       sent = await ctx.feishu.api
@@ -257,7 +279,7 @@ export async function mirrorUserMessage(
     await ctx.db.insert(feishuMessageLinks).values({
       feishuMessageId: sent.messageId,
       chatId: chat.chatId,
-      appId: main.appId,
+      appId: from.appId,
       direction: 'out',
       kind: 'message',
       messageId: message.id,
@@ -268,10 +290,10 @@ export async function mirrorUserMessage(
 
 /** Out links sent as a user keep that user in `refId`: their token is needed to recall or edit it. */
 async function asSender(ctx: Ctx, link: Link) {
-  const main = await mainApp(ctx)
-  if (!main) return null
+  const from = await appById(ctx, link.appId)
+  if (!from) return null
   const token = link.refId ? await userToken(ctx, link.refId) : undefined
-  return { app: credsOf(main), token: token ?? undefined }
+  return { app: credsOf(from), token: token ?? undefined }
 }
 
 /** 共工 recall of a mirrored message recalls its Feishu copy (an inbound one is the Feishu user's own). */

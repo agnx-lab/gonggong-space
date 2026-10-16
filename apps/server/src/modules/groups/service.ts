@@ -284,7 +284,8 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
       foldRuns: me.foldRuns,
       liveRunIds: live.filter((r) => r.groupId === g.id && LIVE.includes(r.status)).map((r) => r.id),
       liveRuns: liveRuns(g.id, me.userId),
-      ...(chat && { feishu: { chatId: chat.chatId, name: chat.name } }),
+      // A DM's binding is the user's single chat with the bot app, not a Feishu group.
+      ...(chat && g.kind === 'group' && { feishu: { chatId: chat.chatId, name: chat.name } }),
       ...(g.kind === 'dm' && { workspacePath: gbots[0]?.workspacePath ?? null }),
     }
     return { userId: me.userId, group }

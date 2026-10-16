@@ -133,7 +133,7 @@ export async function joinBoundChats(ctx: Ctx, userId: string, unionId: string) 
     .from(feishuChats)
     .innerJoin(groups, eq(groups.id, feishuChats.groupId))
     .innerJoin(teamMembers, and(eq(teamMembers.teamId, groups.teamId), eq(teamMembers.userId, userId)))
-    .where(isNull(feishuChats.unboundAt))
+    .where(and(isNull(feishuChats.unboundAt), eq(groups.kind, 'group')))
   for (const g of bound) {
     const members = await ctx.feishu.api.chatMembers(credsOf(main), g.chatId).catch((err): string[] => {
       if (err instanceof FeishuError) return []

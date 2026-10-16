@@ -531,6 +531,10 @@ export const en = {
     "You're not a member of the bound Gonggong group, so you can't use this Bot. Ask a group admin to add you.",
   '使用 Bot 前需要先认证共工账号，认证后重新 @ 即可。':
     'Verify your Gonggong account before using Bots, then @ the Bot again.',
+  '使用 Bot 前需要先认证共工账号，认证后重新发送即可。':
+    'Verify your Gonggong account before using Bots, then send your message again.',
+  '这个 Bot 还没有共享给你，请在共工中向 Bot 主人申请共享后再发送。':
+    "This Bot isn't shared with you. Request a share from its owner in Gonggong, then send again.",
   请先认证共工账号: 'Verify your Gonggong account first',
   已提交回答: 'Answers submitted',
   已处理: 'Handled',

@@ -38,6 +38,7 @@ export const MAIN_TENANT_SCOPES = [
 /** Tenant scopes, events and callbacks of a bot app (plan §8). */
 export const BOT_TENANT_SCOPES = [
   'im:message.group_at_msg:readonly',
+  'im:message.p2p_msg:readonly',
   'im:message:send_as_bot',
   'im:message:readonly',
   'im:chat:readonly',

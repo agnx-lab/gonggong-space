@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { Attachment, Question } from '@gonggong/protocol'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import {
   approvals,
@@ -24,6 +24,8 @@ import { FILE_OVERHEAD, sealStream } from '../../lib/seal.js'
 import { sysParams } from '../admin/params.js'
 import { decideApproval } from '../approvals/service.js'
 import { dataDir, safeName } from '../attachments/service.js'
+import { dmsOf, isSharedWith } from '../bots/shares.js'
+import { createGroup } from '../groups/create.js'
 import { activeBots } from '../groups/service.js'
 import { resolveQuote } from '../messages/quote.js'
 import { recallMessage } from '../messages/recall.js'
@@ -33,7 +35,7 @@ import { rerunFor, triggerRuns } from '../runs/trigger.js'
 import { approvalCard, type CardValue, formAnswers, noticeCard, questionCard } from './cards.js'
 import { credsOf, type FeishuAppRow, type FeishuInbound, onFeishu } from './gateway.js'
 import { publicUrl } from './identity.js'
-import { linkOf, markRendered, userOfFeishu } from './mirror.js'
+import { boundChat, linkOf, markBound, markRendered, userOfFeishu } from './mirror.js'
 
 const zt = translator('zh')
 
@@ -162,17 +164,24 @@ const reply = (ctx: Ctx, app: FeishuAppRow, ev: Receive, card: object) =>
     { replyTo: ev.message.message_id },
   )
 
-/** A Feishu user @-ed a bot through its own app: store the message as theirs and run the bot (plan §2.1). */
-async function onReceive(ctx: Ctx, app: FeishuAppRow, ev: Receive) {
+/** The 认证共工账号 button, back to `next` once verified. */
+async function verifyAction(ctx: Ctx, next: string) {
+  const base = await publicUrl(ctx)
+  return base
+    ? { label: zt('认证共工账号'), url: `${base}/api/auth/feishu/start?next=${encodeURIComponent(next)}` }
+    : undefined
+}
+
+type Target = { groupId: string; botId: string; user: { id: string; name: string } }
+
+/** A message in a Feishu chat bound to a group: the @-ed bot runs there if the sender is a member. */
+async function groupTarget(ctx: Ctx, app: FeishuAppRow, ev: Receive): Promise<Target | undefined> {
   const botId = app.botId
-  if (app.kind !== 'bot' || !botId || ev.sender.sender_type !== 'user') return
-  const msg = ev.message
-  const known = await linkOf(ctx, msg.message_id)
-  if (known?.direction === 'out') return
+  if (app.kind !== 'bot' || !botId) return
   const [chat] = await ctx.db
     .select()
     .from(feishuChats)
-    .where(and(eq(feishuChats.chatId, msg.chat_id), isNull(feishuChats.unboundAt)))
+    .where(and(eq(feishuChats.chatId, ev.message.chat_id), isNull(feishuChats.unboundAt)))
   if (!chat)
     return void (await reply(
       ctx,
@@ -191,16 +200,98 @@ async function onReceive(ctx: Ctx, app: FeishuAppRow, ev: Receive) {
         .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, user.id)))
     : []
   if (!user || !member) {
-    const base = await publicUrl(ctx)
-    const next = encodeURIComponent(`/g/${groupId}`)
-    const action = base
-      ? { label: zt('认证共工账号'), url: `${base}/api/auth/feishu/start?next=${next}` }
-      : undefined
     const text = user
       ? zt('你还不是对应共工群的成员，不能使用这个 Bot。请联系群管理员把你加入群。')
       : zt('使用 Bot 前需要先认证共工账号，认证后重新 @ 即可。')
-    return void (await reply(ctx, app, ev, noticeCard(text, user ? undefined : action)))
+    const action = user ? undefined : await verifyAction(ctx, `/g/${groupId}`)
+    return void (await reply(ctx, app, ev, noticeCard(text, action)))
   }
+  return { groupId, botId, user }
+}
+
+/** Single chats opening their 共工 DM, one at a time per chat so two quick messages share one DM. */
+const opening = new Map<string, Promise<unknown>>()
+
+/** The user's DM with the bot (opened if missing), bound to their single chat with the bot's app. */
+function dmOf(ctx: Ctx, user: Target['user'], bot: typeof bots.$inferSelect, chatId: string) {
+  const open = async () => {
+    const [dm] = await dmsOf(ctx, bot.id, [user.id], true)
+    const groupId =
+      dm?.id ??
+      (await createGroup(ctx, user, bot.teamId, {
+        name: bot.name,
+        kind: 'dm',
+        memberIds: [],
+        botIds: [bot.id],
+        repo: null,
+      }))
+    if ((await boundChat(ctx.db, groupId))?.chatId === chatId) return groupId
+    // The bot got another app (a new single chat), or the DM was deleted: the old binding gives way.
+    await ctx.db.transaction(async (tx) => {
+      await tx
+        .update(feishuChats)
+        .set({ unboundAt: ctx.now() })
+        .where(
+          and(
+            or(eq(feishuChats.groupId, groupId), eq(feishuChats.chatId, chatId)),
+            isNull(feishuChats.unboundAt),
+          ),
+        )
+      await tx
+        .insert(feishuChats)
+        .values({ groupId, chatId, name: bot.name, boundBy: user.id, createdAt: ctx.now() })
+    })
+    markBound(ctx, groupId)
+    return groupId
+  }
+  const next = (opening.get(chatId) ?? Promise.resolve()).catch(() => {}).then(open)
+  opening.set(chatId, next)
+  void next.then(
+    () => opening.get(chatId) === next && opening.delete(chatId),
+    () => opening.get(chatId) === next && opening.delete(chatId),
+  )
+  return next
+}
+
+/** A single chat with a bot's own app: no @ needed, the bot runs in the sender's DM with it. */
+async function singleChatTarget(ctx: Ctx, app: FeishuAppRow, ev: Receive): Promise<Target | undefined> {
+  if (app.kind !== 'bot' || !app.botId) return
+  const user = await userOfFeishu(ctx, ev.sender.sender_id?.union_id)
+  if (!user)
+    return void (await reply(
+      ctx,
+      app,
+      ev,
+      noticeCard(zt('使用 Bot 前需要先认证共工账号，认证后重新发送即可。'), await verifyAction(ctx, '/')),
+    ))
+  const [bot] = await ctx.db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.id, app.botId), isNull(bots.deletedAt)))
+  if (!bot) return
+  if (bot.ownerId !== user.id && !(await isSharedWith(ctx, bot.id, user.id)))
+    return void (await reply(
+      ctx,
+      app,
+      ev,
+      noticeCard(zt('这个 Bot 还没有共享给你，请在共工中向 Bot 主人申请共享后再发送。')),
+    ))
+  return { groupId: await dmOf(ctx, user, bot, ev.message.chat_id), botId: bot.id, user }
+}
+
+/**
+ * A Feishu user @-ed a bot through its own app in a bound chat, or wrote to it in a single chat: store the message
+ * as theirs and run the bot (plan §2.1).
+ */
+async function onReceive(ctx: Ctx, app: FeishuAppRow, ev: Receive) {
+  if (ev.sender.sender_type !== 'user') return
+  const msg = ev.message
+  const known = await linkOf(ctx, msg.message_id)
+  if (known?.direction === 'out') return
+  const target =
+    msg.chat_type === 'p2p' ? await singleChatTarget(ctx, app, ev) : await groupTarget(ctx, app, ev)
+  if (!target) return
+  const { groupId, botId, user } = target
 
   const mentions = (msg.mentions ?? []).map((m) => ({ key: m.key, name: m.name }))
   const { body, files } = parseContent(msg.message_type, msg.content, mentions)

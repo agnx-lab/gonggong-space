@@ -183,7 +183,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
     .leftJoin(bots, eq(bots.id, messages.authorBotId))
     .where(eq(messages.id, run.triggerMessageId))
   const [group] = await tx
-    .select({ name: groups.name, protectBase: groups.protectBase })
+    .select({ name: groups.name, kind: groups.kind, protectBase: groups.protectBase })
     .from(groups)
     .where(eq(groups.id, run.groupId))
   const [gb] = await tx
@@ -228,7 +228,8 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
         ).reverse()
       : []
   const interrupted = await interruptNote(tx, run, trigger.at.toISOString())
-  const feishu = await boundChat(tx, run.groupId)
+  // A DM's single chat with the bot app is synced whole: nothing to read from Feishu.
+  const feishu = group.kind === 'group' && (await boundChat(tx, run.groupId))
   const config = resolveConfig(await botCatalog(tx, bot), meta.runOptions?.[bot.id], gb, bot)
   const note = [
     ...(interrupted ? [interrupted.note] : []),

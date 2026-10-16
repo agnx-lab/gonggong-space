@@ -168,6 +168,8 @@ export class FakeFeishu {
       messageId?: string
       parentId?: string
       mentions?: { key: string; name: string; openId: string }[]
+      /** 'p2p': a user's single chat with the app. */
+      chatType?: 'group' | 'p2p'
     },
   ) {
     const messageId = o.messageId ?? this.next('om')
@@ -183,7 +185,7 @@ export class FakeFeishu {
         root_id: o.parentId,
         create_time: String(Date.now()),
         chat_id: o.chatId,
-        chat_type: 'group',
+        chat_type: o.chatType ?? 'group',
         message_type: 'text',
         content: JSON.stringify({ text: o.text }),
         mentions: o.mentions?.map((m) => ({ key: m.key, name: m.name, id: { open_id: m.openId } })),
