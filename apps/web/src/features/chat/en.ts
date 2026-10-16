@@ -184,6 +184,7 @@ export default {
   '{name} 的执行位置': 'Where {name} works',
   执行位置: 'Where it works',
   仓库: 'Repository',
+  未绑定仓库: 'No repository',
   机器: 'Machine',
   未绑定机器: 'No machine',
   '目录#one': 'Folder',

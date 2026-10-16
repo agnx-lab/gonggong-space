@@ -83,7 +83,7 @@ function Location({
 }: {
   name: string
   s: GroupBotStateDto
-  repo: NonNullable<GroupDto['repo']>
+  repo: GroupDto['repo']
   machine: string | null
 }) {
   const label = t('{name} 的执行位置', { name })
@@ -111,7 +111,7 @@ function Location({
     >
       <dl className="git-loc">
         <dt>{t('仓库')}</dt>
-        <dd className="git-loc__mono">{repo.url}</dd>
+        {repo ? <dd className="git-loc__mono">{repo.url}</dd> : <dd>{t('未绑定仓库')}</dd>}
         <dt>{t('机器')}</dt>
         <dd>{machine ?? t('未绑定机器')}</dd>
         <dt>{t('目录#one')}</dt>
@@ -128,19 +128,23 @@ function Location({
             </button>
           ) : null}
         </dd>
-        <dt>{t('分支')}</dt>
-        <dd className="git-loc__branches">
-          <span>
-            {t('基准')} <span className="git-loc__mono">{repo.branch}</span>
-          </span>
-          <span data-mismatch={!!current && current !== repo.branch}>
-            {t('当前')} <span className="git-loc__mono">{current ?? '—'}</span>
-          </span>
-          {current && current !== repo.branch ? (
-            <span className="git-loc__warn">{t('与基准分支不同')}</span>
-          ) : null}
-        </dd>
-        {git ? (
+        {repo ? (
+          <>
+            <dt>{t('分支')}</dt>
+            <dd className="git-loc__branches">
+              <span>
+                {t('基准')} <span className="git-loc__mono">{repo.branch}</span>
+              </span>
+              <span data-mismatch={!!current && current !== repo.branch}>
+                {t('当前')} <span className="git-loc__mono">{current ?? '—'}</span>
+              </span>
+              {current && current !== repo.branch ? (
+                <span className="git-loc__warn">{t('与基准分支不同')}</span>
+              ) : null}
+            </dd>
+          </>
+        ) : null}
+        {repo && git ? (
           <>
             <dt>{t('改动')}</dt>
             <dd>
@@ -169,17 +173,18 @@ function Item({
   groupId,
   name,
   s,
+  showGit,
   repo,
   machine,
 }: {
   groupId: string
   name: string
   s: GroupBotStateDto
-  /** Set in partition groups with a repo, where the bar shows each bot's git status. */
+  /** Partition groups with a repo, where the bar shows each bot's git status. */
+  showGit: boolean
   repo: GroupDto['repo']
   machine: string | null
 }) {
-  const showGit = !!repo
   const git = s.git
   // States stored before repos were reported have none.
   const subs = git?.repos ?? []
@@ -229,18 +234,25 @@ function Item({
         </>
       ) : null}
       {s.context ? <ContextMeter groupId={groupId} bot={name} context={s.context} /> : null}
-      {showGit ? (
-        <span className="git-bar__actions">
-          {repo ? <Location name={name} s={s} repo={repo} machine={machine} /> : null}
-          <Action
-            icon="git-branch"
-            label={t('查看 {name} 的改动', { name })}
-            title={t('改动')}
-            onClick={diff}
-          />
-          <Action icon="folder" label={t('浏览 {name} 的文件', { name })} title={t('文件')} onClick={files} />
-        </span>
-      ) : null}
+      <span className="git-bar__actions">
+        <Location name={name} s={s} repo={repo} machine={machine} />
+        {showGit ? (
+          <>
+            <Action
+              icon="git-branch"
+              label={t('查看 {name} 的改动', { name })}
+              title={t('改动')}
+              onClick={diff}
+            />
+            <Action
+              icon="folder"
+              label={t('浏览 {name} 的文件', { name })}
+              title={t('文件')}
+              onClick={files}
+            />
+          </>
+        ) : null}
+      </span>
     </div>
   )
 }
@@ -271,7 +283,7 @@ function Action({
 }
 
 /**
- * Bot bar under the header: each bot's context occupancy (every group, once reported) and, in partition groups with
+ * Bot bar under the header: every bot's 执行位置, its context occupancy (once reported) and, in partition groups with
  * a repo, its git status refreshed after every turn (spec §5.3 / §8.4). The workspace banner reads the same states.
  */
 export function GitBar({ group }: { group: GroupDto }) {
@@ -288,17 +300,17 @@ export function GitBar({ group }: { group: GroupDto }) {
     return realtime.onStatus((st) => st === 'open' && load())
   }, [group.id, botKey])
 
-  const ids = showGit ? group.botIds : group.botIds.filter((id) => states?.[id]?.context)
-  if (!ids.length) return null
+  if (!group.botIds.length) return null
   return (
     <div className="git-bar" data-testid="git-bar">
-      {ids.map((id) => {
+      {group.botIds.map((id) => {
         const bot = bots.find((b) => b.id === id)
         return (
           <Item
             key={id}
             groupId={group.id}
-            repo={showGit ? group.repo : null}
+            showGit={showGit}
+            repo={group.repo}
             machine={bot?.machineName ?? null}
             name={bot?.name ?? 'bot'}
             s={

@@ -284,21 +284,42 @@ describe('git status bar', () => {
     expect(tabs()?.at(-1)).toEqual({ kind: 'diff', botId: 'b1', scope: 'base', file: null, repo: 'vendor/x' })
   })
 
-  it('outside partition groups with a repo shows only bots whose context is known', async () => {
+  it('outside partition groups shows every bot with 执行位置; the context meter appears once known', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('[]')),
     )
     render(<GitBar group={group({ mode: 'force', botIds: ['b1', 'b2'] })} />)
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/groups/g1/bot-states', expect.anything()))
-    expect(screen.queryByTestId('git-bar')).toBeNull()
+    expect(screen.getByRole('button', { name: '小王的 Claude 的执行位置' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '老李的 Codex 的执行位置' })).toBeTruthy()
     useWorkspace.getState().applyEvent({
       t: 'group.botState',
       groupId: 'g1',
       state: state('b2', { git: git(), context: { used: 50_000, size: 200_000 } }),
     })
     await waitFor(() => expect(screen.getByTestId('git-b2').textContent).toBe('老李的 Codex25%'))
-    expect(screen.queryByTestId('git-b1')).toBeNull()
+    expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claude')
+  })
+
+  it('shows 执行位置 in a group without a repo: the repo row says so, branch and changes are hidden', async () => {
+    useWorkspace.setState({ bots: [{ ...bot('b1', '小王的 Claude'), machineName: '王磊的 MacBook' }] })
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify([state('b1', { path: '/w/b1', git: null })]))),
+    )
+    render(<GitBar group={group({ kind: 'dm', mode: 'force', repo: null, botIds: ['b1'] })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的执行位置' }))
+    const panel = await screen.findByRole('dialog', { name: '小王的 Claude 的执行位置' })
+    expect(within(panel).getByText('未绑定仓库')).toBeTruthy()
+    expect(within(panel).getByText('王磊的 MacBook')).toBeTruthy()
+    expect(within(panel).getByText('/w/b1')).toBeTruthy()
+    expect(within(panel).queryByText('分支')).toBeNull()
+    expect(within(panel).queryByText('改动')).toBeNull()
+    fireEvent.click(within(panel).getByRole('button', { name: '复制目录' }))
+    expect(writeText).toHaveBeenCalledWith('/w/b1')
   })
 })
 

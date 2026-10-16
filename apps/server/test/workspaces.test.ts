@@ -509,6 +509,24 @@ describe('/cd requests', () => {
     expect(await requestCd(t.ctx, { groupId: plain.id, botId: w.bot.id, path: '/x' })).toBe(true)
     expect(await d.next()).toMatchObject({ t: 'workspace.cd', repo: null, path: '/x' })
   })
+
+  it('reports the managed dir of a repo-less group, created not cloned, when a bot goes back to managed', async () => {
+    const w = await world()
+    const d = await daemon(w.a.token)
+    const g = await w.createGroup({ repo: false })
+    await requestCd(t.ctx, { groupId: g.id, botId: w.bot.id, path: '/src/x' })
+    d.send(reply(await d.next(), { path: '/src/x', git: null }))
+    await until(async () => (await w.stateOf(g.id)).workspace === 'cd')
+    await requestCd(t.ctx, { groupId: g.id, botId: w.bot.id, path: null })
+    const back = await d.next()
+    expect(back).toMatchObject({ t: 'workspace.cd', path: null, repo: null })
+    d.send(reply(back, { git: null }))
+    await until(async () => (await w.stateOf(g.id)).workspace === 'managed')
+    expect(await w.stateOf(g.id)).toMatchObject({
+      state: 'ready',
+      path: `/h/workspaces/${g.id}/${w.bot.id}/_empty`,
+    })
+  })
 })
 
 describe('scheduling', () => {
