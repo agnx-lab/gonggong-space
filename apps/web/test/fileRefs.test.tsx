@@ -109,6 +109,6 @@ describe('bare file names and the file tab line range', () => {
     const { container } = render(<BotFileViewer botId="b1" path="src/main.ts" line={{ from: 2, to: 3 }} />)
     await waitFor(() => expect(container.querySelectorAll('.pv-line--hit')).toHaveLength(2))
     expect(container.querySelector('.pv-line--hit')?.textContent).toContain('b')
-    expect(scroll).toHaveBeenCalled()
+    await waitFor(() => expect(scroll).toHaveBeenCalled())
   })
 })
