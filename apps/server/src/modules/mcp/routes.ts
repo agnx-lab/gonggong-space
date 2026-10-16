@@ -1,4 +1,10 @@
-import { FillMcpSecretReq, type InheritedMcpDto, SaveMcpReq, ToggleInheritedReq } from '@gonggong/protocol'
+import {
+  FillMcpSecretReq,
+  type InheritedMcpDto,
+  type McpServerDto,
+  SaveMcpReq,
+  ToggleInheritedReq,
+} from '@gonggong/protocol'
 import { asc } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { Ctx } from '../../context.js'
@@ -6,7 +12,7 @@ import { mcpServers } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
 import { requireSysadmin, requireUser } from '../auth/session.js'
-import { requireAdmin } from '../groups/service.js'
+import { requireAdmin, requireMember } from '../groups/service.js'
 import { requireTeam } from '../teams/service.js'
 import { fillSecrets } from './secrets.js'
 import {
@@ -16,19 +22,22 @@ import {
   inLayer,
   type Layer,
   mcpDto,
+  publicConfig,
   setInheritedMcp,
   updateMcp,
 } from './service.js'
 
 type Params = { Params: { id?: string; mcpId?: string } }
 
+const readable = <T extends McpServerDto>(d: T, admin: boolean): T =>
+  admin ? d : { ...d, config: publicConfig(d.config) }
+
 /** The same list / create / update / delete under `base` for each layer; `authorize` resolves the caller's layer. */
 function layerRoutes(ctx: Ctx, app: FastifyInstance, base: string, authorize: Authorize) {
   app.get<Params>(base, async (req) => {
-    const { layer } = await authorize(req)
-    return (await ctx.db.select().from(mcpServers).where(inLayer(layer)).orderBy(asc(mcpServers.name))).map(
-      mcpDto,
-    )
+    const { layer, admin } = await authorize(req, true)
+    const rows = await ctx.db.select().from(mcpServers).where(inLayer(layer)).orderBy(asc(mcpServers.name))
+    return rows.map((r) => readable(mcpDto(r), admin))
   })
 
   app.post<Params>(base, async (req, reply) => {
@@ -53,7 +62,7 @@ function layerRoutes(ctx: Ctx, app: FastifyInstance, base: string, authorize: Au
   })
 }
 
-/** Platform / team servers in effect for a group, which its admins turn on or off for the group alone. */
+/** Platform / team servers in effect for a group, which its members see and its admins turn on or off for it alone. */
 function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
   type P = { Params: { id: string; name?: string } }
   const list = async (groupId: string): Promise<InheritedMcpDto[]> =>
@@ -65,8 +74,8 @@ function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
 
   app.get<P>('/api/groups/:id/inherited-mcp', async (req) => {
     const me = await requireUser(ctx, req)
-    const { group } = await requireAdmin(ctx, req.params.id, me.id)
-    return list(group.id)
+    const { group, member } = await requireMember(ctx, req.params.id, me.id)
+    return (await list(group.id)).map((s) => readable(s, member.isAdmin))
   })
 
   app.put<P>('/api/groups/:id/inherited-mcp/:name', async (req) => {
@@ -80,25 +89,37 @@ function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
   })
 }
 
+/**
+ * `read` lets plain group members list the group layer too; `admin` is false for them, so secrets are left out.
+ */
 export type Authorize = (
   req: FastifyRequest<{ Params: { id?: string } }>,
-) => Promise<{ actorId: string; layer: Layer }>
+  read?: boolean,
+) => Promise<{ actorId: string; layer: Layer; admin: boolean }>
 
-/** Platform layer for sysadmins, team layer for team admins, group layer for group admins (plan D8). */
+/**
+ * Platform layer for sysadmins, team layer for team admins, group layer for group admins (plan D8); group members
+ * may read the group layer.
+ */
 export function eachLayer(ctx: Ctx, segment: string, routes: (base: string, authorize: Authorize) => void) {
   routes(`/api/admin/${segment}`, async (req) => ({
     actorId: (await requireSysadmin(ctx, req)).id,
     layer: { scope: 'platform', teamId: null, groupId: null },
+    admin: true,
   }))
   routes(`/api/teams/:id/${segment}`, async (req) => {
     const me = await requireUser(ctx, req)
     const { team } = await requireTeam(ctx, me.id, req.params.id ?? '', 'admin')
-    return { actorId: me.id, layer: { scope: 'team', teamId: team.id, groupId: null } }
+    return { actorId: me.id, layer: { scope: 'team', teamId: team.id, groupId: null }, admin: true }
   })
-  routes(`/api/groups/:id/${segment}`, async (req) => {
+  routes(`/api/groups/:id/${segment}`, async (req, read) => {
     const me = await requireUser(ctx, req)
-    const { group } = await requireAdmin(ctx, req.params.id ?? '', me.id)
-    return { actorId: me.id, layer: { scope: 'group', teamId: group.teamId, groupId: group.id } }
+    const { group, member } = await (read ? requireMember : requireAdmin)(ctx, req.params.id ?? '', me.id)
+    return {
+      actorId: me.id,
+      layer: { scope: 'group', teamId: group.teamId, groupId: group.id },
+      admin: member.isAdmin,
+    }
   })
 }
 

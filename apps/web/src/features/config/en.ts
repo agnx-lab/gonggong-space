@@ -139,4 +139,8 @@ export default {
   '{name} 的历史版本': 'Version history of {name}',
   回滚到此版本: 'Roll Back to This Version',
   'v{n} · {count} 个文件': 'v{n} · {count} {count:file|files}',
-} satisfies Record<string, string>
+  本群: 'This group',
+  仅群管理员可修改: 'Only group admins can make changes',
+  '暂无 MCP': 'No MCP servers',
+  '暂无 Skill': 'No skills',
+}

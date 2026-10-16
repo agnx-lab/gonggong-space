@@ -16,7 +16,7 @@ import { bots, groupBots, groups, skills, skillVersions } from '../../db/schema.
 import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
 import { requireUser } from '../auth/session.js'
-import { requireAdmin } from '../groups/service.js'
+import { requireAdmin, requireMember } from '../groups/service.js'
 import { type Authorize, eachLayer } from '../mcp/routes.js'
 import type { Layer } from '../mcp/service.js'
 import {
@@ -48,12 +48,12 @@ function layerRoutes(ctx: Ctx, app: FastifyInstance, base: string, authorize: Au
   const detail = async (l: Layer, id: string): Promise<SkillDetailDto> => detailDto(await find(l, id))
 
   app.get<Params>(base, async (req) => {
-    const { layer } = await authorize(req)
+    const { layer } = await authorize(req, true)
     return (await listed(ctx.db).where(inLayer(layer)).orderBy(asc(skills.name))).map(dto)
   })
 
   app.get<Params>(`${base}/:skillId`, async (req) => {
-    const { layer } = await authorize(req)
+    const { layer } = await authorize(req, true)
     return detail(layer, req.params.skillId ?? '')
   })
 
@@ -94,14 +94,14 @@ function layerRoutes(ctx: Ctx, app: FastifyInstance, base: string, authorize: Au
   })
 
   app.get<Params>(`${base}/:skillId/versions`, async (req) => {
-    const { layer } = await authorize(req)
+    const { layer } = await authorize(req, true)
     const { skill } = await find(layer, req.params.skillId ?? '')
     const rows = await skillVersionList(ctx, skill.id)
     return rows.map((r) => versionDto(r.version, r.createdBy, skill.versionId!))
   })
 
   app.get<Params>(`${base}/:skillId/versions/:versionId`, async (req) => {
-    const { layer } = await authorize(req)
+    const { layer } = await authorize(req, true)
     const { skill } = await find(layer, req.params.skillId ?? '')
     const v = await version(skill.id, req.params.versionId ?? '')
     return { ...versionDto(v.version, v.createdBy, skill.versionId!), files: v.version.files as SkillFile[] }
@@ -117,7 +117,7 @@ function layerRoutes(ctx: Ctx, app: FastifyInstance, base: string, authorize: Au
   })
 }
 
-/** Platform / team skills in effect for a group, which its admins turn on or off for the group alone. */
+/** Platform / team skills in effect for a group, which its members see and its admins turn on or off for it alone. */
 function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
   type P = { Params: { id: string; name?: string } }
   const list = async (groupId: string): Promise<InheritedSkillDto[]> =>
@@ -131,7 +131,7 @@ function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
 
   app.get<P>('/api/groups/:id/inherited-skills', async (req) => {
     const me = await requireUser(ctx, req)
-    const { group } = await requireAdmin(ctx, req.params.id, me.id)
+    const { group } = await requireMember(ctx, req.params.id, me.id)
     return list(group.id)
   })
 

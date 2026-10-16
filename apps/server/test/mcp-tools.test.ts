@@ -1,4 +1,4 @@
-import type { InheritedMcpDto, McpSecretCard, McpServer, ToolCallRes } from '@gonggong/protocol'
+import type { InheritedMcpDto, McpSecretCard, McpServer, McpServerDto, ToolCallRes } from '@gonggong/protocol'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { auditLogs, groupBots, mcpServers, messages, runs } from '../src/db/schema.js'
@@ -251,12 +251,63 @@ describe('mcp tools', () => {
     expect((await api.put(`${url}/jira`, { enabled: false })).status).toBe(200)
     expect(await names(w.group.id)).toEqual(['docs'])
     expect((await api.put(`${url}/nope`, { enabled: false })).status).toBe(404)
-    expect((await (await w.as(w.zhao)).get(url)).status).toBe(403)
+    expect((await (await w.as(w.zhao)).put(`${url}/docs`, { enabled: false })).status).toBe(403)
     const log = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'mcp.group_toggle'))
     expect(log.map((l) => l.detail)).toEqual([
       { name: 'docs', enabled: false, botId: w.bot.id, runId: li.run.id },
       { name: 'docs', enabled: true },
       { name: 'jira', enabled: false },
     ])
+  })
+})
+
+describe('group MCP for members', () => {
+  it('lets plain members read the group and inherited servers without secrets, but not change them', async () => {
+    const w = await world()
+    const GROUP = { scope: 'group' as const, teamId: w.group.teamId, groupId: w.group.id }
+    const wiki = await createMcp(
+      t.ctx,
+      GROUP,
+      { enabled: false, config: stdio('wiki', { TOKEN: 'sk-live-123' }) },
+      w.li.id,
+      false,
+    )
+    const docs = {
+      transport: 'http' as const,
+      name: 'docs',
+      url: 'https://mcp.corp/docs?key=sk-url-456',
+      headers: { Authorization: 'Bearer sk-hdr-789' },
+    }
+    await createMcp(t.ctx, PLATFORM, { enabled: true, config: docs }, w.root.id, false)
+    const base = `/api/groups/${w.group.id}/mcp`
+    const inherited = `/api/groups/${w.group.id}/inherited-mcp`
+    const zhao = await w.as(w.zhao)
+
+    const own = await zhao.get<McpServerDto[]>(base)
+    expect(own.status).toBe(200)
+    expect(own.body.map((m) => [m.id, m.enabled, m.config])).toEqual([
+      [wiki.id, false, { transport: 'stdio', name: 'wiki', command: '', args: [], env: {} }],
+    ])
+    const up = await zhao.get<InheritedMcpDto[]>(inherited)
+    expect(up.body.map((m) => [m.config, m.scope, m.enabledInGroup])).toEqual([
+      [{ transport: 'http', name: 'docs', url: '', headers: {} }, 'platform', true],
+    ])
+    expect(JSON.stringify([own.body, up.body])).not.toMatch(/sk-|npx|mcp\.corp/)
+
+    const li = await w.as(w.li)
+    expect((await li.get<McpServerDto[]>(base)).body[0]!.config).toEqual(
+      stdio('wiki', { TOKEN: 'sk-live-123' }),
+    )
+    expect((await li.get<InheritedMcpDto[]>(inherited)).body[0]!.config).toEqual(docs)
+
+    expect((await zhao.post(base, { enabled: true, config: stdio('x') })).status).toBe(403)
+    expect((await zhao.patch(`${base}/${wiki.id}`, { enabled: true, config: stdio('wiki') })).status).toBe(
+      403,
+    )
+    expect((await zhao.del(`${base}/${wiki.id}`)).status).toBe(403)
+    expect((await zhao.put(`${inherited}/docs`, { enabled: false })).status).toBe(403)
+    const outsider = await w.as(await t.seed.user({ name: '路人' }))
+    expect((await outsider.get(base)).status).toBe(404)
+    expect((await outsider.get(inherited)).status).toBe(404)
   })
 })

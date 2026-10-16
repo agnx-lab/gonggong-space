@@ -30,6 +30,7 @@ import { BotAvatar } from '../bots/avatars'
 import { BotDialog } from '../bots/BotDialog'
 import { AGENT_LABEL, PRESENCE, TRIGGER_SCOPE_LABEL } from '../bots/model'
 import { ShareRequestAction } from '../bots/ShareRequest'
+import { GroupConfigView } from '../config/GroupConfigView'
 import { PreviewsView } from '../previews/PreviewsView'
 import { usePreviews } from '../previews/store'
 import { repoPath } from '../repos/RepoPicker'
@@ -45,7 +46,17 @@ import { BotPicker, MemberPicker } from './pickers'
 import './groups.css'
 
 export type SettingsTab = 'basic' | 'bots' | 'repo' | 'mode' | 'params' | 'mcp' | 'skill' | 'feishu'
-export type InfoView = 'main' | 'members' | 'bots' | 'repo' | 'info' | 'notices' | 'previews' | 'schedules'
+export type InfoView =
+  | 'main'
+  | 'members'
+  | 'bots'
+  | 'repo'
+  | 'info'
+  | 'notices'
+  | 'previews'
+  | 'schedules'
+  | 'mcp'
+  | 'skill'
 
 type GroupPrefs = Partial<Pick<GroupDto, 'muted' | 'pinned' | 'foldRuns'>>
 
@@ -145,6 +156,8 @@ export function GroupInfo({
     notices: t('群公告'),
     previews: t('预览与服务'),
     schedules: t('定时任务'),
+    mcp: 'MCP',
+    skill: 'Skill',
   }[view]
   return (
     <InspectorPanel
@@ -178,6 +191,8 @@ export function GroupInfo({
         <PreviewsView groupId={group.id} onOpen={onClose} />
       ) : view === 'schedules' ? (
         <SchedulesView groupId={group.id} />
+      ) : view === 'mcp' || view === 'skill' ? (
+        <GroupConfigView groupId={group.id} kind={view} />
       ) : (
         <NoticeForm group={group} onSaved={() => setView('main')} />
       )}
@@ -423,8 +438,8 @@ function MainView({
             ...(dm
               ? []
               : [
-                  manage('MCP', undefined, 'mcp'),
-                  manage('Skill', undefined, 'skill'),
+                  manage('MCP', undefined, 'mcp', 'mcp'),
+                  manage('Skill', undefined, 'skill', 'skill'),
                   manage(t('飞书'), undefined, 'feishu'),
                 ]),
           ],

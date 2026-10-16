@@ -193,6 +193,27 @@ describe('skill layers', () => {
     ])
   })
 
+  it('lets plain group members read the group layer but not change it', async () => {
+    const w = await world()
+    const groupUrl = `/api/groups/${w.groupA.id}/skills`
+    const made = await (await w.as(w.eve)).post<SkillDetailDto>(groupUrl, { files: skill('review') })
+    const member = await t.seed.user({ name: '路人' })
+    await t.db.insert(groupMembers).values({ groupId: w.groupA.id, userId: member.id })
+    const plain = await w.as(member)
+    const one = `${groupUrl}/${made.body.id}`
+
+    expect((await plain.get<SkillDto[]>(groupUrl)).body.map((s) => [s.name, s.enabled])).toEqual([
+      ['review', true],
+    ])
+    expect((await plain.get<SkillDetailDto>(one)).body.files).toEqual(made.body.files)
+    expect((await plain.get<SkillVersionDto[]>(`${one}/versions`)).body).toHaveLength(1)
+    expect((await plain.post(groupUrl, { files: skill('x') })).status).toBe(403)
+    expect((await plain.patch(one, { enabled: false })).status).toBe(403)
+    expect((await plain.del(one)).status).toBe(403)
+    expect((await plain.post(`${one}/rollback`, { versionId: made.body.versionId })).status).toBe(403)
+    expect((await (await w.as(w.bob)).get(groupUrl)).status).toBe(404)
+  })
+
   it('merges enabled skills for a group: group over team over platform by name', async () => {
     const w = await world()
     const root = await w.as(w.root)
@@ -261,7 +282,10 @@ describe('inherited skills in a group', () => {
     const member = await t.seed.user({ name: '路人' })
     await t.db.insert(groupMembers).values({ groupId: w.groupA.id, userId: member.id })
     const plain = await w.as(member)
-    expect((await plain.get(url)).status).toBe(403)
+    expect((await plain.get<InheritedSkillDto[]>(url)).body.map((s) => [s.name, s.enabledInGroup])).toEqual([
+      ['jira', true],
+      ['wiki', false],
+    ])
     expect((await plain.put(`${url}/jira`, { enabled: false })).status).toBe(403)
 
     expect((await eve.put(`${url}/wiki`, { enabled: true })).status).toBe(200)

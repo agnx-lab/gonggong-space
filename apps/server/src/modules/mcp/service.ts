@@ -25,6 +25,12 @@ export const mcpDto = (r: McpRow): McpServerDto => ({
   updatedAt: r.updatedAt.toISOString(),
 })
 
+/** What a non-admin sees of a server: name and transport only, as the command line, URL, env and headers may hold secrets. */
+export const publicConfig = (c: McpServer): McpServer =>
+  c.transport === 'http'
+    ? { transport: 'http', name: c.name, url: '', headers: {} }
+    : { transport: 'stdio', name: c.name, command: '', args: [], env: {} }
+
 export const inLayer = (l: Layer) =>
   and(
     eq(mcpServers.scope, l.scope),

@@ -228,14 +228,63 @@ describe('group settings inspector', () => {
     renderAt('/g/g1')
     const d = await openDrawer()
     expect(within(d).getByText('仅群管理员 · 李建国')).toBeTruthy()
-    for (const name of [/基本信息/, /成员与 Bot/, /同步模式/, /群级参数/, /^MCP/, /^Skill/, /^飞书/])
+    for (const name of [/基本信息/, /成员与 Bot/, /同步模式/, /群级参数/, /^飞书/])
       expect(within(d).getByRole('button', { name }).hasAttribute('disabled')).toBe(true)
-    expect(
-      within(d)
-        .getByRole('button', { name: /仓库与工作区/ })
-        .hasAttribute('disabled'),
-    ).toBe(false)
+    for (const name of [/仓库与工作区/, /^MCP/, /^Skill/])
+      expect(within(d).getByRole('button', { name }).hasAttribute('disabled')).toBe(false)
     expect(within(d).queryByRole('button', { name: '解散群' })).toBeNull()
+  })
+
+  it('shows plain members the MCP and Skill lists read-only', async () => {
+    const http = (name: string) => ({ transport: 'http', name, url: '', headers: {} })
+    mockApi(
+      routes(
+        [
+          group({
+            members: [
+              { userId: 'u2', name: '李建国', avatar: null, isAdmin: true },
+              { userId: 'u1', name: '王磊', avatar: null, isAdmin: false },
+            ],
+          }),
+        ],
+        {
+          'GET /groups/g1/mcp': [{ id: 'm1', enabled: false, config: http('jira'), updatedAt: at }],
+          'GET /groups/g1/inherited-mcp': [
+            {
+              id: 'm2',
+              enabled: true,
+              config: http('wiki'),
+              updatedAt: at,
+              scope: 'team',
+              enabledInGroup: true,
+            },
+          ],
+          'GET /groups/g1/skills': [],
+          'GET /groups/g1/inherited-skills': [
+            { name: 'review', description: '代码评审', scope: 'platform', version: 2, enabledInGroup: false },
+          ],
+        },
+      ),
+    )
+    renderAt('/g/g1')
+    const d = await openDrawer()
+    fireEvent.click(within(d).getByRole('button', { name: /^MCP/ }))
+    expect(await within(d).findByText('jira')).toBeTruthy()
+    expect(within(d).getByText('仅群管理员可修改')).toBeTruthy()
+    const row = (name: string) => within(d).getByText(name).closest('.ui-group__row') as HTMLElement
+    expect(within(row('jira')).getByText('本群')).toBeTruthy()
+    expect(within(row('jira')).getByText('已关闭')).toBeTruthy()
+    expect(within(row('wiki')).getByText('团队')).toBeTruthy()
+    expect(within(row('wiki')).getByText('已开启')).toBeTruthy()
+    expect(within(d).queryByRole('switch', { name: /jira|wiki/ })).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    fireEvent.click(within(d).getByRole('button', { name: '返回' }))
+    fireEvent.click(within(d).getByRole('button', { name: /^Skill/ }))
+    expect(await within(d).findByText('review')).toBeTruthy()
+    expect(within(row('review')).getByText('平台')).toBeTruthy()
+    expect(within(row('review')).getByText('已关闭')).toBeTruthy()
+    expect(within(d).queryByRole('switch', { name: /review/ })).toBeNull()
   })
 
   it('lets plain members invite people and pull in their own bots, unless only admins may invite', async () => {
