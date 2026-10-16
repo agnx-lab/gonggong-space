@@ -7,7 +7,7 @@ use crate::protocol::{
 };
 use agent_client_protocol::schema::v1::{
     ContentBlock, PermissionOption, PermissionOptionId, PermissionOptionKind, SessionUpdate, ToolCallContent,
-    ToolCallUpdate, ToolKind,
+    ToolCallStatus, ToolCallUpdate, ToolKind,
 };
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
@@ -95,9 +95,25 @@ pub fn mode_for(kind: AgentKind, tier: Tier) -> &'static str {
         (AgentKind::Claude, Tier::Workspace) => "acceptEdits",
         (AgentKind::Claude, Tier::ReadOnly) => "default",
         (AgentKind::Codex, Tier::Full) => "agent-full-access",
-        (AgentKind::Codex, Tier::Workspace) => "agent",
+        // Not `agent`: it hands approvals to Codex's own reviewer model (fails on third-party providers) instead
+        // of the owner. `read-only` is codex-acp's workspace-write sandbox that asks the client.
+        (AgentKind::Codex, Tier::Workspace) => "read-only",
         (AgentKind::Codex, Tier::ReadOnly) => "read-only",
     }
+}
+
+/// A Codex auto review (codex-acp's `guardian_assessment:` tool call) that denied, aborted or timed out: its summary.
+/// Codex treats a failed review as a denial, so the bot would otherwise stall without a word.
+pub fn auto_review_failure(update: &SessionUpdate) -> Option<String> {
+    let u: ToolCallUpdate = match update {
+        SessionUpdate::ToolCall(c) => c.clone().into(),
+        SessionUpdate::ToolCallUpdate(u) => u.clone(),
+        _ => return None,
+    };
+    if !u.tool_call_id.0.starts_with("guardian_assessment:") || u.fields.status != Some(ToolCallStatus::Failed) {
+        return None;
+    }
+    u.fields.content.as_deref().and_then(output_tail).or(u.fields.title)
 }
 
 /// Plan D15: `full` allows on its own; other tiers ask the bot owner. `None` → answer `cancelled`.
@@ -458,8 +474,8 @@ mod tests {
     use super::*;
     use crate::protocol::{Approval, McpCall};
     use agent_client_protocol::schema::v1::{
-        ContentChunk, Cost, SessionInfoUpdate, TextContent, ToolCall, ToolCallLocation, ToolCallStatus,
-        ToolCallUpdateFields, UsageUpdate,
+        ContentChunk, Cost, SessionInfoUpdate, TextContent, ToolCall, ToolCallLocation, ToolCallUpdateFields,
+        UsageUpdate,
     };
 
     fn ctx(author: &str, body: &str) -> ContextMessage {
@@ -556,6 +572,30 @@ mod tests {
     fn maps_tiers_to_modes() {
         assert_eq!(mode_for(AgentKind::Claude, Tier::Full), "bypassPermissions");
         assert_eq!(mode_for(AgentKind::Codex, Tier::ReadOnly), "read-only");
+        // codex-acp's `agent` mode sends approvals to Codex's own reviewer model instead of the owner.
+        assert_eq!(mode_for(AgentKind::Codex, Tier::Workspace), "read-only");
+    }
+
+    #[test]
+    fn reports_failed_codex_auto_reviews() {
+        let review = |status| {
+            let text = "Status: Denied\nAction: MCP ask_group_members on gonggong\nRationale: 403 Forbidden";
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                "guardian_assessment:r1",
+                ToolCallUpdateFields::new()
+                    .status(status)
+                    .content(vec![ToolCallContent::from(ContentBlock::Text(TextContent::new(text)))]),
+            ))
+        };
+        assert_eq!(
+            auto_review_failure(&review(ToolCallStatus::Failed)).as_deref(),
+            Some("Status: Denied\nAction: MCP ask_group_members on gonggong\nRationale: 403 Forbidden")
+        );
+        assert_eq!(auto_review_failure(&review(ToolCallStatus::Completed)), None);
+        let call = ToolCall::new("guardian_assessment:r2", "Guardian Review").status(ToolCallStatus::Failed);
+        assert_eq!(auto_review_failure(&SessionUpdate::ToolCall(call)).as_deref(), Some("Guardian Review"));
+        let other = ToolCall::new("c1", "ls").status(ToolCallStatus::Failed);
+        assert_eq!(auto_review_failure(&SessionUpdate::ToolCall(other)), None);
     }
 
     #[test]

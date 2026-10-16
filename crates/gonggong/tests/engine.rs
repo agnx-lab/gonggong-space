@@ -763,6 +763,17 @@ async fn forwards_the_agents_available_commands() {
 }
 
 #[tokio::test]
+async fn reports_a_failed_codex_auto_review() {
+    let mut r = rig(Duration::from_secs(60));
+    r.run(start("r1", "mock:auto-review"));
+    let (events, done) = r.finish("r1").await;
+    assert_eq!(done.outcome, RunOutcome::Completed);
+    assert!(events.iter().any(|e| matches!(e,
+        RunEvent::Status { status: RunStatus::Running, step }
+            if step == "Codex 自动审查失败，操作被拒绝：Status: Denied\nRationale: 403 Forbidden")));
+}
+
+#[tokio::test]
 async fn lists_files_of_the_bot_workspace() {
     let mut r = rig(Duration::from_secs(60));
     let _remote = repo_workspace(&r);

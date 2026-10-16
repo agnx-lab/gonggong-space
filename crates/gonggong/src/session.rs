@@ -16,8 +16,8 @@ use crate::service::Outbox;
 use crate::skills;
 use crate::t;
 use crate::turn::{
-    ExtUpdate, TaskSnap, Turn, auto_allow, client_meta, compose_prompt, mode_for, session_failure, sync_hint,
-    system_prompt, wire_options,
+    ExtUpdate, TaskSnap, Turn, auto_allow, auto_review_failure, client_meta, compose_prompt, mode_for, session_failure,
+    sync_hint, system_prompt, wire_options,
 };
 use crate::workspace;
 use agent_client_protocol::schema::ProtocolVersion;
@@ -585,9 +585,15 @@ impl Shared {
             let (group_id, bot_id) = a.key.clone();
             return a.out.send(DaemonToServer::CommandsUpdate { group_id, bot_id, commands });
         }
-        if let Some(a) = s.active.as_mut().filter(|a| a.streaming)
-            && let Some(event) = a.turn.apply(&n.session_id.0, n.update)
-        {
+        let Some(a) = s.active.as_mut().filter(|a| a.streaming) else { return };
+        let review = auto_review_failure(&n.update);
+        if let Some(event) = a.turn.apply(&n.session_id.0, n.update) {
+            a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
+        }
+        if let Some(review) = review {
+            tracing::warn!("codex auto review failed in run {}: {review}", a.run_id);
+            let step = t!("Codex 自动审查失败，操作被拒绝：{review}", review = review);
+            let event = RunEvent::Status { status: RunStatus::Running, step };
             a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
         }
     }

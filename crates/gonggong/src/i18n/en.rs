@@ -393,6 +393,7 @@ pub(super) const EN: &[(&str, &str)] = &[
     ("请求被拒绝，agent 自行绕路", "Request denied; the agent will work around it"),
     ("档位已切换为「完全访问」，自动批准：{title}", "Tier switched to Full access, auto-approved: {title}"),
     ("已按命令审批规则自动批准：{command}", "Auto-approved by command approval rules: {command}"),
+    ("Codex 自动审查失败，操作被拒绝：{review}", "Codex auto review failed, the action was denied: {review}"),
     ("等待审批：{title}", "Awaiting approval: {title}"),
     ("等待回答：{n} 个问题", "Awaiting answers: {n} {n:question|questions}"),
     ("agent 已不再等待回答，提问作废", "The agent is no longer waiting; the question was withdrawn"),

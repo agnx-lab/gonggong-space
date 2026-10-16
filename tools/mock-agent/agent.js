@@ -132,6 +132,26 @@ async function prompt({ sessionId, prompt: blocks }, client) {
     )
     return { stopReason: 'end_turn' }
   }
+  if (text.includes('mock:auto-review')) {
+    const review = {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'guardian_assessment:r1',
+      kind: 'think',
+      title: 'Guardian Review',
+      status: 'in_progress',
+    }
+    await update(review)
+    await update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: review.toolCallId,
+      status: 'failed',
+      content: [
+        { type: 'content', content: { type: 'text', text: 'Status: Denied\nRationale: 403 Forbidden' } },
+      ],
+    })
+    await say('blocked')
+    return { stopReason: 'end_turn' }
+  }
   if (text.includes('mock:commands')) {
     await update({
       sessionUpdate: 'available_commands_update',
