@@ -17,7 +17,9 @@ async function world() {
   const bot = await t.seed.bot({ ownerId: alice.id, name: 'Claude', machineId: machine.id, concurrency: 2 })
   const sent: ServerToDaemon[] = []
   const conn = { send: (m: ServerToDaemon) => void sent.push(m), close: () => {} }
-  t.ctx.hub.register(machine.id, conn)
+  // Online without hub.register: its 'online' event schedules in the background, racing each test's own schedule().
+  vi.spyOn(t.ctx.hub, 'isOnline').mockImplementation((id) => id === machine.id)
+  vi.spyOn(t.ctx.hub, 'send').mockImplementation((id, m) => id === machine.id && (conn.send(m), true))
   const queued = async () => {
     const group = await t.seed.group({ createdBy: alice.id, botIds: [bot.id] })
     const [m] = await t.db
@@ -95,8 +97,8 @@ describe('dispatch', () => {
       .from(groupBots)
       .where(and(eq(groupBots.groupId, a.group.id), eq(groupBots.botId, w.bot.id)))
     expect(gb?.contextSeq).toBe(0)
-    // Never shown as running. Registering the machine also schedules in the background, which may publish it again.
-    expect([...new Set(statuses)]).toEqual(['offline_wait'])
+    // Never shown as running.
+    expect(statuses).toEqual(['offline_wait'])
   })
 
   it('advances the context cursor once the start was sent', async () => {
