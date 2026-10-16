@@ -177,40 +177,46 @@ export async function hasRun(ctx: Ctx, groupId: string, messageId: string) {
 
 /**
  * Relay (spec §4.6): the bots a completed run handed off to (hand_off) run as the next hop, each triggered by a message
- * of the parent bot that @-s it with the task, authorized against the chain's human initiator.
+ * of the parent bot that @-s it with the task, authorized against the chain's human initiator. A hand-off to another
+ * group posts there, naming the source group, as long as both bots are still in it.
  */
 export async function triggerChain(ctx: Ctx, parent: RunRow): Promise<void> {
   if (parent.status !== 'completed' || !parent.handoffs.length || (await isChainStopped(ctx, parent))) return
   const [group] = await ctx.db
-    .select({ params: groups.params, teamId: groups.teamId })
+    .select({ name: groups.name, params: groups.params, teamId: groups.teamId })
     .from(groups)
     .where(eq(groups.id, parent.groupId))
   const hop = parent.hop + 1
   if (!group || hop > (await groupParams(ctx, group)).chainMaxHops) return
-  const names = new Map((await activeBots(ctx, parent.groupId)).map((b) => [b.id, b.name]))
+  const names = async (groupId: string) =>
+    new Map((await activeBots(ctx, groupId)).map((b) => [b.id, b.name]))
+  const own = await names(parent.groupId)
   // Repeatable: a hop whose relay message or run already exists is not created again.
   for (const [i, h] of parent.handoffs.entries()) {
-    const name = names.get(h.botId)
-    if (!name) continue
+    const groupId = h.groupId ?? parent.groupId
+    const present = h.groupId ? await names(h.groupId) : own
+    const name = present.get(h.botId)
+    if (!name || (h.groupId && !present.has(parent.botId))) continue
     const relayOf = `${parent.id}:${i}`
     const [prior] = await ctx.db
       .select({ id: messages.id })
       .from(messages)
-      .where(and(eq(messages.groupId, parent.groupId), sql`${messages.meta}->>'relayOf' = ${relayOf}`))
-    if (prior && (await hasRun(ctx, parent.groupId, prior.id))) continue
+      .where(and(eq(messages.groupId, groupId), sql`${messages.meta}->>'relayOf' = ${relayOf}`))
+    if (prior && (await hasRun(ctx, groupId, prior.id))) continue
+    const from = h.groupId ? `来自「${group.name}」群：` : ''
     const messageId =
       prior?.id ??
       (
         await postMessage(ctx, {
-          groupId: parent.groupId,
+          groupId,
           kind: 'bot',
           authorBotId: parent.botId,
-          body: `@${name} ${h.task}`,
+          body: `@${name} ${from}${h.task}`,
           meta: { mentions: [h.botId], relayOf },
         })
       ).id
     await createRuns(ctx, {
-      groupId: parent.groupId,
+      groupId,
       messageId,
       botIds: [h.botId],
       originUserId: parent.originUserId,

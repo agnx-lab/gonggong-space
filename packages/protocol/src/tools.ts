@@ -97,8 +97,14 @@ export const PreviewGuiArgs = z.object({
 export const PreviewCloseArgs = z.object({ preview: z.string().describe('preview_expose 返回的预览 id') })
 
 export const HandOffArgs = z.object({
-  bot: z.string().min(1).max(64).describe('接手的 Bot 名字（get_group_info 列出的本群 Bot）'),
+  bot: z.string().min(1).max(64).describe('接手的 Bot 名字（get_group_info 列出的目标群 Bot）'),
   task: z.string().min(1).max(2000).describe('交代给它的任务：要做什么、需要的上下文、做到什么程度算完成'),
+  group: z
+    .string()
+    .describe(
+      '交给其他群的 Bot 时填该群 id（get_group_info 的「其他可读的群」列出，你和它都要在该群）；省略 = 本群',
+    )
+    .optional(),
 })
 
 const scheduleCron = z
@@ -344,7 +350,8 @@ export const GONGGONG_TOOLS = {
   hand_off: {
     title: GONGGONG_TOOL_TITLES.hand_off,
     description:
-      '让本群另一个 Bot 接手工作：本轮结束后，群里会发出一条你 @ 它并交代任务的消息，它随即开始运行。' +
+      '让另一个 Bot 接手工作：本轮结束后，群里会发出一条你 @ 它并交代任务的消息，它随即开始运行。' +
+      '默认交给本群的 Bot；传 group 可交给你所在的其他群里的 Bot，消息发在那个群并注明来自本群。' +
       '回复正文里写 @名字 只是提及、不会让对方开始工作；只有需要对方真正动手时才调用本工具。',
     input: HandOffArgs,
   },

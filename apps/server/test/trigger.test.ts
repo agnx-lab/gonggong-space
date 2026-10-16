@@ -1,7 +1,7 @@
 import { PROTOCOL_VERSION, type RunStart, type ToolCallRes } from '@gonggong/protocol'
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { bots, groups, messages, runs } from '../src/db/schema.js'
+import { bots, groupBots, groups, messages, runs } from '../src/db/schema.js'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
 import { createTestApp, inbox, type TestApp } from './support/app.js'
 
@@ -28,12 +28,12 @@ async function daemon(token: string) {
   expect(await box.next()).toMatchObject({ t: 'welcome' })
   return {
     next: () => box.next<RunStart>(),
-    handOff: async (runId: string, bot: string, task = '继续') => {
+    handOff: async (runId: string, bot: string, task = '继续', group?: string) => {
       const res = await t.app.inject({
         method: 'POST',
         url: `/api/daemon/runs/${runId}/tools/hand_off`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { arguments: { bot, task } },
+        payload: { arguments: { bot, task, group } },
       })
       return res.json<ToolCallRes>()
     },
@@ -293,6 +293,70 @@ describe('relay chain', () => {
       step: '该 Bot 仅允许主人触发，未启动运行',
       originUserId: w.bob.id,
     })
+  })
+
+  it('hands off to a bot in another group both bots are in, posting there with the source group', async () => {
+    const w = await world()
+    const c = await w.bot('共字君')
+    const source = await t.seed.group({ createdBy: w.owner.id, name: '麓豆3周年', botIds: [w.a.id, w.b.id] })
+    const target = await t.seed.group({ createdBy: w.owner.id, name: '共工空间迭代', botIds: [w.a.id, c.id] })
+    const without = await t.seed.group({ createdBy: w.owner.id, name: '别的群', botIds: [c.id] })
+    const d = await daemon(w.token)
+    const [m] = await t.db
+      .insert(messages)
+      .values({
+        groupId: source.id,
+        kind: 'user',
+        authorUserId: w.owner.id,
+        body: '@接力 A',
+        meta: { mentions: [w.a.id] },
+      })
+      .returning()
+    await triggerRuns(t.ctx, m!)
+    const start = await d.next()
+    expect(await d.handOff(start.runId, '接力 B', '做', target.id)).toMatchObject({
+      isError: true,
+      text: '群「共工空间迭代」没有叫「接力 B」的 Bot，可接手的有：共字君',
+    })
+    expect(await d.handOff(start.runId, '共字君', '做', without.id)).toMatchObject({
+      isError: true,
+      text: `你不在该群或群不存在：${without.id}`,
+    })
+    expect(await d.handOff(start.runId, '共字君', '修复登录页', target.id)).toMatchObject({
+      isError: false,
+      text: '已登记：本轮结束后由群「共工空间迭代」的「共字君」接手（任务：修复登录页）。回复里不需要再 @ 它。',
+    })
+    d.done(start.runId, '已转交')
+    const next = await d.next()
+    expect(next.bot.id).toBe(c.id)
+    expect(next.prompt.text).toBe('@共字君 来自「麓豆3周年」群：修复登录页')
+    const [run] = await t.db.select().from(runs).where(eq(runs.id, next.runId))
+    expect(run).toMatchObject({ groupId: target.id, hop: 2, parentRunId: start.runId })
+    const [trigger] = await t.db.select().from(messages).where(eq(messages.id, run!.triggerMessageId))
+    expect(trigger).toMatchObject({
+      groupId: target.id,
+      kind: 'bot',
+      authorBotId: w.a.id,
+      meta: { mentions: [c.id] },
+    })
+  })
+
+  it('drops a cross-group hand-off once the handing bot left the target group', async () => {
+    const w = await world()
+    const c = await w.bot('共字君')
+    const target = await t.seed.group({ createdBy: w.owner.id, botIds: [w.a.id, c.id] })
+    const d = await daemon(w.token)
+    await w.say(w.bob.id, '@接力 A', [w.a.id])
+    const start = await d.next()
+    expect(await d.handOff(start.runId, '共字君', '做', target.id)).toMatchObject({ isError: false })
+    await t.db
+      .update(groupBots)
+      .set({ removedAt: new Date() })
+      .where(and(eq(groupBots.groupId, target.id), eq(groupBots.botId, w.a.id)))
+    d.done(start.runId, '好了')
+    await until(w.allRuns, (r) => r[0]!.status === 'completed')
+    await new Promise((r) => setTimeout(r, 100))
+    expect(await w.allRuns()).toHaveLength(1)
   })
 
   it('does not relay from interrupted or failed runs', async () => {

@@ -541,8 +541,14 @@ export const runs = pgTable(
     patchRepos: jsonb('patch_repos').$type<DiffRepo[]>().notNull().default([]),
     /** Latest state of each subagent / background task by id: { subagents: {id: state}, tasks: {id: state} }. */
     delegation: jsonb('delegation').notNull().default({}),
-    /** Bots that take over once this run completes (the hand_off tool); an @ in the reply alone relays nothing. */
-    handoffs: jsonb('handoffs').$type<{ botId: string; task: string }[]>().notNull().default([]),
+    /**
+     * Bots that take over once this run completes (the hand_off tool); an @ in the reply alone relays nothing.
+     * `groupId`: the hop runs in that other group instead of the run's own.
+     */
+    handoffs: jsonb('handoffs')
+      .$type<{ botId: string; task: string; groupId?: string }[]>()
+      .notNull()
+      .default([]),
     /**
      * Set with the terminal state of a run that reported run.done, cleared once its follow-up work (relay, requeued
      * appends, notifications) is done: a run left flagged is finished again by a repeated run.done or on reconnect.

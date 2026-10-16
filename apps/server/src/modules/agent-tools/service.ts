@@ -352,21 +352,27 @@ async function handOff(ctx: Ctx, s: Scope, a: Args<'hand_off'>): Promise<ToolOut
   const { run } = s
   const max = (await groupParams(ctx, s.pick())).chainMaxHops
   if (run.hop >= max) refuse(`接力已达上限（${max} 跳），不能再交给其他 Bot；请在回复里说明，由群成员决定`)
-  const members = await activeBots(ctx, run.groupId)
+  // Other groups in scope are exactly the live team groups this bot is in.
+  const target = s.groups.get(a.group ?? run.groupId) ?? refuse(`你不在该群或群不存在：${a.group}`)
+  const away = target.id !== run.groupId
+  const members = await activeBots(ctx, target.id)
   const name = a.bot.trim().replace(/^@/, '')
   const bot = members.find((b) => b.name === name)
   if (bot?.id === run.botId) refuse('不能交给自己')
   if (!bot) {
     const others = members.filter((b) => b.id !== run.botId).map((b) => b.name)
-    return refuse(`本群没有叫「${name}」的 Bot，可接手的有：${others.join('、') || '无'}`)
+    const where = away ? `群「${target.name}」` : '本群'
+    return refuse(`${where}没有叫「${name}」的 Bot，可接手的有：${others.join('、') || '无'}`)
   }
   const task = a.task.trim()
-  const handoffs = [...run.handoffs.filter((h) => h.botId !== bot.id), { botId: bot.id, task }]
+  const groupId = away ? target.id : undefined
+  const handoffs = [
+    ...run.handoffs.filter((h) => h.botId !== bot.id || h.groupId !== groupId),
+    { botId: bot.id, task, ...(groupId && { groupId }) },
+  ]
   await ctx.db.update(runs).set({ handoffs }).where(eq(runs.id, run.id))
-  return {
-    text: `已登记：本轮结束后由「${bot.name}」接手（任务：${task}）。回复里不需要再 @ 它。`,
-    groups: [],
-  }
+  const who = away ? `群「${target.name}」的「${bot.name}」` : `「${bot.name}」`
+  return { text: `已登记：本轮结束后由${who}接手（任务：${task}）。回复里不需要再 @ 它。`, groups: [] }
 }
 
 const TOOLS: { [N in GonggongToolName]: (ctx: Ctx, s: Scope, a: Args<N>) => Promise<ToolOutput> } = {
