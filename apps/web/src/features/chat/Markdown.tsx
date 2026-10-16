@@ -1,10 +1,11 @@
-import { createContext, isValidElement, memo, type ReactNode, useContext, useMemo } from 'react'
+import type { FilesFindDto } from '@gonggong/protocol'
+import { createContext, isValidElement, memo, type ReactNode, useContext, useMemo, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useWorkbench } from '../../app/workbench'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
-import { CodeBlock, splitMentions, toast } from '../../ui'
+import { CodeBlock, Dialog, splitMentions, toast } from '../../ui'
 import { openTab } from '../workbench/open'
 
 const copyFailed = () => toast({ type: 'error', message: t('复制失败') })
@@ -109,21 +110,58 @@ function FileRef({
   children,
 }: FileRefProps & { botId: string; children?: ReactNode }) {
   const groupId = useWorkbench((s) => s.groupId)
+  /** Several workspace files share a bare name: the user picks one. */
+  const [picks, setPicks] = useState<string[] | null>(null)
+  const base = `/groups/${groupId}/bots/${botId}/files`
+  const show = (file: string) => {
+    const line = from === undefined ? undefined : { from, to: to ?? from }
+    openTab({ kind: 'file', source: { botId, path: file, ...(line ? { line } : {}) } })
+  }
+  const notFound = () => toast({ type: 'error', message: t('工作区里没找到') })
   const open = async () => {
     if (!groupId) return
-    const line = from === undefined ? undefined : { from, to: to ?? from }
-    try {
-      await api.get(`/groups/${groupId}/bots/${botId}/files/text?path=${encodeURIComponent(path)}`)
-    } catch {
-      toast({ type: 'error', message: t('工作区里没找到') })
-      return
+    // A bare name is looked up in the workspace; a path is read where it says.
+    if (!path.includes('/')) {
+      let paths: string[]
+      try {
+        paths = (await api.get<FilesFindDto>(`${base}/find?name=${encodeURIComponent(path)}`)).paths
+      } catch {
+        return notFound()
+      }
+      if (paths.length > 1) return setPicks(paths)
+      const [only] = paths
+      return only ? show(only) : notFound()
     }
-    openTab({ kind: 'file', source: { botId, path, ...(line ? { line } : {}) } })
+    try {
+      await api.get(`${base}/text?path=${encodeURIComponent(path)}`)
+    } catch {
+      return notFound()
+    }
+    show(path)
   }
   return (
-    <button type="button" className="md-file-ref" onClick={open}>
-      <code>{children}</code>
-    </button>
+    <>
+      <button type="button" className="md-file-ref" onClick={open}>
+        <code>{children}</code>
+      </button>
+      <Dialog open={picks !== null} onClose={() => setPicks(null)} title={t('选择要打开的文件')} width={360}>
+        <div className="md-file-picks">
+          {picks?.map((p) => (
+            <button
+              key={p}
+              type="button"
+              className="md-file-pick"
+              onClick={() => {
+                setPicks(null)
+                show(p)
+              }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </Dialog>
+    </>
   )
 }
 

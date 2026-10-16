@@ -523,6 +523,17 @@ pub struct FilesTree {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FilesFind {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub name: String,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilesRead {
     pub request_id: String,
     pub group_id: String,
@@ -1324,6 +1335,8 @@ pub enum DaemonToServer {
     FilesResult { request_id: String, entries: Vec<FileEntry>, error: Option<String> },
     #[serde(rename = "files.tree.result", rename_all = "camelCase")]
     FilesTreeResult { request_id: String, entries: Vec<TreeEntry>, truncated: bool, error: Option<String> },
+    #[serde(rename = "files.find.result", rename_all = "camelCase")]
+    FilesFindResult { request_id: String, paths: Vec<String>, error: Option<String> },
     #[serde(rename = "files.read.result", rename_all = "camelCase")]
     FilesReadResult {
         request_id: String,
@@ -1464,6 +1477,8 @@ pub enum ServerToDaemon {
     FilesTree(FilesTree),
     #[serde(rename = "files.read")]
     FilesRead(FilesRead),
+    #[serde(rename = "files.find")]
+    FilesFind(FilesFind),
     #[serde(rename = "workspace.diff")]
     WorkspaceDiff(WorkspaceDiff),
     #[serde(rename = "dir.list", rename_all = "camelCase")]
@@ -1512,4 +1527,20 @@ pub enum ServerToDaemon {
     SyncAction { group_id: String, bot_id: String, action: SyncActionKind },
     #[serde(rename = "sync.init", rename_all = "camelCase")]
     SyncInit { group_id: String, bot_id: String, role: SyncRole, force: bool, repo_id: Option<String> },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn files_find_fixtures_parse() {
+        let ask: ServerToDaemon =
+            serde_json::from_str(include_str!("../../../packages/protocol/fixtures/s2d.files.find.json")).unwrap();
+        assert!(matches!(ask, ServerToDaemon::FilesFind(ref f) if f.name == "Markdown.tsx" && f.limit == 20));
+        let answer: DaemonToServer =
+            serde_json::from_str(include_str!("../../../packages/protocol/fixtures/d2s.files.find.result.json"))
+                .unwrap();
+        assert!(matches!(answer, DaemonToServer::FilesFindResult { ref paths, .. } if paths.len() == 2));
+    }
 }

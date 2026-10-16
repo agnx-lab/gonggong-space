@@ -1,7 +1,9 @@
 import {
   decodeFrame,
   encodeFrame,
+  FILE_FIND_MAX_RESULTS,
   FILE_TEXT_MAX_BYTES,
+  type FilesFindDto,
   type FilesTreeDto,
   type FileTextDto,
   type OpenAppsDto,
@@ -112,6 +114,24 @@ describe('files browser routes', () => {
     if (again.t !== 'files.tree') throw new Error(again.t)
     d.send({ t: 'files.tree.result', requestId: again.requestId, entries: [], truncated: false, error: null })
     expect((await root).body).toEqual({ path: '', entries: [], truncated: false })
+  })
+
+  it('finds workspace files by name for members, asking the daemon with the result cap', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    const pending = w.members.get<FilesFindDto>(w.url('find', 'name=Markdown.tsx'))
+    const req = await d.next(['files.find'])
+    expect(req).toMatchObject({
+      t: 'files.find',
+      botId: w.bot.id,
+      name: 'Markdown.tsx',
+      limit: FILE_FIND_MAX_RESULTS,
+    })
+    if (req.t !== 'files.find') throw new Error(req.t)
+    d.send({ t: 'files.find.result', requestId: req.requestId, paths: ['web/Markdown.tsx'], error: null })
+    expect(await pending).toEqual({ status: 200, body: { paths: ['web/Markdown.tsx'] } })
+    expect((await w.members.get(w.url('find', 'name='))).status).toBe(400)
+    expect((await w.outsiders.get(w.url('find', 'name=Markdown.tsx'))).status).toBe(404)
   })
 
   it('reads a text file with the size cap', async () => {

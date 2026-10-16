@@ -132,6 +132,9 @@
 .pv-line__t {
   white-space: pre;
 }
+.pv-line--hit {
+  background: var(--accent-fill);
+}
 .pv-line--error {
   color: var(--tint-red-text);
 }

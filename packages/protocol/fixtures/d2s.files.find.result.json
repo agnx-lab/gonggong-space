@@ -1,0 +1,6 @@
+{
+  "t": "files.find.result",
+  "requestId": "f1",
+  "paths": ["apps/web/src/features/chat/Markdown.tsx", "packages/ui/src/Markdown.tsx"],
+  "error": null
+}

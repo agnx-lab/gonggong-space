@@ -431,6 +431,9 @@ export const FilesTreeDto = z.object({
   truncated: z.boolean(),
 })
 export type FilesTreeDto = z.infer<typeof FilesTreeDto>
+/** GET …/files/find?name= — workspace paths named `name` (see FilesFind); empty when none. */
+export const FilesFindDto = z.object({ paths: z.array(z.string()) })
+export type FilesFindDto = z.infer<typeof FilesFindDto>
 /** GET …/files/text?path= — `text` null when binary or over FILE_TEXT_MAX_BYTES. */
 export const FileTextDto = z.object({
   path: z.string(),

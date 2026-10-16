@@ -1,0 +1,12 @@
+{
+  "t": "files.find",
+  "requestId": "f1",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": {
+    "repo": { "id": "r1", "url": "git@git.corp:pay/refund.git", "branch": "main", "protocol": "auto" },
+    "cdPath": null
+  },
+  "name": "Markdown.tsx",
+  "limit": 20
+}

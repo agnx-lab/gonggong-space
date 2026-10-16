@@ -554,6 +554,14 @@ export const FilesReadResult = z.object({
   error: z.string().nullable(),
 })
 
+/** Answer to files.find: workspace paths whose name or path suffix equals the query (at most `limit`). */
+export const FilesFindResult = z.object({
+  t: z.literal('files.find.result'),
+  requestId: z.string(),
+  paths: z.array(z.string()),
+  error: z.string().nullable(),
+})
+
 export const FilesResult = z.object({
   t: z.literal('files.result'),
   requestId: z.string(),
@@ -856,6 +864,7 @@ export const DaemonToServer = z.discriminatedUnion('t', [
   FilesResult,
   FilesTreeResult,
   FilesReadResult,
+  FilesFindResult,
   WorkspaceDiffResult,
   QuestionAsk,
   QuestionWithdraw,
@@ -997,6 +1006,18 @@ export const FilesTree = z.object({
   workspace: WorkspaceSpec,
   path: z.string(),
   showIgnored: z.boolean(),
+})
+
+/** Workspace files named `name` (a file name, or a path suffix such as `ui/Button.tsx`), honoring .gitignore. */
+export const FILE_FIND_MAX_RESULTS = 20
+export const FilesFind = z.object({
+  t: z.literal('files.find'),
+  requestId: z.string(),
+  groupId: z.string(),
+  botId: z.string(),
+  workspace: WorkspaceSpec,
+  name: z.string(),
+  limit: z.number().int(),
 })
 
 /** A workspace file's metadata and, when it is UTF-8 text within `maxBytes`, its content. */
@@ -1151,6 +1172,7 @@ export const ServerToDaemon = z.discriminatedUnion('t', [
   FilesList,
   FilesTree,
   FilesRead,
+  FilesFind,
   WorkspaceDiff,
   QuestionAnswer,
   RunAppend,

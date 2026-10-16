@@ -341,6 +341,17 @@ impl Handler for Engine {
                     });
                 });
             }
+            ServerToDaemon::FilesFind(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let (paths, error) = match files::find(&dir, &req.name, req.limit as usize).await {
+                        Ok(paths) => (paths, None),
+                        Err(e) => (vec![], Some(e)),
+                    };
+                    out.send(DaemonToServer::FilesFindResult { request_id: req.request_id, paths, error });
+                });
+            }
             ServerToDaemon::WorkspaceDiff(req) => {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let extras: Vec<PathBuf> = req.workspace.extra_dirs.iter().map(PathBuf::from).collect();

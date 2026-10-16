@@ -11,16 +11,31 @@ const SKIP: [&str; 3] = [".gonggong", ".git", "node_modules"];
 
 /// Entries matching `query` (case-insensitive prefix / substring / subsequence), best first; folders end with `/`.
 pub async fn list(dir: &Path, query: &str, limit: usize) -> Result<Vec<FileEntry>, String> {
-    if !dir.is_dir() {
-        return Err(t!("工作区不存在：{path}", path = dir.display()));
-    }
-    let files = if git::is_repo(dir) { tracked(dir).await? } else { walk(dir.to_path_buf()).await? };
+    let files = workspace_files(dir).await?;
     let mut entries: Vec<(Rank, FileEntry)> = with_dirs(files)
         .into_iter()
         .filter_map(|(path, (dir, uncommitted))| Some((rank(&path, query)?, FileEntry { path, dir, uncommitted })))
         .collect();
     entries.sort_by(|(a, x), (b, y)| a.cmp(b).then_with(|| x.path.cmp(&y.path)));
     Ok(entries.into_iter().take(limit).map(|(_, e)| e).collect())
+}
+
+/// Paths of the workspace files named `name`: the file name, or a path suffix on whole segments (`ui/Button.tsx`).
+/// Exact matches only, so nothing outside the workspace's own listing can be reached.
+pub async fn find(dir: &Path, name: &str, limit: usize) -> Result<Vec<String>, String> {
+    if name.is_empty() {
+        return Ok(vec![]);
+    }
+    let suffix = format!("/{name}");
+    let files = workspace_files(dir).await?;
+    Ok(files.into_keys().filter(|p| p == name || p.ends_with(&suffix)).take(limit).collect())
+}
+
+async fn workspace_files(dir: &Path) -> Result<BTreeMap<String, bool>, String> {
+    if !dir.is_dir() {
+        return Err(t!("工作区不存在：{path}", path = dir.display()));
+    }
+    if git::is_repo(dir) { tracked(dir).await } else { walk(dir.to_path_buf()).await }
 }
 
 /// `git ls-files` (tracked + untracked, not ignored) → path → uncommitted; files deleted in the work tree are left out.
@@ -189,6 +204,36 @@ mod tests {
         let all = list(dir.path(), "", 10).await.unwrap();
         assert_eq!(paths(&all), ["b.txt", "notes/", "notes/a.md"]);
         assert!(all.iter().all(|e| !e.uncommitted));
+    }
+
+    #[tokio::test]
+    async fn finds_files_by_name_or_path_suffix_and_honours_gitignore_and_the_limit() {
+        let r = Remote::new();
+        r.commit("Button.tsx", "x");
+        let w = r.clone_to("w");
+        fs::create_dir_all(w.join("lib/ui")).unwrap();
+        fs::write(w.join("lib/ui/Button.tsx"), "x").unwrap();
+        fs::create_dir_all(w.join("ignored")).unwrap();
+        fs::write(w.join("ignored/Button.tsx"), "x").unwrap();
+        fs::write(w.join(".gitignore"), "ignored/\n").unwrap();
+        fs::write(w.join("Button.tsx.bak"), "x").unwrap();
+
+        assert_eq!(find(&w, "Button.tsx", 10).await.unwrap(), ["Button.tsx", "lib/ui/Button.tsx"]);
+        assert_eq!(find(&w, "ui/Button.tsx", 10).await.unwrap(), ["lib/ui/Button.tsx"]);
+        assert_eq!(find(&w, "Button.tsx", 1).await.unwrap(), ["Button.tsx"]);
+        assert!(find(&w, "Button", 10).await.unwrap().is_empty());
+        assert!(find(&w, "src", 10).await.unwrap().is_empty());
+        assert!(find(&w, "../Button.tsx", 10).await.unwrap().is_empty());
+        assert!(find(&w, "", 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn plain_directories_are_searched_for_names_too() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("notes")).unwrap();
+        fs::write(dir.path().join("notes/a.md"), "x").unwrap();
+        fs::write(dir.path().join("a.md"), "x").unwrap();
+        assert_eq!(find(dir.path(), "a.md", 10).await.unwrap(), ["a.md", "notes/a.md"]);
     }
 
     #[tokio::test]

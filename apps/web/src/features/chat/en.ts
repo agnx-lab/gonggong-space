@@ -16,6 +16,7 @@ export default {
   '群成员：{n} 人': 'Group members: {n} {n:person|people}',
   工作台: 'Workbench',
   工作区里没找到: 'Not found in the workspace',
+  选择要打开的文件: 'Choose a file to open',
   '工作台 · 还没有打开的标签页': 'Workbench · no tabs open yet',
   群设置: 'Group settings',
   添加附件: 'Add attachments',

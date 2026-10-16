@@ -446,6 +446,7 @@ export const en = {
   '{bot} 离线，无法读取文件': "{bot} is offline, can't read files",
   '{bot} 尚未设置工作区': "{bot} doesn't have a workspace yet",
   缺少文件路径: 'Missing file path',
+  缺少文件名: 'Missing file name',
   '{bot} 的文件读取繁忙，请稍后再试': 'File reading on {bot} is busy, try again later',
   '只有 Bot 主人可以操作其工作区': "Only the Bot's owner can manage its workspace",
   '{name} 未响应，请稍后重试': "{name} isn't responding, try again later",

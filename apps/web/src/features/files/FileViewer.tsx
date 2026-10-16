@@ -1,6 +1,6 @@
 import { FILE_TEXT_MAX_BYTES, type FileTextDto } from '@gonggong/protocol'
-import { useCallback, useEffect, useState } from 'react'
-import { useWorkbench } from '../../app/workbench'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { type LineRange, useWorkbench } from '../../app/workbench'
 import { api } from '../../lib/api'
 import { copyWithToast } from '../../lib/clipboard'
 import { cx } from '../../lib/cx'
@@ -76,19 +76,41 @@ const TEXTUAL: ViewKind[] = ['md', 'html', 'text', 'unknown']
 
 const level = (line: string) => (/ERROR|FAIL/.test(line) ? 'error' : /WARN/.test(line) ? 'warn' : null)
 
-function Lines({ text, colored, lang }: { text: string; colored: boolean; lang: Lang | null }) {
+function Lines({
+  text,
+  colored,
+  lang,
+  line,
+}: {
+  text: string
+  colored: boolean
+  lang: Lang | null
+  line?: LineRange
+}) {
   const lines = text.replace(/\n$/, '').split('\n')
   const shown = lines.slice(0, LINES_MAX)
   const tokens = useHighlight(shown.join('\n'), lang)
+  const first = useRef<HTMLDivElement>(null)
+  const from = line?.from
+  const to = line?.to
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each new range scrolls again, the ref is read on purpose
+  useEffect(() => {
+    first.current?.scrollIntoView({ block: 'center' })
+  }, [from, to])
   return (
     <>
       <div className="pv-lines">
         {shown.map((l, i) => {
           const lv = colored ? level(l) : null
           const lineTokens = tokens?.[i]
+          const hit = from !== undefined && to !== undefined && i + 1 >= from && i + 1 <= to
           return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
-            <div key={i} className="pv-line">
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
+              key={i}
+              ref={hit && i + 1 === from ? first : undefined}
+              className={hit ? 'pv-line pv-line--hit' : 'pv-line'}
+            >
               <span className="pv-line__n">{i + 1}</span>
               <span className={lv ? `pv-line__t pv-line--${lv}` : 'pv-line__t'}>
                 {lineTokens?.length ? <Tokens tokens={lineTokens} /> : l || ' '}
@@ -128,17 +150,29 @@ export interface FileViewerProps {
   read: () => Promise<TextRead>
   /** Extra facts shown under the content (attachments). */
   details?: [string, string][]
+  /** Lines to highlight and scroll to; a line range only means something in the source view. */
+  line?: LineRange
   onOpenTab?: () => void
   onCite?: () => void
 }
 
 /** One file by type (design §4.6): shared by the files tab, file tabs and attachments. */
-export function FileViewer({ name, path, url, kind, read, details, onOpenTab, onCite }: FileViewerProps) {
+export function FileViewer({
+  name,
+  path,
+  url,
+  kind,
+  read,
+  details,
+  line,
+  onOpenTab,
+  onCite,
+}: FileViewerProps) {
   const textual = TEXTUAL.includes(kind)
   const [text, setText] = useState<TextRead | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const [md, setMd] = useState<'preview' | 'source'>('preview')
+  const [md, setMd] = useState<'preview' | 'source'>(line ? 'source' : 'preview')
   const [fit, setFit] = useState<'fit' | 'actual'>('fit')
   const [dim, setDim] = useState<string | null>(null)
 
@@ -232,7 +266,7 @@ export function FileViewer({ name, path, url, kind, read, details, onOpenTab, on
           <Markdown text={text.text} />
         </div>
       )
-    return <Lines text={text.text} colored={fileType(name) === 'text'} lang={langOf(name)} />
+    return <Lines text={text.text} colored={fileType(name) === 'text'} lang={langOf(name)} line={line} />
   })()
 
   const rows =
@@ -328,10 +362,12 @@ export function FileViewer({ name, path, url, kind, read, details, onOpenTab, on
 export function BotFileViewer({
   botId,
   path,
+  line,
   onOpenTab,
 }: {
   botId: string
   path: string
+  line?: LineRange
   onOpenTab?: () => void
 }) {
   const groupId = useWorkbench((s) => s.groupId) ?? ''
@@ -345,6 +381,7 @@ export function BotFileViewer({
       url={`/api${base}/raw${query}`}
       kind={viewKind(path)}
       read={read}
+      line={line}
       onOpenTab={onOpenTab}
       onCite={() => citeInChat(groupId, `@${path}`)}
     />

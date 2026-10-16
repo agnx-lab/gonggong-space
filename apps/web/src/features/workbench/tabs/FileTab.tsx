@@ -8,7 +8,7 @@ export function FileTab({ tab }: TabProps<'file'>) {
   return 'attachment' in s ? (
     <AttachmentViewer attachment={s.attachment} from={s.from} />
   ) : (
-    <BotFileViewer botId={s.botId} path={s.path} />
+    <BotFileViewer botId={s.botId} path={s.path} line={s.line} />
   )
 }
 

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import {
   type DaemonToServer,
+  FILE_FIND_MAX_RESULTS,
   FILE_TEXT_MAX_BYTES,
+  type FilesFindDto,
   type FilesTreeDto,
   type FileTextDto,
   INLINE_FILE_MIMES,
@@ -25,9 +27,9 @@ import { currentRepo, onlineMachine } from './provision.js'
 
 type Answer = Extract<
   DaemonToServer,
-  { t: 'files.tree.result' | 'files.read.result' | 'workspace.open.result' }
+  { t: 'files.tree.result' | 'files.read.result' | 'files.find.result' | 'workspace.open.result' }
 >
-type Ask = Extract<ServerToDaemon, { t: 'files.tree' | 'files.read' | 'workspace.open' }>
+type Ask = Extract<ServerToDaemon, { t: 'files.tree' | 'files.read' | 'files.find' | 'workspace.open' }>
 /** An ask without the fields `ask` fills in, per message type. */
 type AskBody = {
   [K in Ask['t']]: Omit<Extract<Ask, { t: K }>, 'requestId' | 'groupId' | 'botId' | 'workspace'>
@@ -49,9 +51,11 @@ const Query = z.object({
   ignored: z.enum(['0', '1']).optional(),
 })
 
+const FindQuery = z.object({ name: z.string().trim().default('') })
+
 const offline = (bot: string) => fail('conflict', '{bot} 离线，无法读取文件', { bot })
 
-/** GET /api/groups/:id/bots/:botId/files/{tree,text,raw} — the read-only files browser (group members). */
+/** GET /api/groups/:id/bots/:botId/files/{tree,text,find,raw} — the read-only files browser (group members). */
 export function workspaceFileRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     /** The member-visible bot and its workspace, with the query. */
@@ -146,6 +150,15 @@ export function workspaceFileRoutes(ctx: Ctx) {
       if (!path) return fail('invalid', '缺少文件路径')
       const res = await ask(t, { t: 'files.read', path, maxBytes: FILE_TEXT_MAX_BYTES }, 'files.read.result')
       return { path, size: res.size, binary: res.binary, mime: res.mime, text: res.text }
+    })
+
+    /** Workspace files named `name` (a file name or path suffix), for a reply's file reference. */
+    app.get('/api/groups/:id/bots/:botId/files/find', async (req: Req): Promise<FilesFindDto> => {
+      const t = await target(req)
+      const { name } = FindQuery.parse(req.query)
+      if (!name) return fail('invalid', '缺少文件名')
+      const res = await ask(t, { t: 'files.find', name, limit: FILE_FIND_MAX_RESULTS }, 'files.find.result')
+      return { paths: res.paths }
     })
 
     /**
