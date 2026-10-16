@@ -204,7 +204,7 @@ describe('reading groups', () => {
     const small = await t.seed.group({ createdBy: p.wang.id, memberIds: [p.li.id] })
     await p.asLi.post(`/api/groups/${big.id}/messages`, { body: '在吗', clientId: 'client-0001' })
     await p.asLi.post(`/api/groups/${small.id}/messages`, { body: '在吗', clientId: 'client-0002' })
-    const queries = async (groupId: string) => {
+    const count = async (groupId: string) => {
       const spies = (['select', 'selectDistinct', 'selectDistinctOn'] as const).map((m) =>
         vi.spyOn(t.ctx.db, m),
       )
@@ -212,6 +212,12 @@ describe('reading groups', () => {
       const n = spies.reduce((sum, s) => sum + s.mock.calls.length, 0)
       for (const s of spies) s.mockRestore()
       return n
+    }
+    // The app's background engines share ctx.db and can only add to a count: the quietest run is publishGroup's own.
+    const queries = async (groupId: string) => {
+      const runs: number[] = []
+      for (let i = 0; i < 3; i++) runs.push(await count(groupId))
+      return Math.min(...runs)
     }
     expect(await queries(big.id)).toBe(await queries(small.id))
 

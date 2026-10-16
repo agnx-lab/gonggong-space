@@ -231,14 +231,19 @@ describe('run engine', () => {
     for (const body of ['一', '二', '三', '四']) await w.mention(`@bot ${body}`)
     const rows = await w.runsOf()
     expect(rows).toHaveLength(4)
-    const queries = async (batch: typeof rows) => {
+    const count = async (batch: typeof rows) => {
       const select = vi.spyOn(t.ctx.db, 'select')
       await publishRuns(t.ctx, batch)
       const n = select.mock.calls.length
       select.mockRestore()
       return n
     }
-    await queries(rows.slice(0, 1))
+    // The app's background engines share ctx.db and can only add to a count: the quietest run is publishRuns' own.
+    const queries = async (batch: typeof rows) => {
+      const runs: number[] = []
+      for (let i = 0; i < 3; i++) runs.push(await count(batch))
+      return Math.min(...runs)
+    }
     expect(await queries(rows)).toBe(await queries(rows.slice(0, 1)))
     const web = watch(w.bob.id)
     await publishRuns(t.ctx, rows)

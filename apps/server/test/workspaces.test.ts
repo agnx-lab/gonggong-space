@@ -252,10 +252,17 @@ describe('joining a repo group', () => {
     const d = await daemon(w.a.token)
     const g = await w.createGroup()
     const url = `/api/groups/${g.id}/bots/${w.bot.id}/workspace`
+    // The daemon's online catch-up may still be running and ask for the new group's clone; only the cd matters here.
+    const cd = async () => {
+      for (;;) {
+        const m = (await d.next()) as { t: string }
+        if (m.t === 'workspace.cd') return m
+      }
+    }
     expect((await w.asAlice.put(url, { path: '/src/other' })).status).toBe(204)
-    expect(await d.next()).toMatchObject({ t: 'workspace.cd', path: '/src/other', force: false })
+    expect(await cd()).toMatchObject({ t: 'workspace.cd', path: '/src/other', force: false })
     expect((await w.asAlice.put(url, { path: '/src/other', force: true })).status).toBe(204)
-    expect(await d.next()).toMatchObject({ t: 'workspace.cd', path: '/src/other', force: true })
+    expect(await cd()).toMatchObject({ t: 'workspace.cd', path: '/src/other', force: true })
   })
 
   it('only lets the bot owner bind, and only while the machine is online', async () => {

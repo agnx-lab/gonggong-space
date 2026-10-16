@@ -17,6 +17,17 @@ import { FakeFeishu } from './feishu.js'
 
 export type TestApp = Awaited<ReturnType<typeof createTestApp>>
 
+/** argon2 is slow on purpose; seeded users mostly share a password. */
+const hashes = new Map<string, Promise<string>>()
+function hashOnce(password: string) {
+  let h = hashes.get(password)
+  if (!h) {
+    h = hash(password)
+    hashes.set(password, h)
+  }
+  return h
+}
+
 /** Signs tokens; nothing listens (tests that need a server pass a HostedLiveKit). */
 const unreachableLiveKit: LiveKit = {
   endpoint: async () => ({
@@ -76,7 +87,7 @@ export async function createTestApp(
           email: o.email ?? null,
           role: o.role ?? 'member',
           mustChangePassword: o.mustChangePassword ?? false,
-          passwordHash: await hash(o.password ?? 'password123'),
+          passwordHash: await hashOnce(o.password ?? 'password123'),
           disabledAt: o.disabledAt ?? null,
         })
         .returning()

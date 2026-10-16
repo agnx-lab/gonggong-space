@@ -25,12 +25,12 @@ const LOGIN_MAX_FAILURES = 5
 const LOGIN_WINDOW_MS = 5 * 60_000
 const BAD_CREDENTIALS = '账号或密码错误'
 const REGISTER_MAX_PER_HOUR = 5
+// Verifying against a throwaway hash keeps response time independent of whether the account exists.
+const decoy = hash('decoy-password')
 
 export function authRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     const throttle = new Throttle(LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS, ctx.now)
-    // Verifying against a throwaway hash keeps response time independent of whether the account exists.
-    const decoy = hash('decoy-password')
     const signups = new Throttle(REGISTER_MAX_PER_HOUR, 60 * 60_000, ctx.now)
 
     const signIn = (reply: FastifyReply, userId: string) => startSession(ctx, reply, userId)
