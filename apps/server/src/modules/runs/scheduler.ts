@@ -166,7 +166,7 @@ export async function schedule(ctx: Ctx, botId: string) {
 
 /** 禁止直推基准分支, for the agent (the daemon also asks the owner before any push to it). */
 const branchHint = (base: string) =>
-  `本群开启了「禁止直推基准分支」：不要直接提交或推送到基准分支 ${base}。开始改代码前先用 \`git switch -c feat/<你的名字>-<任务>\` 新建分支，在该分支提交并 push 该分支；需要合并时告诉触发人发起合并请求。推送到 ${base} 需要 Bot 主人审批。`
+  `本群开启了「禁止直推基准分支」：不要直接提交或推送到基准分支 ${base}。当前在 ${base} 上时，改代码前先新建一个分支（名字不限）；已经在其他分支上就直接在该分支开发、提交并推送，不用另建分支。需要合并时告诉触发人发起合并请求。推送到 ${base} 需要 Bot 主人审批。`
 
 async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
   const [trigger] = await tx
