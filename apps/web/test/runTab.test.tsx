@@ -446,7 +446,7 @@ describe('run tab', () => {
     const diffsLive = urls('/groups/g1/bots/b1/diff').length
     push({ t: 'run.progress', runId: 'r1', groupId: 'g1', botId: 'b1' })
     await waitFor(() => expect(urls('/runs/r1').at(-1)).toBe('/api/runs/r1?since=4'))
-    await waitFor(() => expect(urls('/groups/g1/bots/b1/diff').length).toBe(diffsLive + 1), { timeout: 3000 })
+    await waitFor(() => expect(urls('/groups/g1/bots/b1/diff').length).toBe(diffsLive + 1))
 
     act(() => {
       useWorkbench.getState().show({ kind: 'run', runId: 'r2', view: 'process', file: null })

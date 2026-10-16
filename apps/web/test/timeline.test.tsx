@@ -6,7 +6,7 @@ import {
   RunStatus,
   type UserDto,
 } from '@gonggong/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
@@ -454,7 +454,12 @@ describe('hover action bar', () => {
   it('opens on a touch long-press', async () => {
     renderChat({ messages: [msg({ seq: 1, body: '长按我' })], runs: [] })
     const row = (await screen.findByText('长按我')).closest('.pn-msg') as HTMLElement
-    const host = row.closest('[data-actions]') as HTMLElement
+    // The long-press listener attaches in an effect that can land after the text shows up.
+    const host = await waitFor(() => {
+      const el = row.closest<HTMLElement>('[data-actions]')
+      if (!el) throw new Error('long-press not attached yet')
+      return el
+    })
     vi.useFakeTimers()
     fireEvent.pointerDown(host, { pointerType: 'touch' })
     act(() => vi.advanceTimersByTime(600))

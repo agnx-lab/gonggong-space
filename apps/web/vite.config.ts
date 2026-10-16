@@ -20,5 +20,12 @@ export default defineConfig({
       '/livekit': { target: server, ws: true, secure: false },
     },
   },
-  test: { environment: 'jsdom', globals: false, setupFiles: ['./test/setup.ts'] },
+  test: {
+    environment: 'jsdom',
+    globals: false,
+    setupFiles: ['./test/setup.ts'],
+    // Most tests render the whole app and await several steps, each allowed the 5s asyncUtilTimeout from setup.ts;
+    // with the default 5s test timeout, one slow step under parallel load kills the test before the query can report.
+    testTimeout: 15_000,
+  },
 })

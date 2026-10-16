@@ -514,7 +514,11 @@ describe('审计记录', () => {
     const first = auditRows()[0]!
     expect(first.textContent).toContain('审批')
     expect(first.textContent).toContain('王磊')
-    expect(first.textContent).toMatch(/09-23 \d\d:23:08/)
+    const at = new Date('2026-09-23T02:23:08Z')
+    const pad = (n: number) => String(n).padStart(2, '0')
+    expect(first.textContent).toContain(
+      `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}:08`,
+    )
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
     expect(await within(list).findByText('停用账号 wanglei')).toBeTruthy()
     expect(auditRows().at(-1)!.textContent).toContain('系统')

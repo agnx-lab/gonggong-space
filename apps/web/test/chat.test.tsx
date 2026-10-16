@@ -1260,7 +1260,7 @@ describe('repo picker', () => {
       target: { value: 'https://git.corp/ops/infra.git' },
     })
     fireEvent.mouseDown(await within(panel).findByRole('option', { name: /使用地址/ }))
-    expect(await within(dialog).findByText('可访问 · HTTPS', {}, { timeout: 2000 })).toBeTruthy()
+    expect(await within(dialog).findByText('可访问 · HTTPS')).toBeTruthy()
     expect((within(dialog).getByLabelText('基准分支') as HTMLInputElement).value).toBe('master')
     expect(
       calls.filter((c) => c.path === '/repos/probe').map((c) => (c.body as { branch: string }).branch),
@@ -1370,7 +1370,7 @@ describe('repo and workspaces', () => {
     })
     fireEvent.mouseDown(await within(panel).findByRole('option', { name: /使用地址/ }))
     fireEvent.change(within(dialog).getByLabelText('基准分支'), { target: { value: 'dev' } })
-    expect(await within(dialog).findByText('可访问 · SSH', {}, { timeout: 2000 })).toBeTruthy()
+    expect(await within(dialog).findByText('可访问 · SSH')).toBeTruthy()
     expect(within(dialog).getByTestId('rw-bot-b2').textContent).toContain('离线 · 上线后验证')
     expect(within(dialog).getByText('各 Bot 的托管工作区将重建')).toBeTruthy()
     expect(calls.find((c) => c.path === '/repos/probe')?.body).toMatchObject({ botIds: ['b1', 'b2'] })

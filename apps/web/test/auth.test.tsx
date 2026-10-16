@@ -71,7 +71,7 @@ describe('login page', () => {
     fill('账号', 'wanglei')
     fill('密码', 'password123')
     fireEvent.click(screen.getByRole('button', { name: '登录' }))
-    expect(await screen.findByRole('navigation', { name: '会话列表' }, { timeout: 3000 })).toBeTruthy()
+    expect(await screen.findByRole('navigation', { name: '会话列表' })).toBeTruthy()
     expect(calls.find((c) => c.path === '/auth/login')?.body).toEqual({
       account: 'wanglei',
       password: 'password123',
@@ -90,7 +90,7 @@ describe('login page', () => {
     expect(screen.getByText(/请联系系统管理员重置密码/)).toBeTruthy()
     fireEvent.click(screen.getByLabelText('记住我'))
     fireEvent.click(screen.getByRole('button', { name: '登录' }))
-    await screen.findByRole('navigation', { name: '会话列表' }, { timeout: 3000 })
+    await screen.findByRole('navigation', { name: '会话列表' })
     expect(localStorage.getItem('gonggong.lastAccount')).toBe('wanglei')
   })
 
@@ -124,7 +124,7 @@ describe('self sign-up', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('两次输入的密码不一致')
     fill('确认密码', 'password123')
     fireEvent.click(screen.getByRole('button', { name: '注册并进入' }))
-    expect(await screen.findByRole('navigation', { name: '会话列表' }, { timeout: 3000 })).toBeTruthy()
+    expect(await screen.findByRole('navigation', { name: '会话列表' })).toBeTruthy()
     expect(calls.find((c) => c.path === '/auth/register')?.body).toEqual({
       account: 'wanglei',
       name: '王磊',
@@ -144,7 +144,7 @@ describe('self sign-up', () => {
     fill('密码', 'password123')
     fill('确认密码', 'password123')
     fireEvent.click(await screen.findByRole('button', { name: '注册并进入' }))
-    expect(await screen.findByRole('navigation', { name: '会话列表' }, { timeout: 3000 })).toBeTruthy()
+    expect(await screen.findByRole('navigation', { name: '会话列表' })).toBeTruthy()
     expect(screen.queryByTestId('join-page')).toBeNull()
   })
 
@@ -184,7 +184,7 @@ describe('forced password change', () => {
 
     fill('确认新密码', 'new-pass-1')
     fireEvent.click(screen.getByRole('button', { name: '修改密码' }))
-    expect(await screen.findByRole('navigation', { name: '会话列表' }, { timeout: 3000 })).toBeTruthy()
+    expect(await screen.findByRole('navigation', { name: '会话列表' })).toBeTruthy()
     await waitFor(() => expect(calls.some((c) => c.path === '/bots')).toBe(true))
     expect(calls.find((c) => c.path === '/auth/password')?.body).toEqual({
       oldPassword: 'init-pass',
@@ -322,9 +322,7 @@ describe('account menu', () => {
     fill('新密码', 'new-pass-22')
     fill('确认新密码', 'new-pass-22')
     fireEvent.click(within(dialog).getByRole('button', { name: '保存新密码' }))
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '修改密码' })).toBeNull(), {
-      timeout: 3000,
-    })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '修改密码' })).toBeNull())
     expect(calls.find((c) => c.path === '/auth/password')?.body).toEqual({
       oldPassword: 'old-pass-1',
       newPassword: 'new-pass-22',

@@ -363,7 +363,7 @@ describe('scroll position', () => {
       path.includes('before=') ? { messages: page(1, 50), runs: [] } : { messages: page(51, 50), runs: [] },
     )
     renderAt('/g/g1?msg=m7')
-    const target = await screen.findByText('第 7 条', {}, { timeout: 3000 })
+    const target = await screen.findByText('第 7 条')
     const item = target.closest('[data-msg-id]') as HTMLElement
     expect(item.dataset.msgId).toBe('m7')
     await waitFor(() => expect(item.className).toContain('tl-item--flash'))
@@ -434,7 +434,7 @@ describe('live runs bar', () => {
     renderAt()
     await waitFor(() => expect(rows()).toHaveLength(1))
     fireEvent.click(within(rows()[0]!).getByRole('button', { name: /小王的 Claude/ }))
-    const target = await screen.findByText('第 7 条', {}, { timeout: 3000 })
+    const target = await screen.findByText('第 7 条')
     const item = target.closest('[data-msg-id]') as HTMLElement
     await waitFor(() => expect(item.className).toContain('tl-item--flash'))
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
