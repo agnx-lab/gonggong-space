@@ -413,6 +413,7 @@ pub(super) const EN: &[(&str, &str)] = &[
     ("排队等待", "Queue"),
     ("{bot}（群「{group}」）", "{bot} (group \"{group}\")"),
     ("工作区已空闲，开始运行", "The workspace is free; starting"),
+    ("已停止，不再等待工作区空闲", "Stopped; no longer waiting for the workspace to be free"),
     ("/cd 目录不存在：{path}", "/cd directory doesn't exist: {path}"),
     ("无法创建工作区 {path}: {e}", "Can't create workspace {path}: {e}"),
     ("无法移动工作区 {path}: {e}", "Can't move workspace {path}: {e}"),

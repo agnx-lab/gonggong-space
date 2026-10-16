@@ -155,8 +155,8 @@ impl Workspaces {
     }
 
     /// Holds the turn's directory for its duration. A busy directory asks the group first: start beside the other
-    /// turns now, or wait until it is free (also when nobody answers).
-    pub(crate) async fn occupy(&self, req: &TurnReq, shared: &Shared) -> DirGuard {
+    /// turns now, or wait until it is free (also when nobody answers). None: the turn was cancelled while waiting.
+    pub(crate) async fn occupy(&self, req: &TurnReq, shared: &Shared) -> Option<DirGuard> {
         let key = req.cwd.canonicalize().unwrap_or_else(|_| req.cwd.clone());
         let dir = self.dirs.lock().unwrap().entry(key.clone()).or_insert_with(|| watch::Sender::new(vec![])).clone();
         let me = Holder {
@@ -166,6 +166,12 @@ impl Workspaces {
         let mut changed = dir.subscribe();
         let (mut ask, mut go) = (Ask::Unasked, false);
         loop {
+            if shared.is_cancelled(&me.run_id) {
+                if let Ask::Pending(request_id, _) = &ask {
+                    shared.withdraw(request_id, t!("已停止，不再等待工作区空闲"));
+                }
+                return None;
+            }
             let mut others = vec![];
             let taken = dir.send_if_modified(|h| {
                 if !go && !h.is_empty() {
@@ -179,7 +185,7 @@ impl Workspaces {
                 if let Ask::Pending(request_id, _) = &ask {
                     shared.withdraw(request_id, t!("工作区已空闲，开始运行"));
                 }
-                return DirGuard { dir, run_id: me.run_id };
+                return Some(DirGuard { dir, run_id: me.run_id });
             }
             if let Ask::Unasked = ask {
                 ask = shared
@@ -190,11 +196,12 @@ impl Workspaces {
                 Ask::Pending(_, rx) => tokio::select! {
                     _ = changed.changed() => None,
                     choice = rx => Some(choice.unwrap_or(false)),
+                    _ = shared.cancel_signal() => None,
                 },
-                _ => {
-                    let _ = changed.changed().await;
-                    None
-                }
+                _ => tokio::select! {
+                    _ = changed.changed() => None,
+                    _ = shared.cancel_signal() => None,
+                },
             };
             if let Some(choice) = decided {
                 (ask, go) = (Ask::Answered, choice);

@@ -35,7 +35,7 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 
 const ERROR_MAX: usize = 800;
 const RESUME_FAILED: &str = "resume_failed";
@@ -137,8 +137,9 @@ struct GitTurn {
 }
 
 /// State shared between the session task, ACP callbacks and the engine (for cancel).
+/// The notify wakes a turn waiting for its directory, which must not outlive its own cancel.
 #[derive(Default)]
-pub(crate) struct Shared(Mutex<State>);
+pub(crate) struct Shared(Mutex<State>, Notify);
 
 #[derive(Default)]
 struct State {
@@ -227,6 +228,17 @@ impl Shared {
         if s.active.as_ref().is_some_and(|a| a.run_id == run_id && a.streaming) {
             interrupt(&mut s);
         }
+        // A permit is kept if nobody waits yet, so a turn checking `is_cancelled` right before waiting still wakes.
+        self.1.notify_one();
+    }
+
+    pub(crate) fn is_cancelled(&self, run_id: &str) -> bool {
+        self.0.lock().unwrap().cancelled.contains(run_id)
+    }
+
+    /// Wakes on any cancel, possibly of another run: re-check `is_cancelled` after it.
+    pub(crate) async fn cancel_signal(&self) {
+        self.1.notified().await
     }
 
     /// 打断并追加 (spec §8.9): cancels the current prompt; the turn then continues with `text` (see `take_append`).
@@ -1024,10 +1036,12 @@ async fn connect(
             };
             let mut turn = first;
             loop {
-                {
-                    let _dir = engine.workspaces.occupy(&turn.req, shared).await;
-                    conv.skills = turn.skills.clone();
-                    conv.turn(turn.req, turn.removed, resume).await?;
+                match engine.workspaces.occupy(&turn.req, shared).await {
+                    Some(_dir) => {
+                        conv.skills = turn.skills.clone();
+                        conv.turn(turn.req, turn.removed, resume).await?;
+                    }
+                    None => shared.finish(Err(String::new()), resume.as_ref(), None),
                 }
                 turn = loop {
                     match tokio::time::timeout(engine.config.idle, rx.recv()).await {

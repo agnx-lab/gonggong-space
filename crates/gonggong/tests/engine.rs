@@ -1223,3 +1223,60 @@ async fn the_confirmation_is_withdrawn_once_the_directory_frees_up() {
     choose(&r, "r2", &request_id, 0);
     assert_eq!(done_of(&mut r, "r2").await.1.outcome, RunOutcome::Completed);
 }
+
+#[tokio::test]
+async fn cancelling_a_turn_asking_about_a_busy_directory_interrupts_it_at_once() {
+    let mut r = rig(Duration::from_secs(60));
+    let dir = tempfile::tempdir().unwrap();
+    r.run(in_dir("r1", "g1", "mock:slow", dir.path()));
+    until_of(&mut r, "r1", |m| matches!(m, DaemonToServer::RunEvent { event: RunEvent::Text { .. }, .. })).await;
+    r.run(in_dir("r2", "g2", "mock:echo", dir.path()));
+    let (request_id, _) = dir_question(&mut r, "r2").await;
+
+    r.send(ServerToDaemon::RunCancel { run_id: "r2".into() });
+    let mut seen = vec![];
+    let done = loop {
+        match r.next().await {
+            DaemonToServer::RunDone(d) if d.run_id == "r2" => break d,
+            DaemonToServer::RunDone(d) => panic!("the holder must not end: {d:?}"),
+            msg => seen.push(msg),
+        }
+    };
+    assert_eq!(done.outcome, RunOutcome::Interrupted);
+    assert!(
+        seen.iter().any(|m| matches!(m, DaemonToServer::QuestionWithdraw { request_id: id, .. } if *id == request_id))
+    );
+
+    // The holder keeps the directory and is only stopped by its own cancel.
+    r.send(ServerToDaemon::RunCancel { run_id: "r1".into() });
+    assert_eq!(r.finish("r1").await.1.outcome, RunOutcome::Interrupted);
+}
+
+#[tokio::test]
+async fn cancelling_a_queued_turn_interrupts_it_while_the_directory_is_busy() {
+    let mut r = rig(Duration::from_secs(60));
+    let dir = tempfile::tempdir().unwrap();
+    r.run(in_dir("r1", "g1", "mock:slow", dir.path()));
+    until_of(&mut r, "r1", |m| matches!(m, DaemonToServer::RunEvent { event: RunEvent::Text { .. }, .. })).await;
+    r.run(in_dir("r2", "g2", "mock:echo", dir.path()));
+    let (request_id, _) = dir_question(&mut r, "r2").await;
+    choose(&r, "r2", &request_id, 1);
+    until_of(
+        &mut r,
+        "r2",
+        |m| matches!(m, DaemonToServer::RunEvent { event, .. } if *event == running("王磊 选择排队，等待工作区空闲")),
+    )
+    .await;
+
+    r.send(ServerToDaemon::RunCancel { run_id: "r2".into() });
+    let done = loop {
+        match r.next().await {
+            DaemonToServer::RunDone(d) if d.run_id == "r2" => break d,
+            DaemonToServer::RunDone(d) => panic!("the holder must not end: {d:?}"),
+            _ => {}
+        }
+    };
+    assert_eq!(done.outcome, RunOutcome::Interrupted);
+    r.send(ServerToDaemon::RunCancel { run_id: "r1".into() });
+    assert_eq!(r.finish("r1").await.1.outcome, RunOutcome::Interrupted);
+}
