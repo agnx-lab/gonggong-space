@@ -1,9 +1,9 @@
 import { SearchQuery, type SearchResultDto } from '@gonggong/protocol'
-import { and, desc, eq, exists, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { FastifyInstance } from 'fastify'
 import type { Ctx } from '../../context.js'
-import { bots, groupMembers, groupRepos, groups, messages, runEvents, runs, users } from '../../db/schema.js'
+import { bots, groupMembers, groupRepos, groups, messages, runs, users } from '../../db/schema.js'
 import { t } from '../../i18n/index.js'
 import { open } from '../../lib/seal.js'
 import { likePattern, patchPaths, snippet } from '../../lib/text.js'
@@ -12,6 +12,7 @@ import { pick } from '../candidates/match.js'
 import type { Mirrors } from '../candidates/mirror.js'
 import { groupTitle } from '../groups/title.js'
 import { notHiddenBy } from '../messages/recall.js'
+import { runMatches } from '../runs/search-text.js'
 import { currentTeam } from '../teams/service.js'
 
 const LIMIT = 20
@@ -19,6 +20,8 @@ const LIMIT = 20
 const PATCH_SCAN = 100
 /** Runs whose changed paths are kept in memory. */
 const PATHS_CACHED = 5000
+/** A user's newest runs searched before the search text index (see searchRuns). */
+const RECENT_RUNS = 1000
 
 export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
   // A run's patch is fixed once it ended: its sealed patch is read and opened for paths once, not on every search.
@@ -140,64 +143,43 @@ export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
   /** Runs by their card (bot, step, summary, reply); the process (tool titles and steps; its free text is sealed)
    * only while it is retained (plan D9). */
   async function searchRuns(userId: string, teamId: string, q: string): Promise<SearchResultDto[]> {
-    const p = likePattern(q)
     const trigger = alias(messages, 'trigger')
-    const reply = alias(messages, 'reply')
-    const rows = await ctx.db
-      .select({
-        r: {
-          id: runs.id,
-          groupId: runs.groupId,
-          step: runs.step,
-          filesChanged: runs.filesChanged,
-          purgedAt: runs.purgedAt,
-          queuedAt: runs.queuedAt,
-        },
-        bot: bots.name,
-        group: groupTitle,
-        task: trigger.body,
-      })
+    const mine = inArray(runs.groupId, myGroups(userId, teamId))
+    const match = await runMatches(ctx.db, likePattern(q))
+    // Named like the table, so the same columns and conditions read it.
+    const newest = ctx.db
+      .select()
       .from(runs)
-      .innerJoin(bots, eq(bots.id, runs.botId))
-      .innerJoin(groups, eq(groups.id, runs.groupId))
-      .innerJoin(trigger, eq(trigger.id, runs.triggerMessageId))
-      .where(
-        and(
-          inArray(runs.groupId, myGroups(userId, teamId)),
-          or(
-            ilike(bots.name, p),
-            ilike(runs.step, p),
-            ilike(runs.summary, p),
-            exists(
-              ctx.db
-                .select({ one: sql`1` })
-                .from(reply)
-                .where(and(eq(reply.runId, runs.id), eq(reply.kind, 'bot'), ilike(reply.body, p))),
-            ),
-            and(
-              isNull(runs.purgedAt),
-              exists(
-                ctx.db
-                  .select({ one: sql`1` })
-                  .from(runEvents)
-                  .where(
-                    and(
-                      eq(runEvents.runId, runs.id),
-                      // Only these carry a title or step; the rest (streamed output above all) is never detoasted.
-                      inArray(runEvents.kind, ['tool', 'status']),
-                      or(
-                        sql`${runEvents.payload}->>'title' ilike ${p}`,
-                        sql`${runEvents.payload}->>'step' ilike ${p}`,
-                      ),
-                    ),
-                  ),
-              ),
-            ),
-          ),
-        ),
-      )
+      .where(mine)
       .orderBy(desc(runs.queuedAt))
-      .limit(LIMIT)
+      .limit(RECENT_RUNS)
+      .as('runs')
+    const page = (from: typeof runs | typeof newest) =>
+      ctx.db
+        .select({
+          r: {
+            id: runs.id,
+            groupId: runs.groupId,
+            step: runs.step,
+            filesChanged: runs.filesChanged,
+            purgedAt: runs.purgedAt,
+            queuedAt: runs.queuedAt,
+          },
+          bot: bots.name,
+          group: groupTitle,
+          task: trigger.body,
+        })
+        .from(from)
+        .innerJoin(bots, eq(bots.id, runs.botId))
+        .innerJoin(groups, eq(groups.id, runs.groupId))
+        .innerJoin(trigger, eq(trigger.id, runs.triggerMessageId))
+        .where(and(mine, match))
+        .orderBy(desc(runs.queuedAt))
+        .limit(LIMIT)
+    // Statistics skip wide values, so the planner may take a term common in long search texts for a rare one and
+    // recheck every run it is in. A page the newest runs fill comes from them alone; only rarer terms go to the index.
+    let rows = await page(newest)
+    if (rows.length < LIMIT) rows = await page(runs)
     return rows.map(({ r, bot, group, task }) => ({
       kind: 'run',
       title: `${bot} · ${snippet(task.replaceAll(`@${bot}`, ''), '')}`,

@@ -60,6 +60,7 @@ import { backfillRepos } from './modules/repos/service.js'
 import { startRunEngine } from './modules/runs/engine.js'
 import { startRetention } from './modules/runs/retention.js'
 import { runRoutes } from './modules/runs/routes.js'
+import { startRunSearchText } from './modules/runs/search-text.js'
 import { startOfflineExpiry } from './modules/runs/stop.js'
 import { stopRoutes } from './modules/runs/stop-routes.js'
 import { startScheduleEngine } from './modules/schedules/engine.js'
@@ -128,6 +129,7 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   app.addHook('onClose', startOfflineExpiry(ctx))
   const stopRetention = startRetention(ctx)
   app.addHook('onClose', stopRetention)
+  app.addHook('onClose', startRunSearchText(ctx))
   const stopScheduleEngine = startScheduleEngine(ctx)
   app.addHook('onClose', stopScheduleEngine)
   await app.register(scheduleRoutes(ctx))

@@ -1,8 +1,11 @@
 import type { SearchResultDto } from '@gonggong/protocol'
+import { eq, sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { groupRepos, messages, runEvents, runs } from '../src/db/schema.js'
+import { bots, groupRepos, messages, runEvents, runs } from '../src/db/schema.js'
 import { seal } from '../src/lib/seal.js'
+import { purgeExpiredRuns } from '../src/modules/runs/retention.js'
 import { sealEvent } from '../src/modules/runs/sealed.js'
+import { fillRunSearchText, startRunSearchText } from '../src/modules/runs/search-text.js'
 import { createTestApp, type TestApp } from './support/app.js'
 import { bareRepo } from './support/git.js'
 import { client } from './support/http.js'
@@ -12,6 +15,10 @@ beforeEach(async () => {
   t = await createTestApp()
 })
 afterEach(() => t.close())
+
+const DAY = 86_400_000
+const searchTextOf = async (runId: string) =>
+  (await t.db.select({ s: runs.searchText }).from(runs).where(eq(runs.id, runId)))[0]!.s
 
 const PATCH = `diff --git a/server/refund/v2/handler.go b/server/refund/v2/handler.go
 --- a/server/refund/v2/handler.go
@@ -162,7 +169,7 @@ describe('⌘K search', () => {
 
   it('finds runs by bot, step, reply or process; expired processes only by their card summary', async () => {
     const w = await world()
-    const live = await w.run(w.mine.id, { step: '正在编译', filesChanged: 4 })
+    const live = await w.run(w.mine.id, { status: 'running', step: '正在编译', filesChanged: 4 })
     await t.db
       .insert(runEvents)
       .values({ runId: live.id, kind: 'tool', payload: { title: 'go build ./refund/...' } })
@@ -195,5 +202,76 @@ describe('⌘K search', () => {
     expect((await w.search('小王', 'run')).map((h) => h.runId)).toEqual([sealed.id, expired.id, live.id])
     // Ciphertext never matches: sealed output is not searchable.
     expect(await w.search('v1:', 'run')).toEqual([])
+  })
+
+  it('finds an ended run through its search text: reply and tool titles, the bot’s current name, the card after purge', async () => {
+    const w = await world()
+    const ended = await w.run(w.mine.id, { step: '退款接口迁移', endedAt: new Date(Date.now() - 40 * DAY) })
+    await t.db.insert(runEvents).values([
+      { runId: ended.id, kind: 'tool', payload: { kind: 'tool', title: 'go vet ./refund/...' } },
+      { runId: ended.id, kind: 'status', payload: { kind: 'status', step: '核对对账单' } },
+    ])
+    await w.say(w.mine.id, '退款字段已对齐', { botId: w.bot.id, runId: ended.id })
+    expect(await fillRunSearchText(t.ctx)).toBe(1)
+    const text = await searchTextOf(ended.id)
+    for (const part of ['退款接口迁移', '退款字段已对齐', 'go vet ./refund/...', '核对对账单'])
+      expect(text).toContain(part)
+    expect(text).not.toContain('小王')
+    for (const q of ['go vet', '对账单', '字段已对齐', '小王的 Claude'])
+      expect((await w.search(q, 'run')).map((h) => h.runId)).toEqual([ended.id])
+
+    await t.db.update(bots).set({ name: '退款助手' }).where(eq(bots.id, w.bot.id))
+    expect((await w.search('退款助手', 'run')).map((h) => h.runId)).toEqual([ended.id])
+    expect(await w.search('小王的 Claude', 'run')).toEqual([])
+
+    expect(await purgeExpiredRuns(t.ctx)).toBe(1)
+    expect(await searchTextOf(ended.id)).not.toContain('go vet')
+    expect(await w.search('go vet', 'run')).toEqual([])
+    expect(await w.search('对账单', 'run')).toEqual([])
+    for (const q of ['接口迁移', '字段已对齐'])
+      expect((await w.search(q, 'run')).map((h) => h.runId)).toEqual([ended.id])
+  })
+
+  it('fills the search text of ended runs in batches; live runs are found without it', async () => {
+    const w = await world()
+    const ended = await Promise.all(['一', '二', '三'].map((n) => w.run(w.mine.id, { step: `第${n}轮` })))
+    const live = await w.run(w.mine.id, { status: 'running', step: '' })
+    await t.db
+      .insert(runEvents)
+      .values({ runId: live.id, kind: 'tool', payload: { kind: 'tool', title: 'cargo clippy' } })
+    expect(await fillRunSearchText(t.ctx, 2)).toBe(3)
+    for (const r of ended) expect(await searchTextOf(r.id)).toContain('轮')
+    expect(await searchTextOf(live.id)).toBeNull()
+    expect(await fillRunSearchText(t.ctx)).toBe(0)
+    expect((await w.search('clippy', 'run')).map((h) => h.runId)).toEqual([live.id])
+    expect((await w.search('第二轮', 'run')).map((h) => h.runId)).toEqual([ended[1]!.id])
+  })
+
+  it('finds runs older than the newest ones it reads first, and pages common terms from those', async () => {
+    const w = await world()
+    const old = await w.run(w.mine.id, { step: '远古回滚' })
+    const trigger = old.triggerMessageId
+    await t.db.execute(sql`insert into runs
+      (group_id, bot_id, trigger_message_id, trigger_user_id, origin_user_id, status, step, created_at)
+      select ${w.mine.id}, ${w.bot.id}, ${trigger}, ${w.me.id}, ${w.me.id}, 'completed', '第 ' || i || ' 轮',
+        now() + i * interval '1 second'
+      from generate_series(1, 1000) i`)
+    await fillRunSearchText(t.ctx)
+    expect((await w.search('远古回滚', 'run')).map((h) => h.runId)).toEqual([old.id])
+    const common = await w.search('轮', 'run')
+    expect(common.map((h) => h.sub)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `支付服务重构 · 第 ${1000 - i} 轮`),
+    )
+  })
+
+  it('fills the search text in the background as runs end', async () => {
+    const w = await world()
+    const stop = startRunSearchText(t.ctx, 10)
+    try {
+      const r = await w.run(w.mine.id, { step: '后台回填' })
+      await expect.poll(() => searchTextOf(r.id)).toContain('后台回填')
+    } finally {
+      await stop()
+    }
   })
 })

@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull, isNull, lt, lte, or } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import { bindCodes, runEvents, runs, systemParams, webSessions } from '../../db/schema.js'
 import { purgeSyncBlobs } from '../sync/blobs.js'
+import { runCardText } from './search-text.js'
 
 export const DEFAULT_RUN_RETENTION_DAYS = 30
 const DAY_MS = 86_400_000
@@ -16,7 +17,8 @@ export async function runRetentionDays(ctx: Ctx): Promise<number> {
 /** Runs purged per transaction, so a backlog (first enabled, long downtime) never becomes one huge transaction. */
 const PURGE_BATCH = 500
 
-/** Drops the events and patch of runs that ended before the retention window; cards keep their summary. */
+/** Drops the events and patch of runs that ended before the retention window; cards keep their summary (and search
+ * text, now without the process). */
 export async function purgeExpiredRuns(ctx: Ctx, batch = PURGE_BATCH): Promise<number> {
   const cutoff = new Date(ctx.now().getTime() - (await runRetentionDays(ctx)) * DAY_MS)
   let purged = 0
@@ -29,7 +31,7 @@ export async function purgeExpiredRuns(ctx: Ctx, batch = PURGE_BATCH): Promise<n
         .limit(batch)
       const expired = await tx
         .update(runs)
-        .set({ patch: null, patchRepos: [], purgedAt: ctx.now() })
+        .set({ patch: null, patchRepos: [], purgedAt: ctx.now(), searchText: runCardText })
         .where(inArray(runs.id, due))
         .returning({ id: runs.id })
       if (expired.length)

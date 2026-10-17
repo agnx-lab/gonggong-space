@@ -1,8 +1,22 @@
 import { randomUUID } from 'node:crypto'
 import { RunStatus, TERMINAL_RUN_STATUS } from '@gonggong/protocol'
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, type SQLWrapper, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  type SQLWrapper,
+  sql,
+} from 'drizzle-orm'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import {
+  bots,
   groupBots,
   groupMembers,
   groups,
@@ -13,8 +27,10 @@ import {
   teams,
   users,
 } from '../src/db/schema.js'
+import { likePattern } from '../src/lib/text.js'
 import { mentioned, unread } from '../src/modules/groups/service.js'
 import { knownNotification } from '../src/modules/notifications/notify.js'
+import { runMatches } from '../src/modules/runs/search-text.js'
 import { createTestDb } from './support/db.js'
 
 let t: Awaited<ReturnType<typeof createTestDb>>
@@ -174,4 +190,33 @@ it('a team’s unread notifications are counted from the unread ones alone', asy
     )
     .groupBy(notifications.teamId)
   expect(await indexesFor(query)).toContain('notifications_unread')
+})
+
+it('message search (and the agent tool) matches bodies through the trigram index, LIKE wildcards escaped', async () => {
+  const query = t.db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(ilike(messages.body, likePattern('50%_off')))
+  expect(await indexesFor(query)).toContain('messages_body_trgm')
+})
+
+it('run search reads the indexed search text, the runs of bots by name and only the runs not indexed yet', async () => {
+  const [owner] = await t.db.insert(users).values({ account: 'vet', name: 'vet' }).returning()
+  const [team] = await t.db.insert(teams).values({ name: 'vet', createdBy: owner!.id }).returning()
+  await t.db.insert(bots).values({
+    teamId: team!.id,
+    name: 'go vet 助手',
+    ownerId: owner!.id,
+    agentKind: 'claude',
+    binding: 'bound',
+    createdBy: owner!.id,
+  })
+  const query = t.db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(await runMatches(t.db, likePattern('go vet')))
+  const plan = await planOf(query)
+  expect(plan).toMatch(/"Index Name":"runs_search_text"[^{}]*"Index Cond":"\(search_text ~~\*/)
+  expect(plan).toMatch(/"Index Cond":"\(bot_id = /)
+  expect(plan).toContain('"Index Name":"runs_search_pending"')
 })

@@ -482,6 +482,8 @@ export const messages = pgTable(
     index('messages_schedule_of')
       .on(sql`(${t.meta}->>'scheduleOf')`, t.seq)
       .where(sql`(${t.meta}->>'scheduleOf') is not null`),
+    // Search (⌘K and the agent tool): `body ilike '%q%'` for terms of 3+ characters.
+    index('messages_body_trgm').using('gin', t.body.op('gin_trgm_ops')),
   ],
 )
 
@@ -590,6 +592,8 @@ export const runs = pgTable(
     sync: jsonb('sync').$type<RunSyncDone>(),
     /** What the run's agent settings came from (session.config); null = codex / not reported. */
     settings: jsonb('settings').$type<RunSettingsSnapshot>(),
+    /** What search matches besides the bot's name, filled once the run ended (runs/search-text.ts); null till then. */
+    searchText: text('search_text'),
   },
   (t) => [
     index('runs_bot_status').on(t.botId, t.status),
@@ -604,6 +608,8 @@ export const runs = pgTable(
     index('runs_finalizing').on(t.botId).where(sql`${t.finalizing}`),
     index('runs_unpurged_ended').on(t.endedAt).where(sql`${t.purgedAt} is null`),
     index('runs_group_live').on(t.groupId).where(statusIn(t.status, LIVE_RUN_STATUSES)),
+    index('runs_search_text').using('gin', t.searchText.op('gin_trgm_ops')),
+    index('runs_search_pending').on(t.queuedAt).where(sql`${t.searchText} is null`),
   ],
 )
 
