@@ -125,6 +125,15 @@ impl AskServer {
         self.routes.lock().unwrap().insert(secret.clone(), asker);
         McpServer::Http(McpServerHttp::new(SERVER_NAME, format!("{}{secret}", self.base)))
     }
+
+    /// Drops the route of an entry `register` returned.
+    pub fn unregister(&self, entry: &McpServer) {
+        if let McpServer::Http(http) = entry
+            && let Some(secret) = http.url.strip_prefix(&self.base)
+        {
+            self.routes.lock().unwrap().remove(secret);
+        }
+    }
 }
 
 async fn accept(listener: TcpListener, routes: Routes, backends: Backends) {

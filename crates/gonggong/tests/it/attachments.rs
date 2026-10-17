@@ -62,6 +62,7 @@ fn rig(server: &str) -> Rig {
         user_home: home.path().to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle: Duration::from_secs(60),
+        reap: Duration::from_secs(600),
         api: Some(Config {
             server: server.into(),
             token: TOKEN.into(),
@@ -195,6 +196,76 @@ async fn writes_attachments_into_the_workspace_excluded_from_git_and_sends_image
     assert_eq!(hits.lock().unwrap().len(), 2);
     let exclude = std::fs::read_to_string(root.join(".git/info/exclude")).unwrap();
     assert_eq!(exclude.lines().filter(|l| *l == ".gonggong/").count(), 1);
+}
+
+#[tokio::test]
+async fn the_fallback_contexts_attachments_are_fetched_only_when_the_fallback_is_used() {
+    let (url, hits) = file_server(HashMap::from([("a3".to_string(), b"old\n".to_vec())])).await;
+    let mut r = rig(&url);
+    let ws = tempfile::tempdir().unwrap();
+    let with_fallback = |run_id: &str, resume: Option<String>| {
+        let mut s = start(run_id, ws.path(), vec![], vec![]);
+        s.resume_session_id = resume;
+        s.prompt.fallback_context = vec![ContextMessage {
+            seq: 0,
+            author: "王磊".into(),
+            kind: "user".into(),
+            body: "旧日志".into(),
+            at: "2026-09-23T09:00:00Z".into(),
+            attachments: vec![att("a3", "m0", "old.log", "text/plain", 4)],
+        }];
+        ServerToDaemon::RunStart(Box::new(s))
+    };
+    r.engine.handle(ServerToDaemon::RunStart(Box::new(start("r1", ws.path(), vec![], vec![]))), &r.out);
+    let first = r.done("r1").await;
+
+    // The session resumes: its history is not replayed, so neither are its files fetched.
+    r.engine.handle(with_fallback("r2", first.session_id.clone()), &r.out);
+    let done = r.done("r2").await;
+    assert_eq!((done.outcome, done.new_session_reason), (RunOutcome::Completed, None), "{:?}", done.error);
+    assert!(hits.lock().unwrap().is_empty());
+    let old = ws.path().join(".gonggong/attachments/m0/old.log");
+    assert!(!old.exists());
+
+    r.engine.handle(with_fallback("r3", Some("gone".into())), &r.out);
+    let done = r.done("r3").await;
+    assert_eq!(done.new_session_reason.as_deref(), Some("resume_failed"), "{:?}", done.error);
+    assert_eq!(*hits.lock().unwrap(), ["/api/daemon/attachments/a3"]);
+    assert_eq!(std::fs::read(&old).unwrap(), b"old\n");
+    let echo: serde_json::Value = serde_json::from_str(&done.reply).unwrap();
+    assert!(echo["prompt"].as_str().unwrap().contains("旧日志（附件：.gonggong/attachments/m0/old.log）"));
+}
+
+#[tokio::test]
+async fn attachments_unused_for_a_week_are_removed_when_others_are_fetched() {
+    let log = b"ERROR boom\n".to_vec();
+    let (url, hits) = file_server(HashMap::from([("a2".to_string(), log.clone())])).await;
+    let mut r = rig(&url);
+    let ws = tempfile::tempdir().unwrap();
+    let dir = ws.path().join(".gonggong/attachments");
+    let put = |folder: &str, name: &str, body: &[u8], days_old: u64| {
+        let path = dir.join(folder).join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        let at = std::time::SystemTime::now() - Duration::from_secs(days_old * 24 * 3600);
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(at).unwrap();
+    };
+    put("stale", "a.txt", b"a", 8);
+    put("mixed", "b.txt", b"b", 8);
+    put("mixed", "c.txt", b"c", 1);
+    // Old, but this run's context refers to it.
+    put("m1", "ci.log", &log, 30);
+    let ci = att("a2", "m1", "ci.log", "text/plain", log.len());
+    r.engine.handle(ServerToDaemon::RunStart(Box::new(start("r1", ws.path(), vec![], vec![ci]))), &r.out);
+    assert_eq!(r.done("r1").await.outcome, RunOutcome::Completed);
+
+    assert!(!dir.join("stale").exists());
+    assert!(dir.join("mixed/b.txt").exists());
+    assert_eq!(std::fs::read(dir.join("m1/ci.log")).unwrap(), log);
+    assert!(hits.lock().unwrap().is_empty());
+    // Used again, so kept for another week.
+    let used = std::fs::metadata(dir.join("m1/ci.log")).unwrap().modified().unwrap();
+    assert!(used.elapsed().unwrap() < Duration::from_secs(3600));
 }
 
 #[tokio::test]

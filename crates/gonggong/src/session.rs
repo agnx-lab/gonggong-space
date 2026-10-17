@@ -2,6 +2,7 @@
 use crate::agent_settings;
 use crate::ask::{self, Asker};
 use crate::attachments;
+use crate::config::Config;
 use crate::engine::Inner;
 use crate::git;
 use crate::hosted::Scope;
@@ -177,7 +178,8 @@ struct State {
     /// Rules the owner allowed always, trusted for the rest of the conversation.
     always: Vec<String>,
     requests: u64,
-    /// The last finished turn's snapshot (run id), kept for run.discard until the next turn starts (plan D7).
+    /// The last turn's snapshot (run id) if it did not complete, kept for run.discard until the next turn starts
+    /// (plan D7).
     last: Option<(String, GitTurn)>,
     /// Ask-tool calls of the active turn awaiting the group, by request id.
     questions: HashMap<String, Asked>,
@@ -240,6 +242,18 @@ impl Shared {
     /// Runs handed to this conversation that have not ended (the active turn and those queued behind it).
     pub(crate) fn runs(&self) -> Vec<String> {
         self.0.lock().unwrap().pending.iter().cloned().collect()
+    }
+
+    /// Nothing needs the conversation any more: no run, background task or open request, and no stopped turn whose
+    /// changes may still be discarded.
+    pub(crate) fn idle(&self) -> bool {
+        let s = self.0.lock().unwrap();
+        s.pending.is_empty()
+            && s.active.is_none()
+            && s.tasks.is_empty()
+            && s.approvals.is_empty()
+            && s.questions.is_empty()
+            && s.last.is_none()
     }
 
     pub(crate) fn cancel(&self, run_id: &str) {
@@ -522,7 +536,10 @@ impl Shared {
                 }
                 a.turn.git = git;
             }
-            s.last = Some((run_id, g));
+            // The server offers to discard the changes of a turn that did not complete only.
+            if outcome != RunOutcome::Completed {
+                s.last = Some((run_id, g));
+            }
         }
         if let Some(sync) = sync {
             let done = sync.finish(outcome).await;
@@ -945,9 +962,11 @@ impl Asker for Shared {
     }
 }
 
-/// Session task: spawns an adapter on demand, runs queued turns in order, reaps the adapter when idle.
+/// Session task: spawns an adapter on demand, runs queued turns in order, reaps the adapter when idle, then the
+/// conversation (`Inner::reap`).
 pub(crate) async fn run(
     engine: Arc<Inner>,
+    key: (String, String),
     shared: Arc<Shared>,
     ask: acp::McpServer,
     mut rx: mpsc::UnboundedReceiver<TurnReq>,
@@ -958,15 +977,17 @@ pub(crate) async fn run(
     loop {
         let turn = match next.take() {
             Some(turn) => turn,
-            None => match rx.recv().await {
-                Some(req) => match plan(&engine, &shared, req).await {
+            None => match tokio::time::timeout(engine.config.reap, rx.recv()).await {
+                Ok(Some(req)) => match plan(&engine, &shared, req).await {
                     Some(turn) => match ready(&engine, &shared, turn).await {
                         Some(turn) => turn,
                         None => continue,
                     },
                     None => continue,
                 },
-                None => break,
+                Ok(None) => break,
+                Err(_) if engine.reap(&key, &shared, &rx, &ask) => break,
+                Err(_) => continue,
             },
         };
         let result = match engine.adapter(&turn.req.start.bot, &turn.req.local, &turn.selection).await {
@@ -1054,6 +1075,7 @@ async fn connect(
                 shared,
                 ask,
                 home: &engine.config.home,
+                api: engine.config.api.as_ref(),
                 selection: first.selection.clone(),
                 launch: first.launch.clone(),
                 skills: first.skills.clone(),
@@ -1105,6 +1127,7 @@ struct Conversation<'a> {
     shared: &'a Shared,
     ask: &'a acp::McpServer,
     home: &'a Path,
+    api: Option<&'a Config>,
     /// The provider this adapter process was started with.
     selection: Selection,
     /// The Claude settings of the current turn; equal (file, CLI flag) to those the process started with.
@@ -1141,6 +1164,13 @@ impl Conversation<'_> {
                     let reason = if removed { Some(PROVIDER_REMOVED.into()) } else { reason };
                     // `context` only reaches back to the previous run: a new session needs the recent history.
                     let history = if matches!(reason.as_deref(), Some(RESUME_FAILED | PROVIDER_REMOVED)) {
+                        if let Some(api) = self.api {
+                            let files: Vec<_> = s.prompt.fallback_context.iter().flat_map(|m| &m.attachments).collect();
+                            if let Err(e) = attachments::fetch(api, &req.cwd, files).await {
+                                self.shared.finish(Err(e), None, None);
+                                return Ok(());
+                            }
+                        }
                         (&s.prompt.fallback_context, 0)
                     } else {
                         context

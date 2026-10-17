@@ -27,6 +27,7 @@ use crate::tools;
 use crate::tunnel;
 use crate::turn::system_prompt;
 use crate::workspace::{self, Workspaces};
+use agent_client_protocol::schema::v1 as acp;
 use agent_client_protocol::{AcpAgent, AcpAgentConfig};
 use anyhow::{Context, bail};
 use std::collections::{HashMap, HashSet};
@@ -54,6 +55,9 @@ pub struct EngineConfig {
     pub adapter_cmd: Option<String>,
     /// Adapter processes idle this long are reaped; the next turn resumes the session in a new one.
     pub idle: Duration,
+    /// A conversation whose adapter is gone is dropped after this long without a run, unless its last turn was
+    /// stopped: run.discard still needs that turn's snapshot.
+    pub reap: Duration,
     /// Server REST access for downloading attachments; `None` (tests) skips them.
     pub api: Option<Config>,
 }
@@ -515,25 +519,47 @@ impl Inner {
                 Ok(ask) => ask,
                 Err(e) => return out.send(failed(&start.run_id, t!("无法启动内置 gonggong 工具：{e}", e = e))),
             };
+        // The fallback context's attachments are fetched only when it is used (`Conversation::turn`).
         if let Some(api) = &self.config.api {
             let p = &start.prompt;
-            let context = p.context.iter().chain(&p.fallback_context).flat_map(|m| &m.attachments);
-            let all: Vec<_> = p.attachments.iter().chain(context).collect();
+            let all: Vec<_> = p.attachments.iter().chain(p.context.iter().flat_map(|m| &m.attachments)).collect();
             if let Err(e) = attachments::fetch(api, &cwd, all).await {
                 return out.send(failed(&start.run_id, e));
             }
         }
+        // Enqueued and sent under the lock: `reap` relies on it.
         let mut actors = self.actors.lock().unwrap();
-        let actor = actors.entry((start.group_id.clone(), start.bot.id.clone())).or_insert_with(|| {
+        let key = (start.group_id.clone(), start.bot.id.clone());
+        let actor = actors.entry(key.clone()).or_insert_with(|| {
             let (tx, rx) = mpsc::unbounded_channel();
             let shared = Arc::new(Shared::default());
             let entry = ask.register(Arc::downgrade(&shared) as Weak<dyn Asker>);
-            tokio::spawn(session::run(self.clone(), shared.clone(), entry, rx));
+            tokio::spawn(session::run(self.clone(), key, shared.clone(), entry, rx));
             Actor { tx, shared }
         });
         actor.shared.enqueue(&start.run_id);
         let behind = sync.as_ref().and_then(|s| s.behind());
         let _ = actor.tx.send(TurnReq { start, cwd, extras, out, local, sync, behind });
+    }
+
+    /// Drops the idle conversation `key` with its ask route (true), unless a run reached it meanwhile or it still
+    /// holds something (`Shared::idle`).
+    pub(crate) fn reap(
+        &self,
+        key: &(String, String),
+        shared: &Shared,
+        rx: &mpsc::UnboundedReceiver<TurnReq>,
+        entry: &acp::McpServer,
+    ) -> bool {
+        let mut actors = self.actors.lock().unwrap();
+        if !rx.is_empty() || !shared.idle() {
+            return false;
+        }
+        actors.remove(key);
+        if let Some(ask) = self.ask.get() {
+            ask.unregister(entry);
+        }
+        true
     }
 
     /// Hands an answer / append to the conversation running `run_id`, once its attachments are in that workspace.

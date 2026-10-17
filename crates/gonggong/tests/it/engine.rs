@@ -16,6 +16,10 @@ struct Rig {
 }
 
 fn rig(idle: Duration) -> Rig {
+    rig_reaping(idle, Duration::from_secs(600))
+}
+
+fn rig_reaping(idle: Duration, reap: Duration) -> Rig {
     gonggong::i18n::set_locale(gonggong::i18n::Locale::Zh);
     let home = tempfile::tempdir().unwrap();
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
@@ -24,6 +28,7 @@ fn rig(idle: Duration) -> Rig {
         user_home: home.path().to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle,
+        reap,
         api: None,
     });
     let (out, rx) = Outbox::channel();
@@ -561,6 +566,18 @@ async fn reports_the_live_turns_diff_and_the_workspaces_uncommitted_changes() {
     r.send(ServerToDaemon::RunCancel { run_id: "r1".into() });
 }
 
+/// Runs a `mock:slow` turn and stops it once it streams, after `edit` changed the workspace meanwhile.
+async fn stopped(r: &mut Rig, s: RunStart, edit: impl FnOnce(&Path)) -> RunDone {
+    let run_id = s.run_id.clone();
+    r.run(s);
+    while !matches!(r.next().await, DaemonToServer::RunEvent { event: RunEvent::Text { .. }, .. }) {}
+    edit(&r.workspace());
+    r.send(ServerToDaemon::RunCancel { run_id: run_id.clone() });
+    let (_, done) = r.finish(&run_id).await;
+    assert_eq!(done.outcome, RunOutcome::Interrupted);
+    done
+}
+
 #[tokio::test]
 async fn discard_restores_the_interrupted_turn_until_the_next_turn_starts() {
     let mut r = rig(Duration::from_secs(60));
@@ -571,8 +588,11 @@ async fn discard_restores_the_interrupted_turn_until_the_next_turn_starts() {
     git(&ws, &["pull", "-q", "--ff-only"]);
     std::fs::write(ws.join("README.md"), "local wip\n").unwrap();
 
-    r.run(follow_up("r1", "mock:sh echo x > turn.txt && echo y > later.txt", &first));
-    let (_, done) = r.finish("r1").await;
+    let done = stopped(&mut r, follow_up("r1", "mock:slow", &first), |ws| {
+        std::fs::write(ws.join("turn.txt"), "x\n").unwrap();
+        std::fs::write(ws.join("later.txt"), "y\n").unwrap();
+    })
+    .await;
     assert_eq!(done.files_changed, 2);
     r.send(ServerToDaemon::RunDiscard { run_id: "r1".into() });
     assert_eq!(r.next().await, DaemonToServer::RunDiscarded { run_id: "r1".into(), ok: true, files: 2, error: None });
@@ -583,13 +603,74 @@ async fn discard_restores_the_interrupted_turn_until_the_next_turn_starts() {
     // Once discarded, or once the next turn has started, the snapshot is gone.
     r.send(ServerToDaemon::RunDiscard { run_id: "r1".into() });
     assert!(matches!(r.next().await, DaemonToServer::RunDiscarded { ok: false, error: Some(_), .. }));
-    r.run(follow_up("r2", "mock:sh echo z > z.txt", &done));
-    let (_, next) = r.finish("r2").await;
-    r.run(follow_up("r3", "mock:echo", &next));
-    r.finish("r3").await;
+    let next =
+        stopped(&mut r, follow_up("r2", "mock:slow", &done), |ws| std::fs::write(ws.join("z.txt"), "z\n").unwrap())
+            .await;
+    r.run(follow_up("r3", "mock:sh echo w > w.txt", &next));
+    assert_eq!(r.finish("r3").await.1.outcome, RunOutcome::Completed);
     r.send(ServerToDaemon::RunDiscard { run_id: "r2".into() });
     assert!(matches!(r.next().await, DaemonToServer::RunDiscarded { ok: false, .. }));
     assert!(ws.join("z.txt").exists());
+    // A completed turn keeps none: the server offers to discard a stopped turn's changes only.
+    r.send(ServerToDaemon::RunDiscard { run_id: "r3".into() });
+    assert!(matches!(r.next().await, DaemonToServer::RunDiscarded { ok: false, .. }));
+    assert!(ws.join("w.txt").exists());
+}
+
+/// The conversation's built-in ask tool URL, as the agent got it.
+fn ask_url(done: &RunDone) -> String {
+    echo(done)["mcpServers"].as_array().unwrap().last().unwrap()["url"].as_str().unwrap().into()
+}
+
+/// A plain GET on the ask tool URL: 405 while the conversation is routed, 404 once it is dropped.
+async fn ask_status(url: &str) -> u16 {
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    client.get(url).send().await.unwrap().status().as_u16()
+}
+
+async fn until_dropped(url: &str) {
+    for _ in 0..200 {
+        if ask_status(url).await == 404 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the conversation was never dropped");
+}
+
+#[tokio::test]
+async fn an_idle_conversation_is_dropped_and_the_next_run_opens_a_new_one() {
+    let mut r = rig_reaping(Duration::from_millis(300), Duration::from_millis(300));
+    r.run(start("r1", "mock:echo"));
+    let (_, first) = r.finish("r1").await;
+    let url = ask_url(&first);
+    assert_eq!(ask_status(&url).await, 405);
+    until_dropped(&url).await;
+
+    r.run(follow_up("r2", "mock:echo", &first));
+    let (_, second) = r.finish("r2").await;
+    assert_eq!((second.outcome, &second.session_id), (RunOutcome::Completed, &first.session_id));
+    let again = ask_url(&second);
+    assert_ne!(again, url);
+    assert_eq!(ask_status(&again).await, 405);
+}
+
+#[tokio::test]
+async fn a_stopped_turns_conversation_is_kept_until_its_changes_are_settled() {
+    let mut r = rig_reaping(Duration::from_millis(300), Duration::from_millis(300));
+    let _remote = repo_workspace(&r);
+    r.run(start("r0", "mock:echo"));
+    let (_, first) = r.finish("r0").await;
+    let url = ask_url(&first);
+    stopped(&mut r, follow_up("r1", "mock:slow", &first), |ws| std::fs::write(ws.join("turn.txt"), "x\n").unwrap())
+        .await;
+    // Long past the adapter's and the conversation's idle time.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(ask_status(&url).await, 405);
+    r.send(ServerToDaemon::RunDiscard { run_id: "r1".into() });
+    assert_eq!(r.next().await, DaemonToServer::RunDiscarded { run_id: "r1".into(), ok: true, files: 1, error: None });
+    assert!(!r.workspace().join("turn.txt").exists());
+    until_dropped(&url).await;
 }
 
 const ASK: &str =

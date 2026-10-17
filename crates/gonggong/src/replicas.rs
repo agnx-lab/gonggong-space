@@ -15,6 +15,7 @@ use crate::protocol::{
 use crate::service::Outbox;
 use crate::sync::{self, ApplyError, Base, Client, Held, Manifest, Memory, Merge, Pending, Replica, TRANSFERS, Tree};
 use crate::{reason, t};
+use futures_util::future::{BoxFuture, FutureExt, Shared};
 use futures_util::{TryStreamExt, stream};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -58,6 +59,8 @@ pub(crate) struct Replicas {
     unreported: Mutex<HashSet<(String, String)>>,
     /// Replicas with an idle catch-up under way: true once another sync.available came meanwhile, so it runs again.
     available: Mutex<HashMap<(String, String), bool>>,
+    /// The last connection marking every joined replica unreported (listed off the event loop).
+    connected: Mutex<Option<Shared<BoxFuture<'static, ()>>>>,
 }
 
 /// Why a force-group turn did not start.
@@ -107,6 +110,7 @@ impl Replicas {
             prepared: Mutex::default(),
             unreported: Mutex::default(),
             available: Mutex::default(),
+            connected: Mutex::default(),
         })
     }
 
@@ -209,25 +213,39 @@ impl Replicas {
         if self.client.is_none() {
             return;
         }
-        for replica in Replica::joined_in(&self.home, group).into_iter().map(|r| self.shared(r)) {
-            let key = (replica.group().to_string(), replica.bot().to_string());
-            match self.available.lock().unwrap().entry(key.clone()) {
-                std::collections::hash_map::Entry::Occupied(mut again) => {
-                    again.insert(true);
-                    continue;
-                }
-                std::collections::hash_map::Entry::Vacant(v) => drop(v.insert(false)),
+        let (me, group, out) = (self.clone(), group.to_string(), out.clone());
+        let connected = self.connected.lock().unwrap().clone();
+        tokio::spawn(async move {
+            // Its catch-ups must see the replicas the last connection marked unreported.
+            if let Some(connected) = connected {
+                connected.await;
             }
-            let (me, out) = (self.clone(), out.clone());
-            tokio::spawn(async move {
-                loop {
-                    me.idle(&replica, &out).await;
-                    if !me.again(&key) {
-                        break;
-                    }
-                }
-            });
+            let home = me.home.clone();
+            let joined = tokio::task::spawn_blocking(move || Replica::joined_in(&home, &group)).await;
+            for replica in joined.unwrap_or_default().into_iter().map(|r| me.shared(r)) {
+                me.catch_up_when_idle(replica, &out);
+            }
+        });
+    }
+
+    fn catch_up_when_idle(self: &Arc<Self>, replica: Replica, out: &Outbox) {
+        let key = (replica.group().to_string(), replica.bot().to_string());
+        match self.available.lock().unwrap().entry(key.clone()) {
+            std::collections::hash_map::Entry::Occupied(mut again) => {
+                again.insert(true);
+                return;
+            }
+            std::collections::hash_map::Entry::Vacant(v) => drop(v.insert(false)),
         }
+        let (me, out) = (self.clone(), out.clone());
+        tokio::spawn(async move {
+            loop {
+                me.idle(&replica, &out).await;
+                if !me.again(&key) {
+                    break;
+                }
+            }
+        });
     }
 
     async fn idle(&self, replica: &Replica, out: &Outbox) {
@@ -252,9 +270,17 @@ impl Replicas {
     }
 
     /// A new connection: the server may have missed reports sent while away.
-    pub fn connected(&self) {
-        let mut unreported = self.unreported.lock().unwrap();
-        unreported.extend(Replica::all(&self.home).iter().map(|r| (r.group().to_string(), r.bot().to_string())));
+    pub fn connected(self: &Arc<Self>) {
+        let me = self.clone();
+        let mark = async move {
+            let home = me.home.clone();
+            let all = tokio::task::spawn_blocking(move || Replica::all(&home)).await.unwrap_or_default();
+            let mut unreported = me.unreported.lock().unwrap();
+            unreported.extend(all.iter().map(|r| (r.group().to_string(), r.bot().to_string())));
+        };
+        let mark = mark.boxed().shared();
+        tokio::spawn(mark.clone());
+        *self.connected.lock().unwrap() = Some(mark);
     }
 
     fn mark_unreported(&self, r: &Replica) {
