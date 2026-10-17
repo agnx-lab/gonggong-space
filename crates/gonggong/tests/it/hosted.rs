@@ -145,6 +145,22 @@ async fn rejects_dirs_outside_the_workspace_and_more_than_five_per_bot() {
 }
 
 #[tokio::test]
+async fn services_that_exit_on_their_own_are_kept_like_stopped_ones() {
+    let (home, root) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (out, mut rx) = Outbox::channel();
+    let services = Services::new(home.path());
+    for i in 0..70 {
+        let name = format!("s{i}");
+        services.start(scope(root.path(), "b1", &out), args(&name, "seq 1 200; exit 0", None)).await.unwrap();
+        while !matches!(next_state(&mut rx).await, s if s.name == name && s.status == ServiceStatus::Exited) {}
+    }
+    assert!(services.list_infos("g1", "b1").len() <= 64);
+    assert!(services.list("g1", "b1").contains("s69 · 已退出（退出码 0）"));
+    let logs = services.logs("g1", "b1", "s69", Some(1000)).unwrap();
+    assert!(logs.lines().count() <= 50 && logs.ends_with("200"), "{logs}");
+}
+
+#[tokio::test]
 async fn a_new_daemon_ends_services_left_by_the_previous_one() {
     let (home, root) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (out, _rx) = Outbox::channel();

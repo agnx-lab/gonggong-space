@@ -232,6 +232,11 @@ impl Monitor {
 
     pub(crate) fn inbound(&self, msg: &ServerToDaemon) {
         let ServerToDaemon::RunStart(start) = msg else { return };
+        let mut journal = self.journal.lock().unwrap();
+        // Sent again while running: the engine ignores it too.
+        if journal.runs.iter().any(|p| p.run.run_id == start.run_id && p.ended_ms.is_none()) {
+            return;
+        }
         let run = RunInfo {
             run_id: start.run_id.clone(),
             group_id: start.group_id.clone(),
@@ -244,12 +249,8 @@ impl Monitor {
             queued: false,
             started_ms: now_ms(),
         };
-        self.journal.lock().unwrap().runs.push_back(Process {
-            run: run.clone(),
-            events: VecDeque::new(),
-            ended_ms: None,
-            outcome: None,
-        });
+        journal.runs.push_back(Process { run: run.clone(), events: VecDeque::new(), ended_ms: None, outcome: None });
+        drop(journal);
         self.update(|s| {
             s.runs.push(run);
             mark_queued(&mut s.runs);
@@ -379,6 +380,16 @@ mod tests {
         }
         assert!(m.process("r1").is_none(), "only the last {KEEP_ENDED} finished runs are kept");
         assert!(m.process("x0").is_some());
+    }
+
+    #[test]
+    fn a_start_sent_again_while_running_is_journaled_once() {
+        let m = Monitor::default();
+        m.inbound(&start("r1", "g1"));
+        m.inbound(&start("r1", "g1"));
+        assert_eq!(m.snapshot().runs.len(), 1);
+        m.outbound(&failed("r1", "x".into()));
+        assert!(m.journal.lock().unwrap().runs.iter().all(|p| p.ended_ms.is_some()));
     }
 
     #[test]

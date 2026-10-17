@@ -70,32 +70,34 @@ struct Planned {
 
 /// Makes `req` the active turn and decides its provider from the store as of now, so CLI / desktop edits apply from
 /// the next turn on. None: it will not run (cancelled while queued, or no provider to run with).
-fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Planned> {
+async fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Planned> {
     if !shared.begin(&mut req) {
         return None;
     }
-    let home = &engine.config.home;
-    let s = &req.start;
-    let resolved = Store::load(home).and_then(|store| {
+    let (home, user_home) = (engine.config.home.clone(), engine.config.user_home.clone());
+    let (bot, resume) = (req.start.bot.clone(), req.start.resume_session_id.clone());
+    let resolved = tokio::task::spawn_blocking(move || {
+        let store = Store::load(&home)?;
         // A live adapter's file is rewritten (touched) each turn below, and adapters idle out after `idle`.
-        inject::prune(home, &store, Some(inject::STALE_SETTINGS));
-        let (selection, removed) =
-            match store.resolve_run(s.bot.agent_kind, &s.bot.id, s.resume_session_id.as_deref())? {
-                RunPlan::Resume(selection) => (selection, false),
-                RunPlan::New { selection, provider_removed } => (selection, provider_removed),
-            };
-        let launch = match s.bot.agent_kind {
+        inject::prune(&home, &store, Some(inject::STALE_SETTINGS));
+        let (selection, removed) = match store.resolve_run(bot.agent_kind, &bot.id, resume.as_deref())? {
+            RunPlan::Resume(selection) => (selection, false),
+            RunPlan::New { selection, provider_removed } => (selection, provider_removed),
+        };
+        let launch = match bot.agent_kind {
             AgentKind::Claude => {
                 let defaults = store.agent_settings(AgentKind::Claude);
-                let cli = defaults.inherit_cli.then(|| agent_settings::read_cli(&engine.config.user_home, None));
-                let launch = inject::ClaudeLaunch::new(home, &selection, &defaults, &s.bot, cli.flatten().as_ref())?;
+                let cli = defaults.inherit_cli.then(|| agent_settings::read_cli(&user_home, None));
+                let launch = inject::ClaudeLaunch::new(&home, &selection, &defaults, &bot, cli.flatten().as_ref())?;
                 launch.write()?;
                 Some(launch)
             }
             AgentKind::Codex => None,
         };
-        Ok((selection, removed, launch))
-    });
+        anyhow::Ok((selection, removed, launch))
+    })
+    .await
+    .unwrap_or_else(|e| Err(e.into()));
     let (selection, removed, launch) = match resolved {
         Ok(planned) => planned,
         Err(e) => {
@@ -957,7 +959,7 @@ pub(crate) async fn run(
         let turn = match next.take() {
             Some(turn) => turn,
             None => match rx.recv().await {
-                Some(req) => match plan(&engine, &shared, req) {
+                Some(req) => match plan(&engine, &shared, req).await {
                     Some(turn) => match ready(&engine, &shared, turn).await {
                         Some(turn) => turn,
                         None => continue,
@@ -1073,7 +1075,7 @@ async fn connect(
                 }
                 turn = loop {
                     match tokio::time::timeout(engine.config.idle, rx.recv()).await {
-                        Ok(Some(next)) => match plan(engine, shared, next) {
+                        Ok(Some(next)) => match plan(engine, shared, next).await {
                             Some(turn) => match ready(engine, shared, turn).await {
                                 Some(turn) => break turn,
                                 None => continue,
@@ -1145,7 +1147,7 @@ impl Conversation<'_> {
                     };
                     // New sessions keep the provider they start with (§4.3): recorded before the agent is prompted.
                     if reason.is_some()
-                        && let Err(e) = self.pin(&req, &id)
+                        && let Err(e) = self.pin(&req, &id).await
                     {
                         self.shared.finish(Err(e), None, None);
                         return Ok(());
@@ -1368,12 +1370,18 @@ impl Conversation<'_> {
         Some(meta)
     }
 
-    fn pin(&self, req: &TurnReq, session: &SessionId) -> Result<(), String> {
+    async fn pin(&self, req: &TurnReq, session: &SessionId) -> Result<(), String> {
         let s = &req.start;
-        Store::update(self.home, |store| {
-            store.pin(&session.0, s.bot.agent_kind, &s.group_id, &s.bot.id, &self.selection);
-            Ok(())
+        let (home, selection, session) = (self.home.to_path_buf(), self.selection.clone(), session.0.to_string());
+        let (agent, group, bot) = (s.bot.agent_kind, s.group_id.clone(), s.bot.id.clone());
+        tokio::task::spawn_blocking(move || {
+            Store::update(&home, |store| {
+                store.pin(&session, agent, &group, &bot, &selection);
+                Ok(())
+            })
         })
+        .await
+        .unwrap_or_else(|e| Err(e.into()))
         .map_err(|e| t!("无法记录会话使用的供应商：{e}", e = format!("{e:#}")))
     }
 }

@@ -26,7 +26,7 @@ const REPLY_LINES: usize = 50;
 const LINE_MAX: usize = 16 * 1024;
 /// The log file is rotated to `<name>.log.1` past this size.
 const LOG_FILE_MAX: u64 = 4 << 20;
-/// Stopped services kept for a server restart.
+/// Ended services kept for a server restart.
 const ENDED_MAX: usize = 64;
 
 /// The live run a tool call belongs to.
@@ -72,7 +72,7 @@ struct Inner {
     /// The Xvfb program (tests use a stand-in).
     xvfb: PathBuf,
     list: Mutex<Vec<Hosted>>,
-    /// Stopped ones by id, until their (group, bot, name) starts again: the server may still restart them.
+    /// Ended ones (stopped or exited), until their (group, bot, name) starts again: the server may still restart them.
     ended: Mutex<VecDeque<Hosted>>,
 }
 
@@ -181,23 +181,22 @@ impl Services {
         let info = Arc::new(Mutex::new(info));
         let (done_tx, exited) = watch::channel(false);
         let stop = Stop::Task(task.abort_handle());
-        {
-            let (info, out) = (info.clone(), scope.out.clone());
-            tokio::spawn(async move {
-                let _ = task.await;
-                let snapshot = {
-                    let mut i = info.lock().unwrap();
-                    i.status = ServiceStatus::Exited;
-                    i.clone()
-                };
-                out.send(DaemonToServer::ServiceState { service: snapshot });
-                let _ = done_tx.send(true);
-            });
-        }
         let logs = Arc::new(Mutex::new(VecDeque::new()));
         let origin = Arc::new(Origin { run_id: scope.run_id, root: scope.root, how: How::Static(dir.into()) });
-        let hosted = Hosted { info, origin, stop, logs, started: Instant::now(), exited, screen: None };
+        let hosted = Hosted { info: info.clone(), origin, stop, logs, started: Instant::now(), exited, screen: None };
         self.0.list.lock().unwrap().push(hosted);
+        let (out, inner) = (scope.out, self.0.clone());
+        tokio::spawn(async move {
+            let _ = task.await;
+            let snapshot = {
+                let mut i = info.lock().unwrap();
+                i.status = ServiceStatus::Exited;
+                i.clone()
+            };
+            inner.retire(&info);
+            out.send(DaemonToServer::ServiceState { service: snapshot });
+            let _ = done_tx.send(true);
+        });
         Ok(port)
     }
 
@@ -258,8 +257,19 @@ impl Services {
             tokio::spawn(pump(child.stderr.take().unwrap(), logs.clone(), log)),
         ];
         let (done_tx, exited) = watch::channel(false);
+        let stop = Stop::Group(pid);
+        let origin = Arc::new(Origin {
+            run_id: scope.run_id.clone(),
+            root: scope.root.clone(),
+            how: How::Command(args.clone()),
+        });
+        let started = Instant::now();
+        let hosted = Hosted { info: info.clone(), origin, stop, logs, started, exited: exited.clone(), screen };
+        // Listed before its exit is watched: the watcher retires it from the list.
+        self.0.list.lock().unwrap().push(hosted.clone());
+        self.0.save_pids();
         {
-            let (info, out, inner, display) = (info.clone(), scope.out.clone(), self.0.clone(), screen.clone());
+            let (info, out, inner, display) = (info.clone(), scope.out.clone(), self.0.clone(), hosted.screen.clone());
             tokio::spawn(async move {
                 let code = child.wait().await.ok().and_then(|s| s.code());
                 if let Some(display) = display {
@@ -279,36 +289,30 @@ impl Services {
                     i.exit_code = code;
                     i.clone()
                 };
+                inner.retire(&info);
                 out.send(DaemonToServer::ServiceState { service: snapshot });
                 let _ = done_tx.send(true);
                 inner.save_pids();
             });
         }
-        let stop = Stop::Group(pid);
-        let origin = Arc::new(Origin {
-            run_id: scope.run_id.clone(),
-            root: scope.root.clone(),
-            how: How::Command(args.clone()),
-        });
-        let started = Instant::now();
-        let hosted = Hosted { info: info.clone(), origin, stop, logs, started, exited: exited.clone(), screen };
-        self.0.list.lock().unwrap().push(hosted);
-        self.0.save_pids();
 
         let ready = match args.port {
             Some(port) => wait_ready(port, exited.clone()).await,
             None => Ready::Yes,
         };
-        let id = info.lock().unwrap().id.clone();
-        let hosted = self.find_id(&id).expect("just added");
         match ready {
             Ready::Yes => {
-                let snapshot = {
+                let running = {
                     let mut i = info.lock().unwrap();
-                    i.status = ServiceStatus::Running;
-                    i.clone()
+                    // A quick command may be done already.
+                    (i.status == ServiceStatus::Starting).then(|| {
+                        i.status = ServiceStatus::Running;
+                        i.clone()
+                    })
                 };
-                scope.out.send(DaemonToServer::ServiceState { service: snapshot });
+                if let Some(service) = running {
+                    scope.out.send(DaemonToServer::ServiceState { service });
+                }
                 let port = args.port.map(|p| format!("，端口 {p} 已就绪")).unwrap_or_default();
                 Ok(format!("服务 {} 已启动{port}。最近输出：\n{}", args.name, hosted.tail(REPLY_LINES)))
             }
@@ -335,19 +339,28 @@ impl Services {
         list.iter().filter(|h| h.live()).map(|h| h.info.lock().unwrap().clone()).collect()
     }
 
-    pub fn list_infos(&self, group: &str, bot: &str) -> Vec<ServiceInfo> {
-        let list = self.0.list.lock().unwrap();
-        list.iter().map(|h| h.info.lock().unwrap().clone()).filter(|i| i.group_id == group && i.bot_id == bot).collect()
-    }
-
-    pub fn list(&self, group: &str, bot: &str) -> String {
-        let list = self.0.list.lock().unwrap();
-        let lines: Vec<String> = list
-            .iter()
+    /// This bot's services in the group, those kept after they ended first.
+    fn of(&self, group: &str, bot: &str) -> Vec<Hosted> {
+        let ended: Vec<Hosted> = self.0.ended.lock().unwrap().iter().cloned().collect();
+        let list: Vec<Hosted> = self.0.list.lock().unwrap().clone();
+        ended
+            .into_iter()
+            .chain(list)
             .filter(|h| {
                 let i = h.info.lock().unwrap();
                 i.group_id == group && i.bot_id == bot
             })
+            .collect()
+    }
+
+    pub fn list_infos(&self, group: &str, bot: &str) -> Vec<ServiceInfo> {
+        self.of(group, bot).iter().map(|h| h.info.lock().unwrap().clone()).collect()
+    }
+
+    pub fn list(&self, group: &str, bot: &str) -> String {
+        let lines: Vec<String> = self
+            .of(group, bot)
+            .iter()
             .map(|h| {
                 let i = h.info.lock().unwrap();
                 let status = match i.status {
@@ -438,14 +451,7 @@ impl Services {
     }
 
     fn find(&self, group: &str, bot: &str, name: &str) -> Option<Hosted> {
-        let list = self.0.list.lock().unwrap();
-        list.iter()
-            .rev()
-            .find(|h| {
-                let i = h.info.lock().unwrap();
-                i.group_id == group && i.bot_id == bot && i.name == name
-            })
-            .cloned()
+        self.of(group, bot).into_iter().rev().find(|h| h.info.lock().unwrap().name == name)
     }
 
     fn find_id(&self, id: &str) -> Option<Hosted> {
@@ -471,17 +477,32 @@ impl Services {
                 kill_group_async(*pid, true).await;
             }
         }
-        self.0.list.lock().unwrap().retain(|x| !Arc::ptr_eq(&x.info, &h.info));
+        self.0.retire(&h.info);
         self.0.save_pids();
-        let mut ended = self.0.ended.lock().unwrap();
+    }
+}
+
+impl Inner {
+    /// Moves a service that ended (stopped or on its own) from `list` to `ended`, keeping the tail of its output.
+    fn retire(&self, info: &Arc<Mutex<ServiceInfo>>) {
+        let h = {
+            let mut list = self.list.lock().unwrap();
+            let Some(i) = list.iter().position(|h| Arc::ptr_eq(&h.info, info)) else { return };
+            list.remove(i)
+        };
+        {
+            let mut logs = h.logs.lock().unwrap();
+            let gone = logs.len().saturating_sub(REPLY_LINES);
+            logs.drain(..gone);
+            logs.shrink_to_fit();
+        }
+        let mut ended = self.ended.lock().unwrap();
         ended.push_back(h);
         if ended.len() > ENDED_MAX {
             ended.pop_front();
         }
     }
-}
 
-impl Inner {
     fn save_pids(&self) {
         let list = self.list.lock().unwrap();
         let pids: String = list

@@ -19,6 +19,10 @@ pub const OFFICIAL_NAME: &str = "官方登录";
 pub const AUTH_TOKEN: &str = "ANTHROPIC_AUTH_TOKEN";
 pub const API_KEY: &str = "ANTHROPIC_API_KEY";
 pub const WIRE_RESPONSES: &str = "responses";
+/// Session pins kept per (group, bot) however old: only its current session is resumed.
+const PINS_KEPT: usize = 5;
+/// Younger pins are kept anyway.
+const PIN_TTL_MS: i64 = 30 * 24 * 3600 * 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -669,15 +673,32 @@ impl Store {
         })
     }
 
+    /// Also drops the pins beyond the newest [`PINS_KEPT`] of each (group, bot) older than [`PIN_TTL_MS`]: the file is
+    /// read every turn. Resuming a session whose pin is gone falls back to the official login.
     pub fn pin(&mut self, session_id: &str, agent: AgentKind, group_id: &str, bot_id: &str, selection: &Selection) {
+        let now = chrono::Utc::now().timestamp_millis();
         let pin = SessionPin {
             provider: selection.key().into(),
             agent,
             group_id: group_id.into(),
             bot_id: bot_id.into(),
-            pinned_at: chrono::Utc::now().timestamp_millis(),
+            pinned_at: now,
         };
         self.sessions.insert(session_id.into(), pin);
+        let mut by_pair: BTreeMap<(&str, &str), Vec<(i64, &str)>> = BTreeMap::new();
+        for (id, pin) in &self.sessions {
+            by_pair.entry((&pin.group_id, &pin.bot_id)).or_default().push((pin.pinned_at, id));
+        }
+        let old: Vec<String> = by_pair
+            .into_values()
+            .flat_map(|mut pins| {
+                pins.sort_unstable_by(|a, b| b.cmp(a));
+                pins.into_iter().skip(PINS_KEPT).filter(|(at, _)| now - at > PIN_TTL_MS).map(|(_, id)| id.to_string())
+            })
+            .collect();
+        for id in old {
+            self.sessions.remove(&id);
+        }
     }
 
     /// The latest session (id, pin) of each (group, bot).
@@ -968,6 +989,32 @@ mod tests {
         );
         assert!(store.stale().unwrap().is_empty());
         assert!(store.remove(&a).is_err());
+    }
+
+    #[test]
+    fn old_pins_beyond_the_latest_few_of_each_group_and_bot_are_dropped() {
+        let mut store = Store::default();
+        let a = kimi(&mut store);
+        let provider = Selection::Provider(Box::new(store.get(&a).unwrap().clone()));
+        let long_ago = chrono::Utc::now().timestamp_millis() - PIN_TTL_MS - 10_000;
+        for i in 0..1000 {
+            let (bot, selection) =
+                if i % 2 == 0 { ("b1", &provider) } else { ("b2", &Selection::Official(Default::default())) };
+            let id = format!("s{i}");
+            store.pin(&id, Claude, "g", bot, selection);
+            store.sessions.get_mut(&id).unwrap().pinned_at = long_ago + i;
+        }
+        assert_eq!(store.sessions.len(), 2 * PINS_KEPT);
+        assert!(!store.sessions.contains_key("s0"));
+        assert_eq!(store.resolve_run(Claude, "b1", Some("s998")).unwrap(), RunPlan::Resume(provider));
+        assert!(store.sessions.contains_key("s999"));
+        let latest: Vec<_> = store.view().sessions.into_iter().map(|s| (s.bot_id, s.provider)).collect();
+        assert_eq!(latest, [("b1".into(), a), ("b2".into(), OFFICIAL.into())]);
+
+        for i in 0..2 * PINS_KEPT {
+            store.pin(&format!("recent{i}"), Claude, "g", "b3", &Selection::Official(Default::default()));
+        }
+        assert_eq!(store.sessions.values().filter(|p| p.bot_id == "b3").count(), 2 * PINS_KEPT, "recent ones stay");
     }
 
     #[test]

@@ -281,8 +281,8 @@ impl Node {
 }
 
 fn node_version(path: &Path) -> Option<String> {
-    let out = crate::proc::command(path).arg("--version").output().ok()?;
-    let v = String::from_utf8_lossy(&out.stdout).trim().trim_start_matches('v').to_string();
+    let out = crate::proc::stdout_within(crate::proc::command(path).arg("--version"), agents::VERSION_TIMEOUT)?;
+    let v = out.trim().trim_start_matches('v').to_string();
     v.starts_with(|c: char| c.is_ascii_digit()).then_some(v)
 }
 
@@ -766,9 +766,15 @@ fn current(home: &Path, kind: ToolKind) -> Result<ToolStatus> {
 
 /// Node, Claude Code and Codex with their latest versions.
 pub async fn status(home: &Path, local: &LocalSettings) -> Vec<ToolStatus> {
-    let mut all = vec![with_latest(home, node_status(home)).await];
-    for info in agents::detect(home, local) {
-        all.push(with_latest(home, agent_status(home, &info)).await);
+    let (h, local) = (home.to_path_buf(), local.clone());
+    // Runs each tool's `--version`.
+    let probe = tokio::task::spawn_blocking(move || {
+        let agents = agents::detect(&h, &local).iter().map(|info| agent_status(&h, info)).collect::<Vec<_>>();
+        [vec![node_status(&h)], agents].concat()
+    });
+    let mut all = vec![];
+    for s in probe.await.unwrap_or_default() {
+        all.push(with_latest(home, s).await);
     }
     all
 }
