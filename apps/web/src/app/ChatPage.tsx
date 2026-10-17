@@ -67,11 +67,7 @@ function useChatData() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   useEffect(() => {
     loadGroups(setState)
-    let wasOpen = realtime.getStatus() === 'open'
-    return realtime.onStatus((st) => {
-      if (st === 'open' && wasOpen) loadGroups(setState)
-      if (st === 'open') wasOpen = true
-    })
+    return realtime.onReconnect(() => loadGroups(setState))
   }, [])
   const retry = () => {
     setState('loading')

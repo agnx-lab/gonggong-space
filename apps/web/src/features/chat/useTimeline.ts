@@ -164,11 +164,7 @@ export function useTimeline(groupId: string) {
       }
     })
     // Refill anything missed while the socket was down.
-    let wasOpen = realtime.getStatus() === 'open'
-    const offStatus = realtime.onStatus((st) => {
-      if (st === 'open' && wasOpen) void latest()
-      if (st === 'open') wasOpen = true
-    })
+    const offStatus = realtime.onReconnect(() => void latest())
     return () => {
       alive = false
       clearTimeout(flushTimer)

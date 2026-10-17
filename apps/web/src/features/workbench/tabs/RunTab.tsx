@@ -299,7 +299,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
           </div>
         ) : !source ? null : view === 'process' ? (
           <div className="run-tab__column">
-            <EarlierRounds key={runId} runId={runId} root={root} />
+            <EarlierRounds key={`${runId}:earlier`} runId={runId} root={root} />
             {detail.purged ? (
               <div className="run-tab__empty">{PURGED}</div>
             ) : (
