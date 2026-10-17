@@ -5,6 +5,7 @@ import { useWorkspace } from '../src/app/workspace'
 import { ProviderBanner } from '../src/features/chat/ProviderBanner'
 import { realtime } from '../src/lib/realtime'
 import { mockApi } from './mockApi'
+import { startRealtime } from './socket'
 
 const group = { id: 'g1', name: '前端组', botIds: ['b1', 'b2'] } as GroupDto
 const bot = (id: string, name: string) => ({ id, name }) as BotDto
@@ -43,6 +44,17 @@ describe('provider banner', () => {
       await screen.findByText('小王的 Claude 本会话使用 官方登录；已切换为 Kimi，开启新会话后生效'),
     ).toBeTruthy()
     expect(screen.getAllByRole('button', { name: '开启新会话' })).toHaveLength(1)
+  })
+
+  it('loads once on the first connect and again after a reconnect', async () => {
+    const calls = mockApi({ 'GET /groups/g1/provider-state': { items: [] } })
+    const rt = startRealtime()
+    render(<ProviderBanner group={group} />)
+    await waitFor(() => expect(calls).toHaveLength(1))
+    await rt.open()
+    expect(calls).toHaveLength(1)
+    await rt.reconnect()
+    expect(calls).toHaveLength(2)
   })
 
   it('replaces its items from group.providerState of this group only', async () => {

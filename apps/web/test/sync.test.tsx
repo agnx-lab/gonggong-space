@@ -15,6 +15,7 @@ import { SyncPanel } from '../src/features/sync/SyncPanel'
 import { resetSync } from '../src/features/sync/store'
 import { realtime } from '../src/lib/realtime'
 import { mockApi } from './mockApi'
+import { startRealtime } from './socket'
 
 const replica = (o: Partial<SyncReplicaDto> = {}): SyncReplicaDto => ({
   botId: 'b1',
@@ -101,6 +102,17 @@ describe('sync status bar', () => {
     render(<SyncBar group={{ id: 'g1', mode: 'partition' }} />)
     expect(screen.queryByRole('button')).toBeNull()
     expect(calls).toHaveLength(0)
+  })
+
+  it('loads once on the first connect and again after a reconnect', async () => {
+    const calls = mockApi({ 'GET /groups/g1/sync': status() })
+    const rt = startRealtime()
+    render(<SyncBar group={{ id: 'g1', mode: 'force' }} />)
+    await screen.findByRole('button', { name: /v17/ })
+    await rt.open()
+    expect(calls).toHaveLength(1)
+    await rt.reconnect()
+    expect(calls).toHaveLength(2)
   })
 
   it('follows group.sync events', async () => {

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { memo, type ReactNode } from 'react'
 import { tabKey, type WorkbenchTab } from '../../app/workbench'
 import { DiffTab, useDiffTabMeta } from './tabs/DiffTab'
 import { FilesTab, useFilesTabMeta } from './tabs/FilesTab'
@@ -9,8 +9,8 @@ import { RunTab, useRunTabMeta } from './tabs/RunTab'
 import { useWebTabMeta, WebTab } from './tabs/WebTab'
 import type { TabMeta } from './types'
 
-/** One tab's body, by kind. */
-export function TabContent({ tab, active }: { tab: WorkbenchTab; active: boolean }) {
+/** One tab's body, by kind; memoized so switching between other tabs leaves it alone. */
+export const TabContent = memo(function TabContent({ tab, active }: { tab: WorkbenchTab; active: boolean }) {
   const key = tabKey(tab)
   switch (tab.kind) {
     case 'web':
@@ -28,7 +28,7 @@ export function TabContent({ tab, active }: { tab: WorkbenchTab; active: boolean
     case 'file':
       return <FileTab tab={tab} tabKey={key} active={active} />
   }
-}
+})
 
 type Render = (meta: TabMeta) => ReactNode
 

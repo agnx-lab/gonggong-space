@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkbench } from '../src/app/workbench'
 import { loadBotStates, useWorkspace } from '../src/app/workspace'
 import { GitBar } from '../src/features/chat/GitBar'
+import { mockApi } from './mockApi'
+import { startRealtime } from './socket'
 
 const group = (o: Partial<GroupDto> = {}): GroupDto => ({
   id: 'g1',
@@ -225,6 +227,17 @@ describe('git status bar', () => {
       .getState()
       .applyEvent({ t: 'group.botState', groupId: 'g1', state: state('b1', { state: 'unbound' }) })
     await waitFor(() => expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claude待绑定托管'))
+  })
+
+  it('loads once on the first connect and again after a reconnect', async () => {
+    const calls = mockApi({ 'GET /groups/g1/bot-states': [] })
+    const rt = startRealtime()
+    render(<GitBar group={group({ botIds: ['b1'] })} />)
+    await screen.findByText('待创建')
+    await rt.open()
+    expect(calls).toHaveLength(1)
+    await rt.reconnect()
+    expect(calls).toHaveLength(2)
   })
 
   it('summarizes sub-repos and opens the diff tab on the picked one', async () => {

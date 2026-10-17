@@ -1,5 +1,5 @@
 import type { DiffRepo, DiffScope } from '@gonggong/protocol'
-import { type CSSProperties, Fragment, type ReactNode, useState } from 'react'
+import { type CSSProperties, Fragment, memo, type ReactNode, useMemo, useState } from 'react'
 import { cx } from '../../lib/cx'
 import { Icon, IconButton, langOf, SegmentedControl, Tokens, useHighlight } from '../../ui'
 import {
@@ -238,10 +238,17 @@ const lineClass = (l: string) =>
 
 const isCode = (l: string) => /^[+\- ]/.test(l)
 
-export function DiffView({ file }: { file: DiffFile }) {
+export const DiffView = memo(function DiffView({ file }: { file: DiffFile }) {
   // Code lines of all hunks tokenized as one text: the n-th code line maps to the n-th token line.
-  const code = file.lines.filter(isCode)
-  const tokens = useHighlight(code.map((l) => l.slice(1)).join('\n'), langOf(file.path))
+  const code = useMemo(
+    () =>
+      file.lines
+        .filter(isCode)
+        .map((l) => l.slice(1))
+        .join('\n'),
+    [file.lines],
+  )
+  const tokens = useHighlight(code, langOf(file.path))
   let n = 0
   return (
     <div className="diff">
@@ -266,7 +273,7 @@ export function DiffView({ file }: { file: DiffFile }) {
       </div>
     </div>
   )
-}
+})
 
 export function DiffScopeBar({
   scope,

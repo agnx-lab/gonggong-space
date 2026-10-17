@@ -49,6 +49,13 @@ export function createRealtime() {
     }
   }
 
+  const onStatus = (listener: (s: RealtimeStatus) => void) => {
+    statusListeners.add(listener)
+    return () => {
+      statusListeners.delete(listener)
+    }
+  }
+
   return {
     start() {
       if (running) return
@@ -70,11 +77,18 @@ export function createRealtime() {
         handlers.delete(handler)
       }
     },
-    onStatus(listener: (s: RealtimeStatus) => void) {
-      statusListeners.add(listener)
-      return () => {
-        statusListeners.delete(listener)
-      }
+    onStatus,
+    /**
+     * Calls `cb` whenever the socket opens again after having been open since this call: events sent meanwhile were
+     * lost. The first open after subscribing while connecting is not one, so a cold start loads once.
+     */
+    onReconnect(cb: () => void) {
+      let wasOpen = status === 'open'
+      return onStatus((s) => {
+        if (s !== 'open') return
+        if (wasOpen) cb()
+        wasOpen = true
+      })
     },
     getStatus: () => status,
   }

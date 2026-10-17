@@ -202,9 +202,9 @@ describe('loading the sync status', () => {
   })
 
   it('reloads loaded groups in place after a reconnect', async () => {
-    let listener: ((s: string) => void) | undefined
-    vi.spyOn(realtime, 'onStatus').mockImplementation((l) => {
-      listener = l as never
+    let reconnect: (() => void) | undefined
+    vi.spyOn(realtime, 'onReconnect').mockImplementation((cb) => {
+      reconnect = cb
       return () => {}
     })
     let head = 15
@@ -212,7 +212,7 @@ describe('loading the sync status', () => {
     render(<SyncBar group={{ id: 'g1', mode: 'force' }} />)
     await screen.findByRole('button', { name: /v15/ })
     head = 16
-    act(() => listener?.('open'))
+    act(() => reconnect?.())
     expect(screen.getByRole('button', { name: /v15/ })).toBeTruthy()
     expect(await screen.findByRole('button', { name: /v16/ })).toBeTruthy()
     expect(calls.filter((c) => c.path === '/groups/g1/sync')).toHaveLength(2)

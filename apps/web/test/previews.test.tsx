@@ -12,6 +12,7 @@ import { resetPreviews } from '../src/features/previews/store'
 import { realtime } from '../src/lib/realtime'
 import { useToasts } from '../src/ui'
 import { apiError, mockApi } from './mockApi'
+import { startRealtime } from './socket'
 
 const preview = (o: Partial<PreviewDto> = {}): PreviewDto => ({
   id: 'p1',
@@ -115,6 +116,17 @@ describe('preview card', () => {
     expect(useToasts.getState().items).toMatchObject([
       { type: 'error', message: '标签页已满（最多 12 个），请先关闭一些' },
     ])
+  })
+
+  it('loads once on the first connect and again after a reconnect', async () => {
+    const calls = mockApi({ 'GET /groups/g1/previews': list([preview()]) })
+    const rt = startRealtime()
+    render(<PreviewCard previewId="p1" groupId="g1" botId="b1" fallback="预览：登录页" />)
+    await screen.findByText('登录页')
+    await rt.open()
+    expect(calls).toHaveLength(1)
+    await rt.reconnect()
+    expect(calls).toHaveLength(2)
   })
 
   it('follows realtime updates and reads 已关闭 once the preview is gone', async () => {

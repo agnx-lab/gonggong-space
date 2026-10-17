@@ -14,7 +14,7 @@ import { t } from '../../../i18n'
 import { api } from '../../../lib/api'
 import { copyWithToast } from '../../../lib/clipboard'
 import { cx } from '../../../lib/cx'
-import { useNow } from '../../../lib/now'
+import { Elapsed } from '../../../lib/now'
 import { realtime } from '../../../lib/realtime'
 import { hm } from '../../../lib/time'
 import {
@@ -138,18 +138,14 @@ function useRunDetail(runId: string, active: boolean) {
       }
     })
     // Refill anything missed while the socket was down.
-    let wasOpen = realtime.getStatus() === 'open'
-    const offStatus = realtime.onStatus((st) => {
-      if (st === 'open' && wasOpen) {
-        if (shown.current) load()
-        else catchUp.current = load
-      }
-      if (st === 'open') wasOpen = true
+    const offReconnect = realtime.onReconnect(() => {
+      if (shown.current) load()
+      else catchUp.current = load
     })
     return () => {
       alive = false
       off()
-      offStatus()
+      offReconnect()
       clearTimeout(timer)
       clearTimeout(flushTimer)
       catchUp.current = null
@@ -188,16 +184,13 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
   const { runId, view, file } = tab
   const patch = useWorkbench((s) => s.patch)
   const { detail, tail, error } = useRunDetail(runId, active)
-  const bots = useWorkspace((s) => s.bots)
-  const groups = useWorkspace((s) => s.groups)
   const run = detail?.run
   useEffect(() => {
     if (run) useRunInfo.setState((s) => ({ runs: { ...s.runs, [run.id]: run } }))
   }, [run])
-  const now = useNow(!!run && LIVE.includes(run.status) && !!run.startedAt)
-  const bot = bots.find((b) => b.id === run?.botId)
+  const bot = useWorkspace((s) => s.bots.find((b) => b.id === run?.botId))
   const costume = useBotCostume(bot?.id)
-  const members = groups.find((g) => g.id === run?.groupId)?.members ?? []
+  const members = useWorkspace((s) => s.groups.find((g) => g.id === run?.groupId)?.members) ?? []
   const root = useWorkspace((s) => (run ? s.botStates[run.groupId]?.[run.botId]?.path : null)) ?? null
   const userName = (id: string | null) => members.find((m) => m.userId === id)?.name ?? '—'
   const live = !!run && LIVE.includes(run.status)
@@ -213,7 +206,6 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
     live ? undefined : (detail?.patch ?? null),
     detail?.patchRepos,
   )
-  // The clock re-renders every second; the process only changes with the detail or the live patch.
   const stored = useMemo(
     () => detail && buildSteps(live && turn.patch !== null ? { ...detail, patch: turn.patch } : detail),
     [detail, live, turn.patch],
@@ -233,7 +225,6 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
     setLocate(null)
   }, [locate, view])
   const started = run?.startedAt ? Date.parse(run.startedAt) : null
-  const ended = run?.endedAt ? Date.parse(run.endedAt) : now
   return (
     <div className="run-tab" data-testid="run-tab" ref={tabRef}>
       <Toolbar
@@ -267,7 +258,16 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
             </span>
             <span className="run-tab__fact" title={t('耗时')}>
               <Icon name="clock" size={14} />
-              {started === null ? '—' : fmtDuration(ended - started)}
+              {started === null ? (
+                '—'
+              ) : (
+                <Elapsed
+                  from={started}
+                  to={run.endedAt ? Date.parse(run.endedAt) : null}
+                  ticking={live && active}
+                  format={fmtDuration}
+                />
+              )}
             </span>
             <span className="run-tab__fact" title={t('用量')}>
               <Icon name="chart-bar" size={14} />
@@ -313,6 +313,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
                 onOpenDiff={(path) => patch(tabKey, { view: 'diff', file: path })}
                 onStopTask={(taskId) => stopTask(runId, taskId)}
                 costume={costume}
+                active={active}
               />
             )}
           </div>
@@ -398,6 +399,7 @@ function EarlierRounds({ runId, root }: { runId: string; root: string | null }) 
 function PastRound({ run, prompt, root }: { run: RunDto; prompt: string; root: string | null }) {
   const [open, setOpen] = useState(true)
   const { detail, error } = useRunDetail(run.id, true)
+  const steps = useMemo(() => (detail ? buildSteps(detail) : []), [detail])
   const worked = workedMs(run)
   return (
     <section className="run-round">
@@ -418,7 +420,7 @@ function PastRound({ run, prompt, root }: { run: RunDto; prompt: string; root: s
         <div className="run-tab__empty">{PURGED}</div>
       ) : (
         <ProcessView
-          steps={buildSteps(detail)}
+          steps={steps}
           root={root}
           live={LIVE.includes(run.status)}
           startedAt={run.startedAt}

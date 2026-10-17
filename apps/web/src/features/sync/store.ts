@@ -36,8 +36,7 @@ function sync() {
     }
   })
   // Events missed while offline: reload what is shown, keeping it until the answer arrives.
-  realtime.onStatus((s) => {
-    if (s !== 'open') return
+  realtime.onReconnect(() => {
     const { status, error } = useStore.getState()
     for (const id of new Set([...Object.keys(status), ...Object.keys(error)])) load(id)
   })

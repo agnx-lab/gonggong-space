@@ -3,24 +3,21 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const rt = vi.hoisted(() => {
-  let status: 'connecting' | 'open' | 'closed' = 'connecting'
-  const listeners = new Set<(s: 'connecting' | 'open' | 'closed') => void>()
+  const listeners = new Set<() => void>()
   return {
-    set(s: typeof status) {
-      status = s
-      for (const l of [...listeners]) l(s)
+    /** The socket opened again after a drop (the client tells first connects apart, see realtime.test.ts). */
+    reconnect() {
+      for (const l of [...listeners]) l()
     },
     reset() {
-      status = 'connecting'
       listeners.clear()
     },
     api: {
       subscribe: () => () => {},
-      onStatus(l: (s: 'connecting' | 'open' | 'closed') => void) {
+      onReconnect(l: () => void) {
         listeners.add(l)
         return () => listeners.delete(l)
       },
-      getStatus: () => status,
     },
   }
 })
@@ -108,41 +105,25 @@ beforeEach(() => rt.reset())
 afterEach(() => vi.unstubAllGlobals())
 
 describe('run tab sync', () => {
-  it('refills from the last stored event after a reconnect, not on the first connect', async () => {
+  it('refills from the last stored event after a reconnect', async () => {
     const { urls, pending } = stubRuns()
     render(<RunTab {...props('r1')} />)
     await answer(pending.shift(), first)
     expect(await screen.findByText('第三段')).toBeTruthy()
-
-    act(() => rt.set('open'))
-    await act(() => new Promise((r) => setTimeout(r, 30)))
     expect(urls).toEqual(['/runs/r1'])
 
-    act(() => rt.set('closed'))
-    act(() => rt.set('open'))
+    act(() => rt.reconnect())
     await waitFor(() => expect(urls).toEqual(['/runs/r1', '/runs/r1?since=3']))
     await answer(pending.shift(), done)
     expect(await screen.findByText('终稿')).toBeTruthy()
     expect(screen.getAllByText('已完成').length).toBeGreaterThan(0)
   })
 
-  it('treats an already open socket at mount as connected, so the first drop-and-return refills', async () => {
-    rt.set('open')
-    const { urls, pending } = stubRuns()
-    render(<RunTab {...props('r1')} />)
-    await answer(pending.shift(), first)
-    act(() => rt.set('closed'))
-    act(() => rt.set('open'))
-    await waitFor(() => expect(urls).toHaveLength(2))
-  })
-
   it('waits for the tab to be shown before refilling after a reconnect', async () => {
     const { urls, pending } = stubRuns()
     const { rerender } = render(<RunTab {...props('r1', false)} />)
     await answer(pending.shift(), first)
-    act(() => rt.set('open'))
-    act(() => rt.set('closed'))
-    act(() => rt.set('open'))
+    act(() => rt.reconnect())
     await act(() => new Promise((r) => setTimeout(r, 30)))
     expect(urls).toEqual(['/runs/r1'])
 
@@ -158,11 +139,8 @@ describe('run tab sync', () => {
     await answer(pending.shift(), first)
     await screen.findByText('第三段')
 
-    act(() => rt.set('open'))
-    act(() => rt.set('closed'))
-    act(() => rt.set('open'))
-    act(() => rt.set('closed'))
-    act(() => rt.set('open'))
+    act(() => rt.reconnect())
+    act(() => rt.reconnect())
     await waitFor(() => expect(urls).toHaveLength(3))
     const [older, newer] = pending
     await answer(newer, done)
