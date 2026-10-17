@@ -17,6 +17,7 @@ import {
 } from 'livekit-client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, errorText } from '../../lib/api'
+import { useDocumentVisible } from '../../lib/visible'
 import {
   autoFps,
   type FpsPick,
@@ -90,14 +91,17 @@ export function useLiveRoom(previewId: string) {
   return { track, publication, weak, error, send }
 }
 
-/** Keeps the machine publishing while mounted, at `fps` or above (another viewer may ask for more). */
+/** Keeps the machine publishing while mounted and the page is shown, at `fps` or above (another viewer may ask for more). */
 export function useWatch(previewId: string, fps: LiveFps) {
+  const visible = useDocumentVisible()
   useEffect(() => {
+    // A hidden page lets its lease lapse, so the machine stops encoding and uploading a picture nobody sees.
+    if (!visible) return
     const watch = () => api.post(`/previews/${previewId}/watch`, { fps }).catch(() => {})
     void watch()
     const timer = setInterval(watch, RENEW_MS)
     return () => clearInterval(timer)
-  }, [previewId, fps])
+  }, [previewId, fps, visible])
 }
 
 /** gg-cast's identity in the room. */
@@ -117,6 +121,11 @@ export function useLiveStats(track: RemoteTrack | null) {
     let prev: ReturnType<typeof sample> | undefined
     let settled: Settled | undefined
     const timer = setInterval(async () => {
+      // Sampling starts over once shown: measured against a sample from before, the gap would drag the figures down.
+      if (document.hidden) {
+        prev = undefined
+        return
+      }
       const report = await track.getRTCStatsReport()
       if (!report) return
       const cur = sample(report, Date.now())

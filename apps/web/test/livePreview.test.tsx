@@ -1,4 +1,4 @@
-import type { GroupPreviewsDto, PreviewDto } from '@gonggong/protocol'
+import { type GroupPreviewsDto, LIVE_WATCH_SECONDS, type PreviewDto } from '@gonggong/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSession } from '../src/app/session'
@@ -139,7 +139,18 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
   localStorage.clear()
+  // jsdom's own getter is on the prototype; drop the override.
+  delete (document as { hidden?: boolean }).hidden
 })
+
+const RENEW_MS = (LIVE_WATCH_SECONDS * 1000) / 3
+
+function setHidden(hidden: boolean) {
+  Object.defineProperty(document, 'hidden', { value: hidden, configurable: true })
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+}
 
 describe('桌面应用预览 · 观看', () => {
   it("joins the preview's room through the server, keeps watching, and shows the window", async () => {
@@ -165,6 +176,23 @@ describe('桌面应用预览 · 观看', () => {
     await waitFor(() => expect(lk.rooms[0]?.disconnected).toBe(true))
     rerender(<LiveTab tab={tab} tabKey="live:p3" active />)
     await waitFor(() => expect(lk.rooms[1]?.token).toBe('tok-li'))
+  })
+
+  it('stops renewing its watch while the page is hidden, so the machine stops streaming, and renews at once when shown', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const calls = routes(preview())
+    const watches = () => calls.filter((c) => c.path === '/previews/p3/watch').length
+    render(<LiveTab tab={tab} tabKey="live:p3" active />)
+    await waitFor(() => expect(watches()).toBe(1))
+
+    setHidden(true)
+    await act(() => vi.advanceTimersByTimeAsync(5 * RENEW_MS))
+    expect(watches()).toBe(1)
+
+    setHidden(false)
+    await waitFor(() => expect(watches()).toBe(2))
+    await act(() => vi.advanceTimersByTimeAsync(RENEW_MS))
+    expect(watches()).toBe(3)
   })
 
   it('says why there is no picture', async () => {
@@ -432,6 +460,31 @@ describe('实时画面 · 网络、帧率与画质', () => {
     expect(figures.textContent).toContain('丢包 0.0% · 延迟 50 ms')
     expect(screen.queryByText('网络差')).toBeNull()
     expect(screen.queryByText('网络一般')).toBeNull()
+  })
+
+  it('stops sampling the picture while the page is hidden, and starts over when shown', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    routes(preview())
+    render(<LiveTab tab={tab} tabKey="live:p3" active />)
+    await waitFor(() => expect(lk.rooms[0]?.token).toBe('tok-li'))
+    const { track, publication } = stream(0, [])
+    const polls = vi.spyOn(track, 'getRTCStatsReport')
+    act(() => lk.rooms[0]?.emit('trackSubscribed', track, publication, { identity: 'cast' }))
+    await act(() => vi.advanceTimersByTimeAsync(3000))
+    const figures = await screen.findByRole('status', { name: '画面数据' })
+    expect(figures.textContent).toContain('2.0 Mbps')
+
+    setHidden(true)
+    const before = polls.mock.calls.length
+    await act(() => vi.advanceTimersByTimeAsync(10_000))
+    expect(polls.mock.calls.length).toBe(before)
+
+    setHidden(false)
+    for (let i = 0; i < 20 && polls.mock.calls.length === before; i++)
+      await act(() => vi.advanceTimersByTimeAsync(100))
+    expect(polls.mock.calls.length).toBe(before + 1)
+    // Measured against the sample from before the gap, this second would read as a tenth of the bitrate.
+    expect(figures.textContent).toContain('2.0 Mbps')
   })
 
   it('asks the machine for a frame rate: automatic by the network, or picked, and remembered', async () => {
