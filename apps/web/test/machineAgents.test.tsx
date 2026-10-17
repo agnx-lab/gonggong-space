@@ -40,7 +40,7 @@ const mbp: MachineDto = {
   online: true,
   agents: [],
   daemonVersion: '0.9.0',
-  features: ['tools', 'providers', 'ccSwitch'],
+  features: ['tools', 'providers', 'ccSwitch', 'agentSettings'],
   lastSeenAt: null,
   hostname: 'wanglei-mbp',
   system: null,
@@ -187,6 +187,19 @@ describe('machine dialog tabs', () => {
     open({ ...mbp, features: [] })
     expect(tab('Agent 工具').disabled).toBe(true)
     expect(screen.getByText(/请先升级该机器的 daemon/)).toBeTruthy()
+  })
+
+  it('blocks only Agent 设置 on a daemon without agentSettings', () => {
+    open({ ...mbp, features: ['tools', 'providers', 'ccSwitch'] })
+    expect(tab('Agent 工具').disabled).toBe(false)
+    expect(tab('供应商').disabled).toBe(false)
+    expect(tab('Agent 设置').disabled).toBe(true)
+    expect(screen.getByText('请先升级该机器的 daemon，才能管理Agent 设置')).toBeTruthy()
+  })
+
+  it('names every outdated tab in one note', () => {
+    open({ ...mbp, features: [] })
+    expect(screen.getByText('请先升级该机器的 daemon，才能管理Agent 工具、供应商与Agent 设置')).toBeTruthy()
   })
 })
 

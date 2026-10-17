@@ -262,4 +262,6 @@ export default {
   '跟随本机（当前：{v}）': 'Follow machine (now: {v})',
   '「跟随本机」使用机器上的 Agent 设置；下次启动 agent 时生效':
     '"Follow machine" uses the agent settings on the machine; takes effect the next time the agent starts',
+  '该机器的 daemon 版本过旧，覆盖不会生效':
+    "This machine's daemon is too old; the overrides will not take effect",
 } satisfies Record<string, string>

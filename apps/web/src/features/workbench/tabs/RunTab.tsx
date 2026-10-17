@@ -122,8 +122,12 @@ function useRunDetail(runId: string, active: boolean) {
         (e.t === 'run.updated' && e.run.id === runId) || (e.t === 'run.progress' && e.runId === runId)
       if (moved) {
         if (e.t === 'run.updated') setDetail((d) => d && { ...d, run: e.run })
-        clearTimeout(timer)
-        if (shown.current) timer = setTimeout(load, REFETCH_MS)
+        // Throttled, not debounced: a steady stream of events would otherwise postpone the refetch until it stops.
+        if (shown.current)
+          timer ??= setTimeout(() => {
+            timer = undefined
+            load()
+          }, REFETCH_MS)
         else catchUp.current = load
       } else if (e.t === 'run.delta' && e.runId === runId) {
         if (!shown.current) catchUp.current = load

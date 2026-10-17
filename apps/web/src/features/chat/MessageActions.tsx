@@ -143,14 +143,18 @@ function useLongPress(bar: RefObject<HTMLDivElement | null>) {
         document.addEventListener('pointerdown', outside)
       }, LONG_PRESS_MS)
     }
+    // A tap or swipe that does not open the bar leaves nothing behind on the document.
+    const end = () => {
+      cancel()
+      if (host.dataset.actions !== 'open') document.removeEventListener('selectionchange', selecting)
+    }
     host.dataset.actions = ''
     host.addEventListener('pointerdown', down)
-    for (const t of ['pointerup', 'pointercancel', 'pointermove'] as const) host.addEventListener(t, cancel)
+    for (const t of ['pointerup', 'pointercancel', 'pointermove'] as const) host.addEventListener(t, end)
     return () => {
       cancel()
       host.removeEventListener('pointerdown', down)
-      for (const t of ['pointerup', 'pointercancel', 'pointermove'] as const)
-        host.removeEventListener(t, cancel)
+      for (const t of ['pointerup', 'pointercancel', 'pointermove'] as const) host.removeEventListener(t, end)
       document.removeEventListener('pointerdown', outside)
       document.removeEventListener('selectionchange', selecting)
     }
@@ -276,7 +280,11 @@ function Bar({ menu }: { menu: MessageMenuState }) {
           aria-label={t('复制')}
           title={t('复制')}
           onPointerDown={menu.keepSelection}
-          onClick={() => menu.select('copy')}
+          onClick={(e) => {
+            // From the keyboard (no pointer down first) a closed menu's selection may linger: read it now.
+            if (e.detail === 0) menu.keepSelection()
+            menu.select('copy')
+          }}
         >
           <Icon name="copy" />
         </button>

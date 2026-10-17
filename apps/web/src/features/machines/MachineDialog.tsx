@@ -44,20 +44,20 @@ export const OS_ICON: Record<MachineDto['os'], IconName> = {
 }
 
 type Tab = 'overview' | 'tools' | 'providers' | 'agent'
-const TAB_NAME = { tools: t('Agent 工具'), providers: t('供应商#nav') }
-/** Agent settings travel with the providers command. */
-const FEATURE = { tools: 'tools', providers: 'providers', agent: 'providers' } as const
+const TAB_NAME = { tools: t('Agent 工具'), providers: t('供应商#nav'), agent: t('Agent 设置') }
+const FEATURE = { tools: 'tools', providers: 'providers', agent: 'agentSettings' } as const
 
-/** Why the machine's tools / providers cannot be managed live right now, if so. */
+/** Why the machine's tools / providers / agent settings cannot be managed live right now, if so. */
 const blocked = (m: MachineDto, tab: Exclude<Tab, 'overview'>) =>
   !m.online ? 'offline' : m.features.includes(FEATURE[tab]) ? null : 'outdated'
 
 function blockedNote(m: MachineDto) {
-  if (!m.online) return t('机器离线，上线后才能管理 Agent 工具与供应商')
-  const old = (['tools', 'providers'] as const).filter((f) => blocked(m, f))
-  return old.length
-    ? t('请先升级该机器的 daemon，才能管理{what}', { what: old.map((f) => TAB_NAME[f]).join(t('与')) })
-    : null
+  if (!m.online) return t('机器离线，上线后才能管理 Agent 工具、供应商与 Agent 设置')
+  const old = (['tools', 'providers', 'agent'] as const).filter((f) => blocked(m, f)).map((f) => TAB_NAME[f])
+  const last = old.pop()
+  if (!last) return null
+  const what = old.length ? `${old.join(t('、'))}${t('与')}${last}` : last
+  return t('请先升级该机器的 daemon，才能管理{what}', { what })
 }
 
 /** Tabs and overview of one machine, shared by its page and the admin dialog. */
@@ -116,7 +116,7 @@ export function MachineDetails({
               { value: 'overview', label: t('概览') },
               { value: 'tools', label: TAB_NAME.tools, disabled: !!blocked(machine, 'tools') },
               { value: 'providers', label: TAB_NAME.providers, disabled: !!blocked(machine, 'providers') },
-              { value: 'agent', label: t('Agent 设置'), disabled: !!blocked(machine, 'agent') },
+              { value: 'agent', label: TAB_NAME.agent, disabled: !!blocked(machine, 'agent') },
             ]}
           />
           {blockedNote(machine) ? <p className="machine__tabs-note">{blockedNote(machine)}</p> : null}
@@ -128,7 +128,7 @@ export function MachineDetails({
           title={blocked(machine, tab) === 'offline' ? t('机器离线') : t('请先升级该机器的 daemon')}
           description={
             blocked(machine, tab) === 'offline'
-              ? t('供应商与 Agent 工具只保存在机器上，机器上线后才能查看和修改。')
+              ? t('供应商、Agent 工具与 Agent 设置只保存在机器上，机器上线后才能查看和修改。')
               : t('当前 daemon 版本不支持在 Web 上管理，升级后即可使用。')
           }
         />

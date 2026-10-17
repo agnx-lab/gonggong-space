@@ -17,12 +17,15 @@ export function BotAgentSettingRows({
   agent,
   value,
   machine,
+  outdated,
   editable,
   onChange,
 }: {
   agent: AgentKind
   value: AgentSettingValues
   machine: AgentSettingValues | undefined
+  /** The bound machine's daemon predates agent settings: the overrides would be ignored. */
+  outdated: boolean
   editable: boolean
   onChange: (value: AgentSettingValues) => void
 }) {
@@ -63,7 +66,9 @@ export function BotAgentSettingRows({
             label={label}
             hint={
               i === fields.length - 1
-                ? t('「跟随本机」使用机器上的 Agent 设置；下次启动 agent 时生效')
+                ? outdated
+                  ? t('该机器的 daemon 版本过旧，覆盖不会生效')
+                  : t('「跟随本机」使用机器上的 Agent 设置；下次启动 agent 时生效')
                 : undefined
             }
           >
@@ -71,6 +76,7 @@ export function BotAgentSettingRows({
               <TextField
                 aria-label={label}
                 value={own}
+                maxLength={64}
                 placeholder={follow}
                 onChange={(e) => set(e.target.value)}
               />
