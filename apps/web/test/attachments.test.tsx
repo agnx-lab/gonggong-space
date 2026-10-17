@@ -379,6 +379,7 @@ describe('message attachments and preview', () => {
     )
     fireEvent.click(within(lightbox).getByRole('button', { name: '在工作台查看' }))
     expect(screen.queryByRole('dialog', { name: 'shot.png' })).toBeNull()
+    await screen.findByRole('region', { name: '工作台' })
     const pane = () => within(screen.getByRole('region', { name: '工作台' })).getByRole('tabpanel')
     expect(await within(pane()).findByRole('img', { name: 'shot.png' })).toBeTruthy()
     expect(pane().textContent).toContain('来源李建国')

@@ -2,6 +2,7 @@ import type { GroupDto, MessageDto, RunDto, RunStatus } from '@gonggong/protocol
 import {
   type DragEvent,
   Fragment,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -16,6 +17,7 @@ import { useSession } from '../../app/session'
 import { useWorkbench } from '../../app/workbench'
 import { useWorkspace } from '../../app/workspace'
 import { cx } from '../../lib/cx'
+import { named } from '../../lib/lazy'
 import {
   Button,
   ChatHeader,
@@ -39,7 +41,6 @@ import { FeishuChatLink } from '../feishu/FeishuChatLink'
 import { GroupAvatar } from '../groups/GroupAvatar'
 import { GroupInfo, type InfoView, type SettingsTab } from '../groups/GroupInfo'
 import { GroupNotice } from '../groups/GroupNotice'
-import { GroupSettingsDialog } from '../groups/GroupSettingsDialog'
 import { PreviewTags } from '../previews/PreviewTags'
 import { ScheduleCard } from '../schedules/ScheduleCard'
 import { ScheduleTag } from '../schedules/ScheduleTag'
@@ -72,6 +73,8 @@ import { WorkspaceBanner } from './WorkspaceBanner'
 import './chat.css'
 import './timeline.css'
 import { t } from '../../i18n'
+
+const GroupSettingsDialog = named(() => import('../groups/GroupSettingsDialog'), 'GroupSettingsDialog')
 
 /** Distance from the bottom (px) within which new items keep the view pinned to the end. */
 const STICK_PX = 80
@@ -553,7 +556,9 @@ export function ChatView({
         </InspectorPortal>
         <Presence>
           {settings ? (
-            <GroupSettingsDialog group={group} tab={settings} onClose={() => setSettings(null)} />
+            <Suspense fallback={null}>
+              <GroupSettingsDialog group={group} tab={settings} onClose={() => setSettings(null)} />
+            </Suspense>
           ) : null}
         </Presence>
         <SyncBar

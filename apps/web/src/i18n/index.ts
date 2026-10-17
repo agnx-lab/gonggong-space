@@ -1,28 +1,14 @@
-import { createTranslator, type Locale, resolveLocale } from '@gonggong/protocol'
-import { en } from './en'
+import { createTranslator } from '@gonggong/protocol'
+import type { en } from './en'
+import { locale } from './locale'
 
-const KEY = 'gg.locale'
+export { locale, setLocale } from './locale'
 
-function stored() {
-  try {
-    return localStorage.getItem(KEY)
-  } catch {
-    return null
-  }
-}
-
-const saved = stored()
-export const locale: Locale = saved === 'zh' || saved === 'en' ? saved : resolveLocale(navigator.language)
-export const t = createTranslator(locale, en)
+// Only English reads the dictionary, so Chinese never downloads it; the await holds importers back,
+// so module-level t() calls still see it.
+const dict = locale === 'en' ? (await import('./en')).en : ({} as typeof en)
+export const t = createTranslator(locale, dict)
 export type MessageKey = keyof typeof en
-
-/** Every text is resolved once at load, so a switch reloads the page. */
-export function setLocale(next: Locale) {
-  try {
-    localStorage.setItem(KEY, next)
-  } catch {}
-  location.reload()
-}
 
 if (typeof document !== 'undefined') {
   document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN'

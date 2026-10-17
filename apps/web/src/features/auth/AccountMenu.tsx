@@ -1,14 +1,16 @@
 import type { UserDto } from '@gonggong/protocol'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useSession } from '../../app/session'
 import { t } from '../../i18n'
+import { named } from '../../lib/lazy'
 import { Avatar, MenuButton, type MenuItem, Presence } from '../../ui'
-import { BindMachineDialog } from '../machines/BindMachineDialog'
+import { BindMachineDialog } from '../machines/lazy'
 import { useSettings } from '../settings/store'
-import { TeamSettingsDialog } from '../teams/TeamSettingsDialog'
-import { UsageDialog } from '../usage/UsagePage'
+import { TeamSettingsDialog } from '../teams/lazy'
 import { logout } from './logout'
 import './account-menu.css'
+
+const UsageDialog = named(() => import('../usage/UsagePage'), 'UsageDialog')
 
 export const ROLE_LABEL: Record<UserDto['role'], string> = {
   sysadmin: t('系统管理员'),
@@ -71,16 +73,23 @@ export function AccountMenu({
       >
         <Avatar name={user.name} src={user.avatar ?? undefined} size={size} />
       </MenuButton>
-      <BindMachineDialog open={dialog === 'bind'} onClose={() => setDialog(null)} />
       <Presence>
-        {dialog === 'usage' ? (
-          <UsageDialog onClose={() => setDialog(null)} />
+        {dialog === 'bind' ? (
+          <Suspense fallback={null}>
+            <BindMachineDialog open onClose={() => setDialog(null)} />
+          </Suspense>
+        ) : dialog === 'usage' ? (
+          <Suspense fallback={null}>
+            <UsageDialog onClose={() => setDialog(null)} />
+          </Suspense>
         ) : (dialog === 'team' || dialog === 'invite') && soleTeam ? (
-          <TeamSettingsDialog
-            team={soleTeam}
-            tab={dialog === 'invite' ? 'invites' : 'overview'}
-            onClose={() => setDialog(null)}
-          />
+          <Suspense fallback={null}>
+            <TeamSettingsDialog
+              team={soleTeam}
+              tab={dialog === 'invite' ? 'invites' : 'overview'}
+              onClose={() => setDialog(null)}
+            />
+          </Suspense>
         ) : null}
       </Presence>
     </>

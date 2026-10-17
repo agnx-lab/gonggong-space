@@ -1,5 +1,5 @@
 import type { BotDto, GroupDto, GroupNoticeDto, GroupParams, Tier, UserBriefDto } from '@gonggong/protocol'
-import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { type ReactNode, Suspense, useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { GROUP_MODE_LABEL } from '../../app/Sidebar'
 import { useSession } from '../../app/session'
@@ -27,7 +27,7 @@ import {
   useEscape,
 } from '../../ui'
 import { BotAvatar } from '../bots/avatars'
-import { BotDialog } from '../bots/BotDialog'
+import { BotDialog } from '../bots/lazy'
 import { AGENT_LABEL, PRESENCE, TRIGGER_SCOPE_LABEL } from '../bots/model'
 import { ShareRequestAction } from '../bots/ShareRequest'
 import { GroupConfigView } from '../config/GroupConfigView'
@@ -664,7 +664,9 @@ export function BotsView({ group, isAdmin, member }: { group: GroupDto; isAdmin:
       </Presence>
       <Presence>
         {editing && me ? (
-          <BotDialog bot={editing} me={me} tab="access" onClose={() => setEditingId(null)} />
+          <Suspense fallback={null}>
+            <BotDialog bot={editing} me={me} tab="access" onClose={() => setEditingId(null)} />
+          </Suspense>
         ) : null}
       </Presence>
       <Presence>

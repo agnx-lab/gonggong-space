@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSession } from '../src/app/session'
 import { LoginPage } from '../src/features/auth/LoginPage'
-import { SettingsHost } from '../src/features/settings/SettingsDialog'
+import { SettingsHost } from '../src/features/settings/SettingsHost'
 import { useSettings } from '../src/features/settings/store'
 import { setLocale } from '../src/i18n'
 import { mockApi } from './mockApi'
@@ -20,10 +20,10 @@ afterEach(() => {
 })
 
 describe('language switch', () => {
-  it('is offered in settings, each option named in its own language', () => {
+  it('is offered in settings, each option named in its own language', async () => {
     useSettings.getState().open('appearance')
     render(<SettingsHost />)
-    const group = screen.getByRole('radiogroup', { name: '语言' })
+    const group = await screen.findByRole('radiogroup', { name: '语言' })
     expect(within(group).getByRole('radio', { name: '中文' }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(within(group).getByRole('radio', { name: 'English' }))
     expect(setLocale).toHaveBeenCalledWith('en')

@@ -31,7 +31,7 @@ import { FeishuIdentityRow } from '../feishu/FeishuIdentityRow'
 import { NotificationSettings } from '../notifications/NotificationSettings'
 import '../groups/groups.css'
 import { accountLabel, gitAccountsApi, useGitAccounts } from './api'
-import { type SettingsPage, useSettings } from './store'
+import type { SettingsPage } from './store'
 import './settings.css'
 
 const PAGES: { value: SettingsPage; label: string; icon: IconName }[] = [
@@ -65,14 +65,7 @@ const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
   { value: 'en', label: 'English' },
 ]
 
-/** Mounted once in the shell; `useSettings().open(page)` shows it. */
-export function SettingsHost() {
-  const page = useSettings((s) => s.page)
-  const close = useSettings((s) => s.close)
-  return <Presence>{page ? <SettingsDialog page={page} onClose={close} /> : null}</Presence>
-}
-
-function SettingsDialog({ page: initial, onClose }: { page: SettingsPage; onClose: () => void }) {
+export function SettingsDialog({ page: initial, onClose }: { page: SettingsPage; onClose: () => void }) {
   const [page, setPage] = useState(initial)
   useEffect(() => setPage(initial), [initial])
   return (

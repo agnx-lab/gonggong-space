@@ -1,23 +1,19 @@
 import type { GroupDto, GroupPreviewsDto } from '@gonggong/protocol'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useShallow } from 'zustand/react/shallow'
-import { BotDialog } from '../features/bots/BotDialog'
-import { BotPage } from '../features/bots/BotPage'
 import type { BotTab } from '../features/bots/BotSettings'
+import { BotDialog, BotPage, NewBotDialog } from '../features/bots/lazy'
 import { confirmBot } from '../features/bots/model'
-import { NewBotDialog } from '../features/bots/NewBotDialog'
 import { ChatView } from '../features/chat/ChatView'
-import { type GroupKind, NewGroupDialog } from '../features/chat/NewGroupDialog'
-import { FeishuGroupDialog } from '../features/feishu/FeishuGroupDialog'
-import { BindMachineDialog } from '../features/machines/BindMachineDialog'
-import { MachinePage } from '../features/machines/MachinePage'
+import type { GroupKind } from '../features/chat/NewGroupDialog'
+import { BindMachineDialog, MachinePage } from '../features/machines/lazy'
 import { openInWorkbench } from '../features/previews/store'
 import { useGroupOutsideList } from '../features/teams/store'
 import { openTab } from '../features/workbench/open'
-import { Workbench } from '../features/workbench/Workbench'
 import { t } from '../i18n'
 import { api } from '../lib/api'
+import { named } from '../lib/lazy'
 import { realtime } from '../lib/realtime'
 import { Button, DeniedArt, EmptyState, FailedArt, Mascot, PickChatArt, Presence } from '../ui'
 import { AppRail } from './AppRail'
@@ -30,6 +26,10 @@ import { useIsMobile } from './viewport'
 import { Welcome } from './Welcome'
 import { useWorkbench } from './workbench'
 import { useWorkspace } from './workspace'
+
+const NewGroupDialog = named(() => import('../features/chat/NewGroupDialog'), 'NewGroupDialog')
+const FeishuGroupDialog = named(() => import('../features/feishu/FeishuGroupDialog'), 'FeishuGroupDialog')
+const Workbench = named(() => import('../features/workbench/Workbench'), 'Workbench')
 
 const LAST_GROUP_KEY = 'gonggong.lastGroup'
 
@@ -180,7 +180,13 @@ export function ChatPage() {
       <ChatLayout
         mobileView={groupId || botId || machineId ? 'chat' : 'list'}
         nav={(orientation) => <AppRail orientation={orientation} />}
-        workbench={benchShown ? <Workbench /> : undefined}
+        workbench={
+          benchShown ? (
+            <Suspense fallback={null}>
+              <Workbench />
+            </Suspense>
+          ) : undefined
+        }
         strip={<ConversationStrip groups={groups} />}
         chatStrip={group ? <ChatStrip key={group.id} group={group} /> : null}
         rail={inspector ? <div ref={setInspectorHost} className="chat__inspector" /> : undefined}
@@ -205,12 +211,14 @@ export function ChatPage() {
       >
         {machineId ? (
           openMachine ? (
-            <MachinePage
-              key={openMachine.id}
-              machine={openMachine}
-              bots={myBots.filter((b) => b.machineId === openMachine.id)}
-              onBack={mobile ? () => navigate('/') : undefined}
-            />
+            <Suspense fallback={null}>
+              <MachinePage
+                key={openMachine.id}
+                machine={openMachine}
+                bots={myBots.filter((b) => b.machineId === openMachine.id)}
+                onBack={mobile ? () => navigate('/') : undefined}
+              />
+            </Suspense>
           ) : (
             <div className="chat__placeholder">
               {workspaceLoaded ? (
@@ -222,13 +230,15 @@ export function ChatPage() {
           )
         ) : botId ? (
           openBot && me ? (
-            <BotPage
-              key={openBot.id}
-              bot={openBot}
-              me={me}
-              onSettings={(tab) => setSetting({ botId: openBot.id, tab })}
-              onBack={mobile ? () => navigate('/') : undefined}
-            />
+            <Suspense fallback={null}>
+              <BotPage
+                key={openBot.id}
+                bot={openBot}
+                me={me}
+                onSettings={(tab) => setSetting({ botId: openBot.id, tab })}
+                onBack={mobile ? () => navigate('/') : undefined}
+              />
+            </Suspense>
           ) : (
             <div className="chat__placeholder">
               {workspaceLoaded ? (
@@ -283,25 +293,43 @@ export function ChatPage() {
       </ChatLayout>
       <Presence>
         {creating && me ? (
-          <NewGroupDialog
-            me={me}
-            kind={creating}
-            onClose={() => setCreating(null)}
-            onFromFeishu={() => {
-              setCreating(null)
-              setFromFeishu({})
-            }}
-          />
+          <Suspense fallback={null}>
+            <NewGroupDialog
+              me={me}
+              kind={creating}
+              onClose={() => setCreating(null)}
+              onFromFeishu={() => {
+                setCreating(null)
+                setFromFeishu({})
+              }}
+            />
+          </Suspense>
         ) : null}
         {fromFeishu ? (
-          <FeishuGroupDialog chatId={fromFeishu.chatId} onClose={() => setFromFeishu(null)} />
+          <Suspense fallback={null}>
+            <FeishuGroupDialog chatId={fromFeishu.chatId} onClose={() => setFromFeishu(null)} />
+          </Suspense>
         ) : null}
       </Presence>
-      <BindMachineDialog open={binding} onClose={() => setBinding(false)} />
-      <Presence>{newBot && me ? <NewBotDialog me={me} onClose={() => setNewBot(false)} /> : null}</Presence>
+      <Presence>
+        {binding ? (
+          <Suspense fallback={null}>
+            <BindMachineDialog open onClose={() => setBinding(false)} />
+          </Suspense>
+        ) : null}
+      </Presence>
+      <Presence>
+        {newBot && me ? (
+          <Suspense fallback={null}>
+            <NewBotDialog me={me} onClose={() => setNewBot(false)} />
+          </Suspense>
+        ) : null}
+      </Presence>
       <Presence>
         {openBot && openBot.id === setting?.botId && me ? (
-          <BotDialog bot={openBot} me={me} tab={setting.tab} onClose={() => setSetting(null)} />
+          <Suspense fallback={null}>
+            <BotDialog bot={openBot} me={me} tab={setting.tab} onClose={() => setSetting(null)} />
+          </Suspense>
         ) : null}
       </Presence>
     </>

@@ -70,11 +70,13 @@ const setWidth = (w: number) =>
   })
 const bench = () => screen.queryByRole('region', { name: '工作台' })
 const chatTitle = () => screen.queryByRole('heading', { name: '退款' })
-const openTwo = () =>
+const openTwo = async () => {
   act(() => {
     useWorkbench.getState().show(run('r1'))
     useWorkbench.getState().show(run('r2'))
   })
+  await screen.findByRole('region', { name: '工作台' })
+}
 const header = () => document.querySelector('.pn-chathead') as HTMLElement
 
 beforeEach(() => {
@@ -108,7 +110,7 @@ describe('workbench on phones', () => {
     renderAt('/g/g1')
     await screen.findByRole('heading', { name: '退款' })
     expect(bench()).toBeNull()
-    openTwo()
+    await openTwo()
     expect(bench()).not.toBeNull()
     expect(chatTitle()).toBeNull()
     expect(screen.queryByRole('tablist')).toBeNull()
@@ -126,7 +128,7 @@ describe('workbench on phones', () => {
   it('mounts only the active tab body', async () => {
     renderAt('/g/g1')
     await screen.findByRole('heading', { name: '退款' })
-    openTwo()
+    await openTwo()
     expect(screen.getByTestId('body-run:r2')).toBeTruthy()
     expect(screen.queryByTestId('body-run:r1')).toBeNull()
   })
@@ -134,7 +136,7 @@ describe('workbench on phones', () => {
   it('switches and closes tabs from the dropdown', async () => {
     renderAt('/g/g1')
     await screen.findByRole('heading', { name: '退款' })
-    openTwo()
+    await openTwo()
     fireEvent.click(screen.getByRole('button', { name: '全部标签页' }))
     const list = screen.getByRole('dialog', { name: '标签页' })
     fireEvent.click(within(list).getByRole('button', { name: '运行 r1' }))
@@ -160,7 +162,7 @@ describe('workbench on phones', () => {
     const btn = within(header()).getByRole('button', { name: /工作台/ })
     expect((btn as HTMLButtonElement).disabled).toBe(true)
     expect(btn.getAttribute('title')).toContain('还没有打开的标签页')
-    openTwo()
+    await openTwo()
     fireEvent.click(screen.getByRole('button', { name: '返回聊天' }))
     fireEvent.click(within(header()).getByRole('button', { name: '工作台' }))
     expect(bench()).not.toBeNull()
@@ -171,7 +173,7 @@ describe('workbench on phones', () => {
     setWidth(1440)
     renderAt('/g/g1')
     await screen.findByRole('heading', { name: '退款' })
-    openTwo()
+    await openTwo()
     act(() => useWorkbench.getState().setMode('full'))
     expect(screen.getByRole('tablist')).toBeTruthy()
     setWidth(375)
