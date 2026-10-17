@@ -199,6 +199,38 @@ it('checks a run against its row once, not on every tool report or stream after 
   expect(engine.filter((q) => /^select/i.test(q) && q.includes('"run_events"'))).toEqual([])
 })
 
+it('pushes a new step without loading the rest of the card; a status change still pushes the card', async () => {
+  const { alice, d, runId, tool, step } = await oneRun()
+  const seen: WebEvent[] = []
+  t.ctx.bus.attach(alice.id, (e) => seen.push(e))
+  const sent = recordQueries()
+  tool('ls')
+  await expect.poll(() => seen.find((e) => e.t === 'run.step')).toMatchObject({ runId, step: 'ls' })
+  expect(await step()).toBe('ls')
+  const card = (q: string) => /"(approvals|question_sets)"/.test(q)
+  expect(sent.filter(card)).toEqual([])
+  expect(seen.filter((e) => e.t === 'run.updated')).toEqual([])
+
+  d.send({
+    t: 'run.done',
+    runId,
+    outcome: 'completed',
+    reply: '',
+    filesChanged: 0,
+    usage: null,
+    sessionId: null,
+    newSessionReason: null,
+    error: null,
+    git: null,
+    patch: null,
+    appendsApplied: 0,
+  })
+  await expect
+    .poll(() => seen.find((e) => e.t === 'run.updated'))
+    .toMatchObject({ run: { id: runId, status: 'completed' } })
+  expect(sent.filter(card).length).toBeGreaterThan(0)
+})
+
 it('drops reports that arrive after the run ended', async () => {
   const { d, runId, tool, task, step, tools } = await oneRun()
   tool('ls')

@@ -309,7 +309,7 @@ describe('run engine', () => {
 
     const delta = await web.until((e) => e.t === 'run.delta')
     expect(delta).toEqual({ t: 'run.delta', runId, text: '好的' })
-    await web.until((e) => e.t === 'run.updated' && e.run.step === 'Write hello.txt')
+    await web.until((e) => e.t === 'run.step' && e.step === 'Write hello.txt')
     const msg = await web.until<Extract<WebEvent, { t: 'message.new' }>>((e) => e.t === 'message.new')
     expect(msg.message).toMatchObject({
       kind: 'bot',

@@ -4,6 +4,7 @@ import {
   type RunDto,
   type TimelineDto,
   type WebEvent,
+  withRunStep,
 } from '@gonggong/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
@@ -158,7 +159,12 @@ export function useTimeline(groupId: string) {
       else if (e.t === 'run.updated' && e.run.groupId === groupId) {
         runIds.current.add(e.run.id)
         setState((s) => ({ ...s, runs: mergeRuns(s.runs, [e.run]) }))
-      } else if (e.t === 'run.delta' && runIds.current.has(e.runId)) {
+      } else if (e.t === 'run.step' && e.groupId === groupId)
+        setState((s) => {
+          const run = s.runs[e.runId]
+          return run ? { ...s, runs: mergeRuns(s.runs, [withRunStep(run, e)]) } : s
+        })
+      else if (e.t === 'run.delta' && runIds.current.has(e.runId)) {
         pending.set(e.runId, (pending.get(e.runId) ?? '') + e.text)
         flushTimer ??= setTimeout(flushDeltas, DELTA_FLUSH_MS)
       }

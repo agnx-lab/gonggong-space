@@ -242,6 +242,7 @@ function mockApi(runDetail: () => RunDetailDto, extra: Record<string, () => unkn
     'POST /groups/g1/read': () => group,
     'GET /groups/g1/bot-states': () => [],
     'GET /runs/r1': runDetail,
+    'GET /runs/r1/events': () => ({ events: runDetail().events, purged: runDetail().purged }),
     'POST /runs/r1/tasks/bg1/stop': () => ({ sent: true }),
     'GET /runs/r1/session': () => ({ rounds: [] }),
     ...extra,
@@ -446,9 +447,11 @@ describe('run tab', () => {
     expect(await within(rail).findByText('改完了')).toBeTruthy()
     expect(within(rail).getByRole('button', { name: /思考\s*先看调用方/ })).toBeTruthy()
     const diffsLive = urls('/groups/g1/bots/b1/diff').length
+    // Progress refreshes only the process: the card comes with realtime events, the patch once the run ended.
     push({ t: 'run.progress', runId: 'r1', groupId: 'g1', botId: 'b1' })
-    await waitFor(() => expect(urls('/runs/r1').at(-1)).toBe('/api/runs/r1?since=4'))
+    await waitFor(() => expect(urls('/runs/r1/events')).toEqual(['/api/runs/r1/events?since=4']))
     await waitFor(() => expect(urls('/groups/g1/bots/b1/diff').length).toBe(diffsLive + 1))
+    expect(urls('/runs/r1')).toHaveLength(2)
 
     act(() => {
       useWorkbench.getState().show({ kind: 'run', runId: 'r2', view: 'process', file: null })
@@ -457,11 +460,44 @@ describe('run tab', () => {
     push({ t: 'run.progress', runId: 'r1', groupId: 'g1', botId: 'b1' })
     push({ t: 'run.delta', runId: 'r1', text: '，收尾' })
     await act(() => new Promise((r) => setTimeout(r, 2100)))
-    expect(urls('/runs/r1')).toHaveLength(3)
+    expect(urls('/runs/r1/events')).toHaveLength(1)
     expect(urls('/groups/g1/bots/b1/diff')).toHaveLength(diffs)
 
     act(() => useWorkbench.getState().activate('run:r1'))
-    await waitFor(() => expect(urls('/runs/r1')).toHaveLength(4))
+    await waitFor(() => expect(urls('/runs/r1/events')).toHaveLength(2))
+    expect(urls('/runs/r1')).toHaveLength(2)
+  }, 15_000)
+
+  it('applies a pushed step to the open run and refreshes only its process', async () => {
+    let current = detail()
+    mockApi(() => current)
+    renderChat()
+    const rail = await openProcess()
+    expect(await within(rail).findByText('本轮上下文')).toBeTruthy()
+    const urls = (path: string) =>
+      vi
+        .mocked(fetch)
+        .mock.calls.map(([u]) => String(u))
+        .filter((u) => u.split('?')[0] === `/api${path}`)
+    const diffs = urls('/groups/g1/bots/b1/diff').length
+    current = detail({
+      events: [...detail().events, { id: 4, at, event: { kind: 'text', delta: '读完了' } }],
+    })
+    push({
+      t: 'run.step',
+      runId: 'r1',
+      groupId: 'g1',
+      botId: 'b1',
+      step: 'cat src/b.ts',
+      usage: { totalTokens: 2500 },
+    })
+    expect(await within(rail).findByText('2.5k tokens')).toBeTruthy()
+    await waitFor(() => expect(urls('/runs/r1/events')).toEqual(['/api/runs/r1/events?since=3']))
+    expect(await within(rail).findByText('读完了')).toBeTruthy()
+    expect(urls('/runs/r1')).toEqual(['/api/runs/r1'])
+    // A step says nothing about the workspace: its diff is not read again.
+    await act(() => new Promise((r) => setTimeout(r, 2100)))
+    expect(urls('/groups/g1/bots/b1/diff')).toHaveLength(diffs)
   }, 15_000)
 
   it('keeps refreshing the process while progress keeps arriving (throttled, not postponed)', async () => {
@@ -470,7 +506,7 @@ describe('run tab', () => {
     const rail = await openProcess()
     expect(await within(rail).findByText('本轮上下文')).toBeTruthy()
     const fetches = () =>
-      vi.mocked(fetch).mock.calls.filter(([u]) => String(u).split('?')[0] === '/api/runs/r1').length
+      vi.mocked(fetch).mock.calls.filter(([u]) => String(u).split('?')[0] === '/api/runs/r1/events').length
     const before = fetches()
     for (let i = 0; i < 5; i++) {
       push({ t: 'run.progress', runId: 'r1', groupId: 'g1', botId: 'b1' })

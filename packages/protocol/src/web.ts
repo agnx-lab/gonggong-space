@@ -1104,8 +1104,8 @@ export const TimelineQuery = z.object({
   before: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 })
-/** GET /api/runs/:id?since=<event id>: the process from that event on, which is included because streamed text
- * extends the latest event in place. */
+/** GET /api/runs/:id[/events]?since=<event id>: the process from that event on, which is included because streamed
+ * text extends the latest event in place. */
 export const RunDetailQuery = z.object({ since: z.coerce.number().int().positive().optional() })
 /** GET /api/runs/:id — card fields plus the full (redacted) process for the side panel. */
 export const RunDetailDto = z.object({
@@ -1124,6 +1124,9 @@ export const RunDetailDto = z.object({
   events: z.array(z.object({ id: z.number().int(), at: z.string(), event: RunEvent })),
 })
 export type RunDetailDto = z.infer<typeof RunDetailDto>
+/** GET /api/runs/:id/events — only the process, for refreshes of an open run (its card arrives by realtime). */
+export const RunEventsDto = RunDetailDto.pick({ events: true, purged: true })
+export type RunEventsDto = z.infer<typeof RunEventsDto>
 
 /** GET /api/runs/:id/session — earlier rounds of the run's agent session (oldest first), with their trigger text. */
 export const RunSessionDto = z.object({ rounds: z.array(z.object({ run: RunDto, prompt: z.string() })) })
@@ -1706,6 +1709,13 @@ export const WebEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('run.delta'), runId: z.string(), text: z.string() }),
   /** The run's process got an event that left its card as it was. Scoped like run.delta. */
   z.object({ t: z.literal('run.progress'), runId: z.string(), groupId: z.string(), botId: z.string() }),
+  /** The run's process got an event that only changed the card's step or usage; replaces those fields. */
+  RunDto.pick({ step: true, stepI18n: true, usage: true }).extend({
+    t: z.literal('run.step'),
+    runId: z.string(),
+    groupId: z.string(),
+    botId: z.string(),
+  }),
   z.object({ t: z.literal('bot.updated'), bot: BotDto }),
   z.object({ t: z.literal('bot.removed'), botId: z.string() }),
   z.object({ t: z.literal('notification.new'), notification: NotificationDto }),
@@ -1753,3 +1763,9 @@ export const WebClientMsg = z.discriminatedUnion('t', [
   z.object({ t: z.literal('focus'), groupId: z.string().nullable() }),
 ])
 export type WebClientMsg = z.infer<typeof WebClientMsg>
+
+/** A run card with a run.step applied. */
+export const withRunStep = (
+  run: RunDto,
+  { step, stepI18n, usage }: Extract<WebEvent, { t: 'run.step' }>,
+): RunDto => ({ ...run, step, stepI18n, usage })

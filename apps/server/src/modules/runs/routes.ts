@@ -1,4 +1,10 @@
-import { type RunDetailDto, RunDetailQuery, type RunEvent, type RunSessionDto } from '@gonggong/protocol'
+import {
+  type RunDetailDto,
+  RunDetailQuery,
+  type RunEvent,
+  type RunEventsDto,
+  type RunSessionDto,
+} from '@gonggong/protocol'
 import { and, asc, desc, eq, gte, isNotNull, lt, lte, max } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
@@ -34,26 +40,41 @@ function joinStreams(events: RunDetailDto['events']) {
 }
 
 export function runRoutes(ctx: Ctx) {
-  const visibleRun = async (req: FastifyRequest) => {
+  /** The requested run and the join that keeps it to groups the user is a member of. */
+  const access = async (req: FastifyRequest) => {
     const user = await requireUser(ctx, req)
     const { id } = z.object({ id: z.uuid() }).parse(req.params)
+    return { id, member: and(eq(groupMembers.groupId, runs.groupId), eq(groupMembers.userId, user.id)) }
+  }
+  const visibleRun = async (req: FastifyRequest) => {
+    const { id, member } = await access(req)
     const [row] = await ctx.db
       .select({ run: runs })
       .from(runs)
-      .innerJoin(groupMembers, and(eq(groupMembers.groupId, runs.groupId), eq(groupMembers.userId, user.id)))
+      .innerJoin(groupMembers, member)
       .where(eq(runs.id, id))
     return row ?? fail('not_found', '运行不存在')
+  }
+  /** The process from event `since` on (see RunDetailQuery). */
+  const eventsSince = async (runId: string, since?: number) => {
+    await flushStream(runId)
+    const events = await ctx.db
+      .select()
+      .from(runEvents)
+      .where(and(eq(runEvents.runId, runId), since ? gte(runEvents.id, since) : undefined))
+      .orderBy(asc(runEvents.id))
+    return joinStreams(
+      events.map((e) => ({
+        id: e.id,
+        at: e.createdAt.toISOString(),
+        event: openEvent(e.payload as RunEvent),
+      })),
+    )
   }
   return async (app: FastifyInstance) => {
     app.get('/api/runs/:id', async (req): Promise<RunDetailDto> => {
       const row = await visibleRun(req)
-      const { since } = RunDetailQuery.parse(req.query)
-      await flushStream(row.run.id)
-      const events = await ctx.db
-        .select()
-        .from(runEvents)
-        .where(and(eq(runEvents.runId, row.run.id), since ? gte(runEvents.id, since) : undefined))
-        .orderBy(asc(runEvents.id))
+      const events = await eventsSince(row.run.id, RunDetailQuery.parse(req.query).since)
       const [gb] = await ctx.db
         .select({ sessionId: groupBots.sessionId })
         .from(groupBots)
@@ -67,13 +88,22 @@ export function runRoutes(ctx: Ctx) {
         sessionId: gb?.sessionId ?? null,
         settings: row.run.settings,
         retentionDays: (await sysParams(ctx.db)).runRetentionDays,
-        events: joinStreams(
-          events.map((e) => ({
-            id: e.id,
-            at: e.createdAt.toISOString(),
-            event: openEvent(e.payload as RunEvent),
-          })),
-        ),
+        events,
+      }
+    })
+
+    // Refreshes of an open run: its card comes by realtime, so neither the card nor the (large) patch is read.
+    app.get('/api/runs/:id/events', async (req): Promise<RunEventsDto> => {
+      const { id, member } = await access(req)
+      const [row] = await ctx.db
+        .select({ id: runs.id, purgedAt: runs.purgedAt })
+        .from(runs)
+        .innerJoin(groupMembers, member)
+        .where(eq(runs.id, id))
+      const run = row ?? fail('not_found', '运行不存在')
+      return {
+        events: await eventsSince(run.id, RunDetailQuery.parse(req.query).since),
+        purged: run.purgedAt !== null,
       }
     })
 

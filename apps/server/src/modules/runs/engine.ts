@@ -6,7 +6,7 @@ import { bots, groupBots, messages, runEvents, runs } from '../../db/schema.js'
 import { open, seal } from '../../lib/seal.js'
 import { onApprovalRequest, voidApprovals } from '../approvals/service.js'
 import { publishBot } from '../bots/dto.js'
-import { mirrorDelta } from '../feishu/mirror.js'
+import { mirrorDelta, mirrorRun } from '../feishu/mirror.js'
 import { requeueAppends } from '../messages/append.js'
 import { memberMentions, notifyMentions } from '../messages/mentions.js'
 import { authorName, memberIds, messageDto, publishMessage } from '../messages/service.js'
@@ -14,7 +14,7 @@ import { onQuestionAsk, onQuestionWithdraw, voidQuestions } from '../questions/s
 import { settleSchedule } from '../schedules/engine.js'
 import { pauseStopped, requeueRun } from '../sync/resolve.js'
 import { publishBotState, updateBotState } from '../workspaces/state.js'
-import { cardColumns, publishRun, type RunRow } from './dto.js'
+import { cardColumns, publishRun, publishStep, type RunRow } from './dto.js'
 import { redact, redactDeep } from './redact.js'
 import { schedule } from './scheduler.js'
 import { sealEvent } from './sealed.js'
@@ -183,7 +183,7 @@ async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent
   await pushDelta(ctx, run, await closeStream(runId))
   const event = redactDeep(raw)
   await ctx.db.insert(runEvents).values({ runId, kind: event.kind, payload: sealEvent(event) })
-  // Updates of one tool call repeat its title: only a changed card is rebuilt and pushed.
+  // Updates of one tool call repeat its title: only a changed step is pushed.
   const setChanged = (set: Partial<RunRow>, changed: SQL) =>
     ctx.db
       .update(runs)
@@ -202,7 +202,9 @@ async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent
         : []
   let card = false
   for (const row of await updated) {
-    await publishRun(ctx, row)
+    await publishStep(ctx, row)
+    // The Feishu card shows the step, not the usage.
+    if (step !== undefined) await mirrorRun(ctx, row)
     card = true
   }
   if (event.kind === 'usage' && event.context)

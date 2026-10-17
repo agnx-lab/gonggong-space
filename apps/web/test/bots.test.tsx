@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
-import type { AgentCatalog, BotDto, BotOwnerDto, MachineDto, UserDto } from '@gonggong/protocol'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type { AgentCatalog, BotDto, BotOwnerDto, MachineDto, UserDto, WebEvent } from '@gonggong/protocol'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
@@ -839,6 +839,75 @@ describe('bot page', () => {
 
     fireEvent.click(within(places).getByRole('link', { name: /官网改版/ }))
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Bot 概况' })).toBeNull())
+  })
+
+  it('moves the live turn’s step in place, refetching where the bot works only when a run changes', async () => {
+    class Socket {
+      static last: Socket | undefined
+      onmessage: ((e: { data: string }) => void) | null = null
+      constructor() {
+        Socket.last = this
+      }
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    const push = (e: WebEvent) => act(() => Socket.last!.onmessage!({ data: JSON.stringify(e) }))
+    const place = (step: string) => ({
+      groupId: 'g1',
+      groupName: '支付服务重构',
+      groupKind: 'group',
+      workspacePath: null,
+      run: { id: 'r1', status: 'running', step, startedAt: new Date().toISOString() },
+      lastRunAt: new Date().toISOString(),
+    })
+    let step = '编辑 src/pay.ts'
+    routes['GET /api/bots'] = () => [bot({ presence: 'running', groupCount: 1 })]
+    routes['GET /api/bots/b1/activity'] = () => [place(step)]
+    renderAt('/bot/b1', wang)
+    const live = await screen.findByRole('list', { name: '正在工作' })
+    expect(within(live).getByText('编辑 src/pay.ts')).toBeTruthy()
+    const fetched = () => calls.filter((c) => c.key === 'GET /api/bots/b1/activity').length
+    expect(fetched()).toBe(1)
+
+    push({ t: 'run.step', runId: 'r1', groupId: 'g1', botId: 'b1', step: '运行 go test', usage: null })
+    expect(await within(live).findByText('运行 go test')).toBeTruthy()
+    await act(() => new Promise((r) => setTimeout(r, 400)))
+    expect(fetched()).toBe(1)
+
+    step = '读取 README.md'
+    const at = new Date().toISOString()
+    push({
+      t: 'run.updated',
+      run: {
+        id: 'r1',
+        groupId: 'g1',
+        botId: 'b1',
+        triggerMessageId: 'm1',
+        triggerUserId: 'u1',
+        hop: 1,
+        status: 'awaiting_approval',
+        step,
+        filesChanged: 0,
+        usage: null,
+        newSessionReason: null,
+        queuedAt: at,
+        startedAt: at,
+        endedAt: null,
+        parentRunId: null,
+        hopMax: 3,
+        offlineWaitMin: 30,
+        originUserId: 'u1',
+        approvals: [],
+        questions: [],
+        interrupt: null,
+        stoppedBy: null,
+        delegation: { subagents: 0, subagentsRunning: 0, tasksRunning: 0 },
+        model: null,
+        effort: null,
+      },
+    })
+    await waitFor(() => expect(fetched()).toBe(2))
+    expect(await within(live).findByText('读取 README.md')).toBeTruthy()
   })
 
   it('says the bot is idle when nothing runs', async () => {

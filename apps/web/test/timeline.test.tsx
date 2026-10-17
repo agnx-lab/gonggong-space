@@ -5,6 +5,7 @@ import {
   type RunDto,
   RunStatus,
   type UserDto,
+  type WebEvent,
 } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
@@ -159,8 +160,14 @@ const renderChat = (timeline: { messages: MessageDto[]; runs: RunDto[] }, g = gr
 }
 
 class FakeSocket {
+  static last: FakeSocket | undefined
+  onmessage: ((e: { data: string }) => void) | null = null
+  constructor() {
+    FakeSocket.last = this
+  }
   close() {}
 }
+const push = (e: WebEvent) => act(() => FakeSocket.last!.onmessage!({ data: JSON.stringify(e) }))
 
 beforeEach(() => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
@@ -321,6 +328,23 @@ describe('timeline bubbles', () => {
     expect(within(idle as HTMLElement).getByText('正在工作…')).toBeTruthy()
     // The bot's own role plays the part, with its own body and moves.
     expect(art(tool as HTMLElement).getAttribute('data-role')).toBe('no')
+  })
+
+  it('applies a pushed step and usage to the run card', async () => {
+    renderChat({ messages: [msg({ seq: 1, authorId: 'u1', authorName: '王磊' })], runs: [run()] })
+    const card = await screen.findByTestId('run-card')
+    expect(within(card).getByText('读取 server/refund.go')).toBeTruthy()
+    push({
+      t: 'run.step',
+      runId: 'r1',
+      groupId: 'g1',
+      botId: 'b1',
+      step: '运行 go test ./...',
+      usage: { totalTokens: 2500 },
+    })
+    expect(await within(card).findByText('运行 go test ./...')).toBeTruthy()
+    expect(within(card).getByTitle('2.5k tokens')).toBeTruthy()
+    expect(within(card).getByTitle('运行中')).toBeTruthy()
   })
 
   it('shows run facts as labelled graphics', async () => {
