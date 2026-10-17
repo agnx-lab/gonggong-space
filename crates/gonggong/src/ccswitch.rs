@@ -1,14 +1,14 @@
 //! Read-only import from this machine's CC Switch (`~/.cc-switch`, design §4.5) and its
 //! `ccswitch://v1/import?resource=provider…` links. Only claude and codex providers that talk to their endpoint
 //! directly are taken; CC Switch itself is never written to.
-use crate::agent_settings::{self, Layer};
+use crate::agent_settings::{self, AUTO_COMPACT, Layer};
 use crate::protocol::AgentKind;
 use crate::providers::{API_KEY, AUTH_TOKEN, ModelMap, Provider, Source, SourceKind, Store, WIRE_RESPONSES, mask_key};
 use crate::t;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 /// One importable provider; `key` (`<agent>:<CC Switch id>`) is what [`apply`] takes.
@@ -197,14 +197,21 @@ fn claude(name: &str, env: &Map<String, Value>, key_field: Option<&str>) -> Opti
         sonnet: get("ANTHROPIC_DEFAULT_SONNET_MODEL"),
         opus: get("ANTHROPIC_DEFAULT_OPUS_MODEL"),
     };
+    let mut settings: BTreeMap<String, String> = agent_settings::fields(AgentKind::Claude, Some(Layer::Provider))
+        .filter_map(|f| Some((f.key.to_string(), get(f.key)?)))
+        .filter(|(k, v)| {
+            agent_settings::validate_env(AgentKind::Claude, &[(k.clone(), v.clone())].into(), None).is_ok()
+        })
+        .collect();
+    // Each value is valid alone: what fails now is an auto-compact window beyond the context window.
+    if agent_settings::validate_env(AgentKind::Claude, &settings, None).is_err() {
+        settings.remove(AUTO_COMPACT);
+    }
     Some(Provider {
         api_key_field: Some(field.into()),
         model: get("ANTHROPIC_MODEL"),
         models: (models != ModelMap::default()).then_some(models),
-        env: agent_settings::fields(AgentKind::Claude, Some(Layer::Provider))
-            .filter_map(|f| Some((f.key.to_string(), get(f.key)?)))
-            .filter(|(k, v)| agent_settings::validate_env(AgentKind::Claude, &[(k.clone(), v.clone())].into()).is_ok())
-            .collect(),
+        env: settings,
         ..Provider::custom(AgentKind::Claude, name.into(), base_url, get(field)?)
     })
 }
@@ -590,6 +597,8 @@ mod tests {
             "ANTHROPIC_BASE_URL": "https://ignored.test",
             "ANTHROPIC_DEFAULT_OPUS_MODEL": "o-from-config",
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "32000",
+            "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "200000",
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "262144",
             "HTTP_PROXY": "http://proxy"
         }});
         let link = url::Url::parse_with_params(
@@ -612,7 +621,11 @@ mod tests {
         assert_eq!(p.model.as_deref(), Some("kimi-for-coding"));
         let models = p.models.unwrap();
         assert_eq!((models.haiku.as_deref(), models.opus.as_deref()), (Some("h"), Some("o-from-config")));
-        assert_eq!(p.env.keys().collect::<Vec<_>>(), ["CLAUDE_CODE_MAX_OUTPUT_TOKENS"]);
+        assert_eq!(
+            p.env.keys().collect::<Vec<_>>(),
+            ["CLAUDE_CODE_MAX_CONTEXT_TOKENS", "CLAUDE_CODE_MAX_OUTPUT_TOKENS"],
+            "an auto-compact window beyond the context window is dropped"
+        );
         assert_eq!(p.source, Some(Source { kind: SourceKind::Link, id: None }));
     }
 

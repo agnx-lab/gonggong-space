@@ -274,6 +274,24 @@ async fn changed_agent_defaults_restart_the_adapter_on_the_next_turn_and_resume(
 }
 
 #[tokio::test]
+async fn an_edited_cli_config_shows_in_the_next_turn_without_a_restart() {
+    let mut r = rig(Duration::from_secs(60));
+    r.add(AgentKind::Claude, "kimi-coding", true);
+    let cli = r.home().join(".claude/settings.json");
+    std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+    std::fs::write(&cli, r#"{"language":"english"}"#).unwrap();
+    r.run(start("r1", AgentKind::Claude));
+    let first = r.finish("r1").await;
+    assert_eq!(r.settings.pop().unwrap().1.unwrap().from_cli, vec!["language".to_string()]);
+
+    std::fs::write(&cli, r#"{"alwaysThinkingEnabled":true}"#).unwrap();
+    r.run(follow_up("r2", &first, AgentKind::Claude));
+    let second = r.finish("r2").await;
+    assert_eq!(echo(&second)["pid"], echo(&first)["pid"], "the CLI's own config is not ours to restart for");
+    assert_eq!(r.settings.pop().unwrap().1.unwrap().from_cli, vec!["thinking".to_string()], "reported as of now");
+}
+
+#[tokio::test]
 async fn the_bots_model_picks_the_context_window_and_a_change_restarts_the_adapter() {
     let mut r = rig(Duration::from_secs(60));
     let id = r.add(AgentKind::Claude, "kimi-coding", true);

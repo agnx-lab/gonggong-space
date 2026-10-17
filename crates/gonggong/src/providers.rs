@@ -182,7 +182,8 @@ impl Provider {
         }
     }
 
-    fn validate(&self) -> Result<()> {
+    /// `before`: the stored version, whose unchanged setting values are not checked again.
+    fn validate(&self, before: Option<&Provider>) -> Result<()> {
         if self.name.trim().is_empty() {
             bail!(t!("供应商名称不能为空"));
         }
@@ -192,7 +193,7 @@ impl Provider {
         if self.api_key.trim().is_empty() {
             bail!(t!("API Key 不能为空"));
         }
-        validate_extras(self.agent, &self.env, self.proxy.as_deref())
+        validate_extras(self.agent, &self.env, self.proxy.as_deref(), before.map(|b| &b.env))
     }
 
     pub fn process_env(&self) -> BTreeMap<String, String> {
@@ -242,14 +243,19 @@ fn process_env(vars: &BTreeMap<String, String>, proxy: Option<&str>) -> BTreeMap
     env
 }
 
-fn validate_extras(agent: AgentKind, env: &BTreeMap<String, String>, proxy: Option<&str>) -> Result<()> {
+fn validate_extras(
+    agent: AgentKind,
+    env: &BTreeMap<String, String>,
+    proxy: Option<&str>,
+    before: Option<&BTreeMap<String, String>>,
+) -> Result<()> {
     if let Some(k) = env.keys().find(|k| !env_name(k)) {
         bail!(t!("环境变量名不合法：{name}", name = k));
     }
     if proxy.is_some_and(|u| !(u.starts_with("http://") || u.starts_with("https://"))) {
         bail!(t!("代理地址必须以 http:// 或 https:// 开头"));
     }
-    agent_settings::validate_env(agent, env)
+    agent_settings::validate_env(agent, env, before)
 }
 
 /// What an agent's official login runs with besides the CLI's own config: extra variables and a proxy.
@@ -516,7 +522,7 @@ impl Store {
 
     /// Stores a new provider under a fresh id (returned) at revision 1.
     pub fn add(&mut self, mut p: Provider) -> Result<String> {
-        p.validate()?;
+        p.validate(None)?;
         let base = slug(p.preset_id.as_deref().unwrap_or(&p.name));
         p.id = loop {
             let id = format!("{base}-{}", &uuid::Uuid::new_v4().simple().to_string()[..4]);
@@ -534,7 +540,7 @@ impl Store {
         let p = self.providers.iter_mut().find(|p| p.id == id).with_context(|| t!("供应商 {id} 不存在", id = id))?;
         let mut next = p.clone();
         f(&mut next);
-        next.validate()?;
+        next.validate(Some(p))?;
         if next != *p {
             next.revision = p.revision + 1;
             *p = next;
@@ -562,8 +568,8 @@ impl Store {
     /// Adds `p`, or updates its [`Store::duplicate_of`].
     pub fn upsert(&mut self, mut p: Provider) -> Result<String> {
         let Some(id) = self.duplicate_of(&p).map(|q| q.id.clone()) else { return self.add(p) };
-        p.validate()?;
         let q = self.providers.iter_mut().find(|q| q.id == id).unwrap();
+        p.validate(Some(q))?;
         p.id = q.id.clone();
         p.revision = q.revision;
         p.preset_id = q.preset_id.clone();
@@ -604,7 +610,8 @@ impl Store {
     }
 
     pub fn set_official(&mut self, agent: AgentKind, official: Official) -> Result<()> {
-        validate_extras(agent, &official.env, official.proxy.as_deref())?;
+        let before = self.official.get(&agent).map(|o| &o.env);
+        validate_extras(agent, &official.env, official.proxy.as_deref(), before)?;
         if official.is_empty() {
             self.official.remove(&agent);
         } else {
@@ -973,6 +980,23 @@ mod tests {
         assert_eq!(store.get(&a).unwrap().revision, 2);
         assert!(store.edit(&a, |p| p.base_url = "nope".into()).is_err());
         assert_eq!(store.get(&a).unwrap().revision, 2);
+    }
+
+    #[test]
+    fn a_stored_value_no_longer_accepted_does_not_block_other_changes() {
+        let mut store = Store::default();
+        let a = kimi(&mut store);
+        let stored = store.providers.iter_mut().find(|p| p.id == a).unwrap();
+        stored.env.insert("ENABLE_TOOL_SEARCH".into(), "on".into());
+        store.edit(&a, |p| p.model = Some("k3".into())).unwrap();
+        assert!(store.edit(&a, |p| _ = p.env.insert("ENABLE_TOOL_SEARCH".into(), "off".into())).is_err());
+        store.edit(&a, |p| _ = p.env.insert("ENABLE_TOOL_SEARCH".into(), "auto:10".into())).unwrap();
+        let mut again = store.get(&a).unwrap().clone();
+        store.providers.iter_mut().find(|p| p.id == a).unwrap().env.insert("API_TIMEOUT_MS".into(), "0".into());
+        again.env.insert("API_TIMEOUT_MS".into(), "0".into());
+        again.name = "Kimi 2".into();
+        assert_eq!(store.upsert(again).unwrap(), a, "only what the import changes is checked");
+        assert_eq!(store.get(&a).unwrap().name, "Kimi 2");
     }
 
     #[test]

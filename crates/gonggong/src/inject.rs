@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 /// The env var codex reads the key from (`model_providers.gg.env_key`).
 pub const CODEX_KEY_ENV: &str = "GG_PROVIDER_KEY";
@@ -41,13 +42,21 @@ pub fn claude_settings_path(home: &Path, selection: &str, overlay: Option<&str>)
 }
 
 /// What a Claude adapter process starts with besides its env: the flag-settings file, whether the CLI's user-level
-/// config is loaded too, and where the run's settings came from. Any change restarts the adapter for the next turn.
-#[derive(Debug, Clone, PartialEq)]
+/// config is loaded too, and where the run's settings came from. A change of the first two restarts the adapter for
+/// the next turn.
+#[derive(Debug, Clone)]
 pub struct ClaudeLaunch {
     /// None: nothing to set (the official login without extras or agent settings).
     pub file: Option<(PathBuf, Value)>,
     pub inherit_cli: bool,
+    /// Display only: it follows the CLI's config, which the user may edit any time.
     pub snapshot: RunSettingsSnapshot,
+}
+
+impl PartialEq for ClaudeLaunch {
+    fn eq(&self, other: &Self) -> bool {
+        self.file == other.file && self.inherit_cli == other.inherit_cli
+    }
 }
 
 impl ClaudeLaunch {
@@ -72,9 +81,13 @@ impl ClaudeLaunch {
         }
         let mut from_bot = vec![];
         for f in agent_settings::fields(AgentKind::Claude, Some(Layer::Agent)).filter(|f| f.bot_override) {
-            if let Some(v) = bot.agent_settings.get(f.id) {
-                put(f, v);
-                from_bot.push(f.id.to_string());
+            match bot.agent_settings.get(f.id) {
+                Some(v) if agent_settings::valid(f, v) => {
+                    put(f, v);
+                    from_bot.push(f.id.to_string());
+                }
+                Some(v) => tracing::warn!(bot = bot.id, "ignoring invalid agent setting {}={v}", f.id),
+                None => {}
             }
         }
         let base = match selection {
@@ -141,7 +154,8 @@ impl ClaudeLaunch {
         self.snapshot.auto_compact_window.map(|w| w.min(window))
     }
 
-    /// Writes the settings file (0600, atomic) unless it is current.
+    /// Writes the settings file (0600, atomic) unless it is current; either way its mtime marks it in use for
+    /// [`prune`].
     pub fn write(&self) -> Result<()> {
         match &self.file {
             Some((path, settings)) => write_settings(path, settings),
@@ -183,6 +197,7 @@ pub fn claude_settings(p: &Provider) -> Result<Value> {
 fn write_settings(path: &Path, settings: &Value) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(settings)?;
     if std::fs::read(path).is_ok_and(|current| current == bytes) {
+        std::fs::File::options().write(true).open(path)?.set_modified(SystemTime::now())?;
         return Ok(());
     }
     let dir = path.parent().expect("under <home>/run");
@@ -205,17 +220,22 @@ fn write_settings(path: &Path, settings: &Value) -> Result<()> {
     written
 }
 
-/// Deletes the settings files (and keys) of providers no longer stored.
-pub fn prune(home: &Path, store: &Store) {
+/// Deletes the settings files (and keys) of providers no longer stored and, given `stale`, the overlay files (one
+/// per settings combination, official login included) not written for that long.
+pub fn prune(home: &Path, store: &Store, stale: Option<Duration>) {
     let Ok(entries) = std::fs::read_dir(home.join("run")) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let stem = name.to_str().and_then(|n| n.strip_prefix(SETTINGS_PREFIX)?.strip_suffix(".json"));
-        let Some(id) = stem.and_then(|s| s.split('.').next()) else {
+        let Some((id, overlay)) = stem.map(|s| s.split_once('.').map_or((s, false), |(id, _)| (id, true))) else {
             continue;
         };
-        if id != OFFICIAL
-            && store.get(id).is_none()
+        let removed = id != OFFICIAL && store.get(id).is_none();
+        let unused = || {
+            let modified = entry.metadata().and_then(|m| m.modified());
+            stale.zip(modified.ok()).is_some_and(|(age, at)| at.elapsed().is_ok_and(|e| e > age))
+        };
+        if (removed || (overlay && unused()))
             && let Err(e) = std::fs::remove_file(entry.path())
         {
             tracing::warn!("removing {} failed: {e}", entry.path().display());
@@ -325,7 +345,7 @@ mod tests {
         std::fs::write(home.path().join("run/other.json"), "{}").unwrap();
         let official = Official { env: Default::default(), proxy: Some("http://p.test:1".into()) };
         let o = launch(home.path(), &Selection::Official(official), &none, &bot(None, &[]));
-        prune(home.path(), &store);
+        prune(home.path(), &store, None);
         let official = read(o.settings_path().unwrap());
         assert_eq!(o.settings_path(), Some(claude_settings_path(home.path(), OFFICIAL, None).as_path()));
         assert_eq!(official, json!({ "env": official["env"].clone() }), "no apiKeyHelper: the login stays");
@@ -335,6 +355,70 @@ mod tests {
         assert!(files[0].exists() && files[1].exists());
         assert!(!files[2].exists() && !files[3].exists(), "both files of the removed provider");
         assert!(home.path().join("run/other.json").exists());
+    }
+
+    fn age(path: &Path, by: Duration) {
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(SystemTime::now() - by).unwrap();
+    }
+
+    fn modified(path: &Path) -> SystemTime {
+        std::fs::metadata(path).unwrap().modified().unwrap()
+    }
+
+    #[test]
+    fn overlay_files_not_written_lately_are_pruned() {
+        let home = tempfile::tempdir().unwrap();
+        let mut store = Store::default();
+        let id = store.add(custom()).unwrap();
+        let p = Selection::Provider(Box::new(store.get(&id).unwrap().clone()));
+        let (none, lang) = (defaults(&[], true), defaults(&[("language", "english")], true));
+        let plain = launch(home.path(), &p, &none, &bot(None, &[]));
+        let used = launch(home.path(), &p, &lang, &bot(None, &[]));
+        let old = launch(home.path(), &p, &lang, &bot(None, &[("language", "chinese")]));
+        let official = launch(home.path(), &Selection::Official(Official::default()), &lang, &bot(None, &[]));
+        let hour = Duration::from_secs(3600);
+        for l in [&plain, &used, &old, &official] {
+            age(l.settings_path().unwrap(), hour);
+        }
+        used.write().unwrap();
+        assert!(modified(used.settings_path().unwrap()).elapsed().unwrap() < hour, "an unchanged write marks it used");
+        prune(home.path(), &store, None);
+        assert!(old.settings_path().unwrap().exists(), "no age given");
+        prune(home.path(), &store, Some(Duration::from_secs(60)));
+        assert!(plain.settings_path().unwrap().exists(), "the provider's own file stays while it is stored");
+        assert!(used.settings_path().unwrap().exists());
+        assert!(!old.settings_path().unwrap().exists() && !official.settings_path().unwrap().exists());
+    }
+
+    #[test]
+    fn only_the_files_and_the_cli_flag_decide_a_restart() {
+        let home = tempfile::tempdir().unwrap();
+        let p = Selection::Provider(Box::new(custom()));
+        let d = defaults(&[], true);
+        let cli = |language: &str| CliSettingsSnapshot {
+            values: [("language".to_string(), language.to_string())].into(),
+            conflicts: vec![],
+            hooks: 0,
+            permission_rules: 0,
+            version: None,
+        };
+        let a = ClaudeLaunch::new(home.path(), &p, &d, &bot(None, &[]), Some(&cli("english"))).unwrap();
+        let b = ClaudeLaunch::new(home.path(), &p, &d, &bot(None, &[]), None).unwrap();
+        assert_ne!(a.snapshot, b.snapshot);
+        assert_eq!(a, b, "the CLI's config only shows in the snapshot");
+    }
+
+    #[test]
+    fn invalid_bot_overrides_are_skipped() {
+        let home = tempfile::tempdir().unwrap();
+        let p = Selection::Provider(Box::new(custom()));
+        let b = bot(None, &[("thinking", "yes"), ("attribution", "co-authored"), ("language", "english")]);
+        let l = launch(home.path(), &p, &defaults(&[("thinking", "true")], true), &b);
+        let s = read(l.settings_path().unwrap());
+        assert_eq!((s["alwaysThinkingEnabled"].clone(), s.get("attribution")), (json!(true), None));
+        assert_eq!(s["language"], "english");
+        assert_eq!(l.snapshot.from_bot, vec!["language".to_string()]);
     }
 
     #[test]

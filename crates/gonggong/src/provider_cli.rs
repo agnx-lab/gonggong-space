@@ -130,7 +130,7 @@ pub async fn run(home: &Path, cmd: ProviderCmd) -> Result<()> {
         }
         ProviderCmd::Rm { id } => {
             let p = Store::update(home, |s| s.remove(&id))?;
-            crate::inject::prune(home, &Store::load(home)?);
+            crate::inject::prune(home, &Store::load(home)?, None);
             println!("{}", t!("已删除 {name}；使用它的会话下一轮会自动开启新会话", name = p.name));
         }
         ProviderCmd::Use { bot: None, args } => {

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
+use tokio::time::Instant as Clock;
 use tokio_tungstenite::tungstenite::Message;
 
 /// Byte budget of each of the two places a message waits before it is written: the outbox channel and the backlog.
@@ -18,6 +19,9 @@ use tokio_tungstenite::tungstenite::Message;
 const MAX_QUEUED_BYTES: usize = 16 << 20;
 /// A merged text/thought delta stops growing here; the next delta starts a new one.
 pub(crate) const MAX_MERGED_DELTA: usize = 64 << 10;
+/// How long streamed deltas wait for more of their stream before they are written: an adapter sends a reply in many
+/// tiny chunks, and a fast link would otherwise carry each as its own message.
+const DELTA_WINDOW: Duration = Duration::from_millis(80);
 /// Fixed weight of any message, so a flood of tiny events is bounded as well.
 const MESSAGE_OVERHEAD: usize = 256;
 /// Messages taken from the outbox per wakeup, so a busy producer cannot hold the heartbeat back.
@@ -169,6 +173,12 @@ struct Backlog {
     unconfirmed: Vec<DaemonToServer>,
     /// How many of `unconfirmed` were written before the outstanding ping, i.e. what its pong confirms.
     pinged: usize,
+    /// When the deltas at the back started waiting (see [`DELTA_WINDOW`]); None once anything else follows them.
+    since: Option<Clock>,
+}
+
+fn is_delta(msg: &DaemonToServer) -> bool {
+    matches!(msg, DaemonToServer::RunEvent { event: RunEvent::Text { .. } | RunEvent::Thought { .. }, .. })
 }
 
 impl Backlog {
@@ -183,8 +193,13 @@ impl Backlog {
             msg = kept;
         } else if let DaemonToServer::RunEvent { run_id, event } = &msg {
             self.dropping = false;
-            if let Some(DaemonToServer::RunEvent { run_id: last_run, event: last }) = self.msgs.back_mut()
-                && last_run == run_id
+            // The waiting deltas are one per stream: another run's in between may be passed, its order is its own.
+            let same_run = self.msgs.iter_mut().rev().take_while(|m| is_delta(m)).find(|m| match m {
+                DaemonToServer::RunEvent { run_id: r, .. } => r == run_id,
+                _ => false,
+            });
+            if is_delta(&msg)
+                && let Some(DaemonToServer::RunEvent { event: last, .. }) = same_run
             {
                 match (last, event) {
                     (RunEvent::Text { delta: a, agent_id: x }, RunEvent::Text { delta: b, agent_id: y })
@@ -198,8 +213,22 @@ impl Backlog {
                 }
             }
         }
+        self.since = if is_delta(&msg) { Some(self.since.unwrap_or_else(Clock::now)) } else { None };
         self.bytes += weight(&msg);
         self.msgs.push_back(msg);
+    }
+
+    /// When the deltas at the back are due; None when nothing waits for its window.
+    fn hold(&self) -> Option<Clock> {
+        self.since.filter(|_| !self.msgs.is_empty()).map(|t| t + DELTA_WINDOW)
+    }
+
+    /// How many messages from the front go out at `now`: all, except deltas still within their window.
+    fn ready(&self, now: Clock) -> usize {
+        match self.hold() {
+            Some(due) if now < due => self.msgs.len() - self.msgs.iter().rev().take_while(|m| is_delta(m)).count(),
+            _ => self.msgs.len(),
+        }
     }
 
     fn front(&self) -> Option<&DaemonToServer> {
@@ -209,6 +238,9 @@ impl Backlog {
     fn pop_front(&mut self) -> Option<DaemonToServer> {
         let msg = self.msgs.pop_front()?;
         self.bytes -= weight(&msg);
+        if self.msgs.is_empty() {
+            self.since = None;
+        }
         Some(msg)
     }
 
@@ -368,13 +400,16 @@ impl<H: Handler> Service<H> {
         loop {
             // A message leaves the backlog once handed to the socket, then all go out with one flush. A failed write
             // keeps the rest for the next connection; a run.done lost with the link is resent (see `unconfirmed`).
-            if backlog.front().is_some() {
-                while let Some(msg) = backlog.front() {
+            let ready = backlog.ready(Clock::now());
+            if ready > 0 {
+                for _ in 0..ready {
+                    let msg = backlog.front().expect("counted");
                     within(stall, ws.feed(Message::text(serde_json::to_string(msg)?))).await?;
                     backlog.written();
                 }
                 within(stall, ws.flush()).await?;
             }
+            let hold = backlog.hold();
             // Biased: a pong already waiting (say after a long flush) is read before the heartbeat checks for it, and
             // a busy outbox cannot hold the heartbeat back.
             tokio::select! {
@@ -418,6 +453,7 @@ impl<H: Handler> Service<H> {
                         self.handler.report(outbox);
                     }
                 }
+                _ = tokio::time::sleep_until(hold.unwrap_or_else(Clock::now)), if hold.is_some() => {}
                 Ok(()) = agents.changed() => {
                     let list = agents.borrow_and_update().clone();
                     self.monitor.agents(list.clone());
@@ -525,6 +561,42 @@ mod tests {
         assert_eq!(b.msgs[0], text("r1", "ab"));
         b.push(event("r2", RunEvent::Text { delta: "d".into(), agent_id: Some("sub".into()) }));
         assert_eq!(b.msgs.len(), 3, "a subagent's text never merges into the main agent's");
+    }
+
+    #[test]
+    fn deltas_wait_out_their_window_merging_per_stream() {
+        let mut b = Backlog::default();
+        let start = Clock::now();
+        for (run, delta) in [("r1", "a"), ("r2", "x"), ("r1", "b"), ("r2", "y"), ("r1", "c")] {
+            b.push(text(run, delta));
+        }
+        assert_eq!(b.msgs, [text("r1", "abc"), text("r2", "xy")], "another run's delta in between is passed");
+        assert_eq!(b.ready(start), 0);
+        assert_eq!(b.hold(), Some(b.since.unwrap() + DELTA_WINDOW));
+        assert_eq!(b.ready(b.hold().unwrap()), 2, "due at the end of the window");
+        b.written();
+        b.written();
+        assert_eq!((b.hold(), b.ready(Clock::now())), (None, 0));
+    }
+
+    #[test]
+    fn anything_but_a_delta_sends_the_waiting_ones_first() {
+        let status = || event("r1", RunEvent::Status { status: RunStatus::Running, step: "s".into() });
+        let mut b = Backlog::default();
+        b.push(status());
+        b.push(text("r1", "a"));
+        b.push(text("r1", "b"));
+        let now = b.since.unwrap();
+        assert_eq!(b.ready(now), 1, "what came before the deltas does not wait");
+        b.push(heavy("r1", 1));
+        b.push(event("r1", RunEvent::Thought { delta: "t".into(), agent_id: None }));
+        b.push(text("r1", "c"));
+        assert_eq!(b.msgs.len(), 5, "no delta merges across the tool call or into another kind");
+        assert_eq!(b.msgs[1], text("r1", "ab"));
+        assert_eq!(b.ready(now), 3);
+        b.push(failed("r1", "x".into()));
+        assert_eq!((b.hold(), b.ready(now)), (None, 6), "the run's end flushes, in order");
+        assert!(matches!(b.msgs[5], DaemonToServer::RunDone(_)));
     }
 
     #[test]

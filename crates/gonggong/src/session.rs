@@ -77,7 +77,8 @@ fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Planned> {
     let home = &engine.config.home;
     let s = &req.start;
     let resolved = Store::load(home).and_then(|store| {
-        inject::prune(home, &store);
+        // A live adapter's file is rewritten (touched) each turn below, and adapters idle out after `idle`.
+        inject::prune(home, &store, Some(engine.config.idle * 2));
         let (selection, removed) =
             match store.resolve_run(s.bot.agent_kind, &s.bot.id, s.resume_session_id.as_deref())? {
                 RunPlan::Resume(selection) => (selection, false),
@@ -85,9 +86,11 @@ fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Planned> {
             };
         let launch = match s.bot.agent_kind {
             AgentKind::Claude => {
-                let cli = agent_settings::read_cli(&engine.config.user_home, None);
                 let defaults = store.agent_settings(AgentKind::Claude);
-                Some(inject::ClaudeLaunch::new(home, &selection, &defaults, &s.bot, cli.as_ref())?)
+                let cli = defaults.inherit_cli.then(|| agent_settings::read_cli(&engine.config.user_home, None));
+                let launch = inject::ClaudeLaunch::new(home, &selection, &defaults, &s.bot, cli.flatten().as_ref())?;
+                launch.write()?;
+                Some(launch)
             }
             AgentKind::Codex => None,
         };
@@ -965,8 +968,7 @@ pub(crate) async fn run(
                 None => break,
             },
         };
-        let launch = turn.launch.as_ref();
-        let result = match engine.adapter(&turn.req.start.bot, &turn.req.local, &turn.selection, launch).await {
+        let result = match engine.adapter(&turn.req.start.bot, &turn.req.local, &turn.selection).await {
             Ok(config) => connect(&engine, &shared, &ask, AcpAgent::new(config), turn, &mut rx, &mut resume).await,
             Err(e) => Err(format!("{e:#}")),
         };
@@ -1065,6 +1067,7 @@ async fn connect(
                 match engine.workspaces.occupy(&turn.req, shared).await {
                     Some(_dir) => {
                         conv.skills = turn.skills.clone();
+                        conv.launch = turn.launch.clone();
                         conv.turn(turn.req, turn.removed, resume).await?;
                     }
                     None => shared.finish(Err(String::new()), resume.as_ref(), None),
@@ -1103,7 +1106,7 @@ struct Conversation<'a> {
     home: &'a Path,
     /// The provider this adapter process was started with.
     selection: Selection,
-    /// The Claude settings it was started with.
+    /// The Claude settings of the current turn; equal (file, CLI flag) to those the process started with.
     launch: Option<inject::ClaudeLaunch>,
     /// The team skills of the current turn; their names are those the process started with.
     skills: skills::Installed,

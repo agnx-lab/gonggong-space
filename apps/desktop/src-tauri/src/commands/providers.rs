@@ -14,9 +14,15 @@ fn err(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
+/// Reads `providers.json` and the CLI config off the main thread.
 #[tauri::command]
-pub fn providers(host: State<'_, Host>) -> Result<StoreView> {
-    Ok(Store::load(&host.home).map_err(err)?.view_with_cli(&host.home, &gonggong::config::user_home()))
+pub async fn providers(host: State<'_, Host>) -> Result<StoreView> {
+    let home = host.home.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(Store::load(&home).map_err(err)?.view_with_cli(&home, &gonggong::config::user_home()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn web_url(server: &str, machine_id: &str) -> String {

@@ -186,7 +186,7 @@ impl Engine {
             agent_settings: Default::default(),
         };
         let official = Selection::Official(Store::load(&self.0.config.home)?.official(kind));
-        Ok(AcpAgent::new(self.0.adapter(&bot, &local, &official, None).await?))
+        Ok(AcpAgent::new(self.0.adapter(&bot, &local, &official).await?))
     }
 }
 
@@ -555,13 +555,12 @@ impl Inner {
     }
 
     /// Launch config of the adapter for this bot, with the local agent CLI, per-process system prompt and the
-    /// provider (§4.4; Claude's settings file is named per session).
+    /// provider (§4.4; Claude's settings file, written by the turn's plan, is named per session).
     pub(crate) async fn adapter(
         &self,
         bot: &RunBot,
         local: &LocalSettings,
         selection: &Selection,
-        launch: Option<&inject::ClaudeLaunch>,
     ) -> anyhow::Result<AcpAgentConfig> {
         // First, so the variables set below win over the user's.
         let env = Settings::load(&self.config.home)?.child_env();
@@ -597,14 +596,10 @@ impl Inner {
             Selection::Provider(p) => (Some(p.as_ref()), p.process_env()),
         };
         Ok(match bot.agent_kind {
-            AgentKind::Claude => {
-                if let Some(launch) = launch {
-                    launch.write()?;
-                }
-                base.env("MCP_TOOL_TIMEOUT", ASK_TIMEOUT_MS)
-                    .env("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", ASK_TIMEOUT_MS)
-                    .envs(cli.map(|p| ("CLAUDE_CODE_EXECUTABLE", p)))
-            }
+            AgentKind::Claude => base
+                .env("MCP_TOOL_TIMEOUT", ASK_TIMEOUT_MS)
+                .env("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", ASK_TIMEOUT_MS)
+                .envs(cli.map(|p| ("CLAUDE_CODE_EXECUTABLE", p))),
             AgentKind::Codex => {
                 let mut config = serde_json::Map::new();
                 config.insert("developer_instructions".into(), system_prompt(bot).into());

@@ -995,6 +995,7 @@ pub const FEATURE_PROVIDERS: &str = "providers";
 pub const FEATURE_CC_SWITCH: &str = "ccSwitch";
 pub const FEATURE_SYNC: &str = "sync";
 pub const FEATURE_SESSION_FORK: &str = "sessionFork";
+pub const FEATURE_AGENT_SETTINGS: &str = "agentSettings";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolsSettings {

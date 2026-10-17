@@ -32,7 +32,7 @@ pub enum Kind {
     Tokens,
     /// A positive integer.
     Ms,
-    /// '1' or absent.
+    /// '1' (or 'true') or absent.
     Flag,
     /// 'true' | 'false' or absent.
     Bool,
@@ -172,31 +172,51 @@ impl AgentSettings {
 }
 
 /// The `provider`-layer fields among a provider's (or the official login's) variables, each valid for its type.
-pub fn validate_env(agent: AgentKind, env: &BTreeMap<String, String>) -> Result<()> {
-    let checked: Vec<_> = fields(agent, Some(Provider)).filter_map(|f| Some((f, env.get(f.key)?.as_str()))).collect();
-    check(&checked)
-}
-
-fn check(values: &[(&Field, &str)]) -> Result<()> {
-    for (f, v) in values {
-        let ok = match f.kind {
-            Tokens | Ms => {
-                v.parse::<u64>().is_ok_and(|n| n > 0 && f.min.is_none_or(|m| n >= m) && f.max.is_none_or(|m| n <= m))
-            }
-            Flag => *v == "1",
-            Bool => matches!(*v, "true" | "false"),
-            Enum => f.options.contains(v),
-            Text => true,
-        };
-        if !ok {
-            bail!(t!("{id} 的值 {value} 不合法", id = f.id, value = v));
-        }
-    }
-    let number = |id: &str| values.iter().find(|(f, _)| f.id == id).and_then(|(_, v)| v.parse::<u64>().ok());
-    if let (Some(compact), Some(window)) = (number("autoCompactWindow"), number("contextWindow"))
+/// `before`: the stored variables; then only the fields changed from them are checked, so an old value that is no
+/// longer accepted does not block other edits.
+pub fn validate_env(
+    agent: AgentKind,
+    env: &BTreeMap<String, String>,
+    before: Option<&BTreeMap<String, String>>,
+) -> Result<()> {
+    let changed = |key: &str| before.is_none_or(|b| b.get(key) != env.get(key));
+    let checked: Vec<_> = fields(agent, Some(Provider))
+        .filter(|f| changed(f.key))
+        .filter_map(|f| Some((f, env.get(f.key)?.as_str())))
+        .collect();
+    check(&checked)?;
+    let number = |key: &str| env.get(key).and_then(|v| v.parse::<u64>().ok());
+    if agent == AgentKind::Claude
+        && (changed(AUTO_COMPACT) || changed(CONTEXT_WINDOW))
+        && let (Some(compact), Some(window)) = (number(AUTO_COMPACT), number(CONTEXT_WINDOW))
         && compact > window
     {
         bail!(t!("自动压缩窗口不能大于上下文窗口"));
+    }
+    Ok(())
+}
+
+/// Whether `v` is a valid value of `f`.
+pub fn valid(f: &Field, v: &str) -> bool {
+    match f.kind {
+        Tokens | Ms => {
+            v.parse::<u64>().is_ok_and(|n| n > 0 && f.min.is_none_or(|m| n >= m) && f.max.is_none_or(|m| n <= m))
+        }
+        Flag => matches!(v, "1" | "true"),
+        // Claude Code also takes `auto` and `auto:<percent>` for tool search.
+        Bool if f.id == "toolSearch" => {
+            matches!(v, "true" | "false" | "auto")
+                || v.strip_prefix("auto:").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        }
+        Bool => matches!(v, "true" | "false"),
+        Enum => f.options.contains(&v),
+        Text => true,
+    }
+}
+
+fn check(values: &[(&Field, &str)]) -> Result<()> {
+    if let Some((f, v)) = values.iter().find(|(f, v)| !valid(f, v)) {
+        bail!(t!("{id} 的值 {value} 不合法", id = f.id, value = v));
     }
     Ok(())
 }
@@ -313,6 +333,7 @@ mod tests {
         ok(&[("language", "chinese"), ("bashTimeout", "300000"), ("attribution", "none"), ("thinking", "false")])
             .unwrap();
         ok(&[("nonessentialTraffic", "1"), ("autoMemory", "true")]).unwrap();
+        ok(&[("nonessentialTraffic", "true")]).unwrap();
         for bad in [
             ("contextWindow", "200000"),
             ("nope", "1"),
@@ -320,6 +341,7 @@ mod tests {
             ("bashTimeout", "-5"),
             ("bashTimeout", "1.5"),
             ("nonessentialTraffic", "0"),
+            ("nonessentialTraffic", "yes"),
             ("thinking", "yes"),
             ("attribution", "co-authored"),
         ] {
@@ -334,16 +356,39 @@ mod tests {
 
     #[test]
     fn provider_env_fields_are_checked_by_key() {
-        let check = |pairs: &[(&str, &str)]| validate_env(Claude, &values(pairs));
+        let check = |pairs: &[(&str, &str)]| validate_env(Claude, &values(pairs), None);
         check(&[(CONTEXT_WINDOW, "262144"), (AUTO_COMPACT, "262144"), ("ANYTHING", "x")]).unwrap();
         check(&[("ENABLE_TOOL_SEARCH", "true"), ("API_TIMEOUT_MS", "600000")]).unwrap();
         check(&[(AUTO_COMPACT, "1000000")]).unwrap();
         assert!(check(&[(AUTO_COMPACT, "99999")]).is_err(), "below the minimum");
         assert!(check(&[(AUTO_COMPACT, "1000001")]).is_err(), "above the maximum");
         assert!(check(&[(CONTEXT_WINDOW, "200000"), (AUTO_COMPACT, "262144")]).is_err(), "beyond the window");
-        assert!(check(&[("CLAUDE_CODE_DISABLE_THINKING", "true")]).is_err());
-        assert!(check(&[("ENABLE_TOOL_SEARCH", "1")]).is_err());
-        validate_env(AgentKind::Codex, &values(&[(AUTO_COMPACT, "1")])).unwrap();
+        for ok in ["1", "true"] {
+            check(&[("CLAUDE_CODE_DISABLE_THINKING", ok)]).unwrap();
+        }
+        assert!(check(&[("CLAUDE_CODE_DISABLE_THINKING", "0")]).is_err());
+        for ok in ["true", "false", "auto", "auto:5", "auto:50"] {
+            check(&[("ENABLE_TOOL_SEARCH", ok)]).unwrap();
+        }
+        for bad in ["1", "auto:", "auto:x", "auto:-1", "on"] {
+            assert!(check(&[("ENABLE_TOOL_SEARCH", bad)]).is_err(), "{bad}");
+        }
+        validate_env(AgentKind::Codex, &values(&[(AUTO_COMPACT, "1")]), None).unwrap();
+    }
+
+    #[test]
+    fn only_changed_provider_fields_are_checked_against_what_is_stored() {
+        let before = values(&[("ENABLE_TOOL_SEARCH", "on"), (CONTEXT_WINDOW, "262144"), (AUTO_COMPACT, "200000")]);
+        let after = |pairs: &[(&str, &str)]| {
+            let mut env = before.clone();
+            env.extend(values(pairs));
+            validate_env(Claude, &env, Some(&before))
+        };
+        after(&[("API_TIMEOUT_MS", "600000")]).unwrap();
+        assert!(after(&[("API_TIMEOUT_MS", "0")]).is_err());
+        assert!(after(&[("ENABLE_TOOL_SEARCH", "off")]).is_err(), "a changed value is checked");
+        assert!(after(&[(CONTEXT_WINDOW, "200000"), (AUTO_COMPACT, "262144")]).is_err());
+        assert!(after(&[(CONTEXT_WINDOW, "100000")]).is_err(), "the window shrank below the stored compact window");
     }
 
     #[test]
