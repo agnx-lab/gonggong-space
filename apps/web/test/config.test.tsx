@@ -62,7 +62,7 @@ describe('配置中心', () => {
       'GET /admin/mcp': [wiki, grafana],
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
     })
     renderConfig()
     expect(await screen.findByRole('heading', { name: '配置中心' })).toBeTruthy()
@@ -104,7 +104,7 @@ describe('配置中心', () => {
       'GET /admin/mcp': [wiki, grafana],
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
       'PATCH /admin/mcp/m1': (b: unknown) => ({ ...wiki, ...(b as object) }),
       'DELETE /admin/mcp/m2?forceNewSession=true': undefined,
       'POST /admin/mcp': (b: unknown) => ({ id: 'm3', updatedAt: '', ...(b as object) }),
@@ -171,7 +171,7 @@ describe('配置中心', () => {
       'GET /admin/mcp': [wiki],
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
       'PATCH /admin/mcp/m1': (b: unknown) => ({ ...wiki, ...(b as object) }),
     })
     renderConfig()
@@ -196,7 +196,7 @@ describe('配置中心', () => {
       'GET /admin/mcp': () => (down ? new Response('', { status: 502, statusText: 'Bad Gateway' }) : [wiki]),
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
     })
     renderConfig()
     const alert = await screen.findByText('配置加载失败')

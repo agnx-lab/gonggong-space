@@ -437,7 +437,7 @@ describe('机器与网络 · 实时', () => {
       'GET /admin/params': PARAMS,
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
     })
     renderAt('/admin/machines')
     await screen.findByRole('gridcell', { name: 'cc-mbp' })
@@ -476,7 +476,7 @@ describe('机器与网络 · 实时', () => {
       'GET /admin/params': PARAMS,
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
     })
     renderAt('/admin/machines')
     await screen.findByText('还没有机器')
@@ -495,7 +495,7 @@ describe('机器与网络 · 实时', () => {
       'GET /admin/params': PARAMS,
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
     })
     renderAt('/admin/machines')
     await screen.findByText('还没有机器')

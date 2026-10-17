@@ -116,7 +116,7 @@ const renderChat = (messages: MessageDto[], routes: Record<string, unknown> = {}
     'GET /groups': [group],
     'GET /bots': [] as BotDto[],
     'GET /machines': [],
-    'GET /notifications': [],
+    'GET /notifications/unread': { n: 0 },
     'GET /groups/g1/timeline?limit=50': { messages, runs },
     'POST /groups/g1/read': group,
     ...routes,

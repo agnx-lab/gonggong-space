@@ -91,7 +91,7 @@ const routes = (groups: unknown, machines: MachineDto[] = [], bots: BotDto[] = [
   'GET /groups': groups,
   'GET /bots': bots,
   'GET /machines': machines,
-  'GET /notifications': [],
+  'GET /notifications/unread': { n: 0 },
 })
 
 beforeEach(() => {
@@ -106,19 +106,12 @@ afterEach(() => vi.unstubAllGlobals())
 describe('top bar', () => {
   it('shows the unread notification count in the bottom tab bar on mobile', async () => {
     setWidth(700)
-    mockApi({
-      ...routes([]),
-      'GET /notifications': [1, 2, 3].map((n) => ({
-        id: `n${n}`,
-        type: 'approval',
-        payload: {},
-        readAt: null,
-        createdAt: '',
-      })),
-    })
+    const calls = mockApi({ ...routes([]), 'GET /notifications/unread': { n: 3 } })
     renderAt('/')
     const bar = screen.getByRole('navigation', { name: '应用导航' })
     expect(await within(bar).findByRole('button', { name: '通知（3 条未读）' })).toBeTruthy()
+    // Counted server-side: startup does not download the notification list.
+    expect(calls.some((c) => c.path === '/notifications')).toBe(false)
   })
 
   it('shows the platform search shortcut', () => {

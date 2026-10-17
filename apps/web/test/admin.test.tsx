@@ -185,7 +185,12 @@ describe('admin console', () => {
 
   it('keeps members out of the admin console', async () => {
     useSession.setState({ user: { ...admin, role: 'member' }, status: 'ready' })
-    mockApi({ 'GET /groups': [], 'GET /bots': [], 'GET /machines': [], 'GET /notifications': [] })
+    mockApi({
+      'GET /groups': [],
+      'GET /bots': [],
+      'GET /machines': [],
+      'GET /notifications/unread': { n: 0 },
+    })
     renderAt('/admin/bots')
     expect(await screen.findByRole('navigation', { name: '会话列表' })).toBeTruthy()
     expect(screen.queryByRole('navigation', { name: '管理后台' })).toBeNull()

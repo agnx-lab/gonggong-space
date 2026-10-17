@@ -92,7 +92,7 @@ beforeEach(() => {
     'GET /users': [],
     'GET /bots': [],
     'GET /machines': [],
-    'GET /notifications': [],
+    'GET /notifications/unread': { n: 0 },
     'GET /groups/g1/timeline': empty,
     'GET /groups/g2/timeline': empty,
     'GET /groups/g1/bot-states': [],

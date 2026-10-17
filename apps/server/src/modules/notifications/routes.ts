@@ -1,5 +1,5 @@
-import { type NotificationDto, PushSubscriptionReq } from '@gonggong/protocol'
-import { and, desc, eq, isNotNull, isNull, or } from 'drizzle-orm'
+import { type NotificationDto, type NotificationUnreadDto, PushSubscriptionReq } from '@gonggong/protocol'
+import { and, count, desc, eq, isNotNull, isNull, or } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { Ctx } from '../../context.js'
 import { notifications, pushSubscriptions } from '../../db/schema.js'
@@ -12,11 +12,17 @@ import { knownNotification, notificationDto, withGroupTitles } from './notify.js
 import { vapidKeys } from './push.js'
 
 const LIMIT = 100
+/** The badge stops counting here (shown as 99+), so a long-ignored inbox costs no more than a busy one. */
+const UNREAD_CAP = 100
 
 export function notificationRoutes(ctx: Ctx) {
   /** The current team's notifications plus platform-level ones, which show in every team. */
   const inTeam = async (req: FastifyRequest, userId: string) =>
     or(eq(notifications.teamId, await currentTeam(ctx, req, userId)), isNull(notifications.teamId))
+
+  /** What the center lists, and so what the badge counts. */
+  const listed = async (req: FastifyRequest, userId: string) =>
+    and(eq(notifications.userId, userId), knownNotification, await inTeam(req, userId))
 
   return async (app: FastifyInstance) => {
     app.get('/api/notifications', async (req) => {
@@ -24,7 +30,7 @@ export function notificationRoutes(ctx: Ctx) {
       const rows = await ctx.db
         .select()
         .from(notifications)
-        .where(and(eq(notifications.userId, user.id), knownNotification, await inTeam(req, user.id)))
+        .where(await listed(req, user.id))
         .orderBy(desc(notifications.createdAt))
         .limit(LIMIT)
       const payloads = await withGroupTitles(
@@ -32,6 +38,18 @@ export function notificationRoutes(ctx: Ctx) {
         rows.map((r) => r.payload as NotificationDto['payload']),
       )
       return rows.map((r, i) => notificationDto({ ...r, payload: payloads[i] }))
+    })
+
+    app.get('/api/notifications/unread', async (req): Promise<NotificationUnreadDto> => {
+      const user = await requireUser(ctx, req)
+      const unread = ctx.db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(and(await listed(req, user.id), isNull(notifications.readAt)))
+        .limit(UNREAD_CAP)
+        .as('unread')
+      const [row] = await ctx.db.select({ n: count() }).from(unread)
+      return { n: row?.n ?? 0 }
     })
 
     app.post<{ Params: { id: string } }>('/api/notifications/:id/read', async (req, reply) => {

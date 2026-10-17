@@ -1,4 +1,4 @@
-import type { NotificationDto, WebEvent } from '@gonggong/protocol'
+import type { NotificationDto, NotificationUnreadDto, WebEvent } from '@gonggong/protocol'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { notifications, pushSubscriptions, systemParams } from '../src/db/schema.js'
@@ -116,6 +116,52 @@ describe('notification center', () => {
 
     await resolveNotifications(t.ctx, 'question', 'questionSetId', ['q1'])
     expect(seen.filter((e) => e.t === 'notification.resolved')).toHaveLength(1)
+  })
+})
+
+describe('unread badge', () => {
+  const unread = async (api: ReturnType<typeof client>) =>
+    (await api.get<NotificationUnreadDto>('/api/notifications/unread')).body
+
+  it('counts unread notifications in the list’s scope: the open team and platform notices', async () => {
+    const a = await login()
+    const b = await login()
+    const other = await t.seed.team({ ownerId: a.user.id })
+    const g = await someGroup(a.user.id)
+    const otherGroup = (await t.seed.group({ createdBy: a.user.id, teamId: other.id })).id
+    await notify(t.ctx, a.user.id, 'chain_done', { groupId: g, hops: 2 })
+    await notify(t.ctx, a.user.id, 'offline_expired', { groupId: g })
+    await notify(t.ctx, a.user.id, 'chain_done', { groupId: otherGroup, hops: 2 })
+    await notify(t.ctx, a.user.id, 'bot_confirm', { botName: 'B', byName: '陈晨' })
+    await notify(t.ctx, b.user.id, 'chain_done', { groupId: g, hops: 2 })
+    const [kept] = await t.db.select().from(notifications).where(eq(notifications.type, 'offline_expired'))
+    await t.db
+      .insert(notifications)
+      .values({ userId: a.user.id, teamId: kept!.teamId, type: 'lock', payload: {} })
+    await a.api.post(`/api/notifications/${kept!.id}/read`)
+
+    expect(await unread(a.api)).toEqual({ n: 2 })
+    const inOther = client(t, await t.seed.cookie(a.user.id), other.id)
+    expect(await unread(inOther)).toEqual({ n: 2 })
+    await inOther.post('/api/notifications/read-all')
+    expect(await unread(inOther)).toEqual({ n: 0 })
+    expect(await unread(a.api)).toEqual({ n: 1 })
+  })
+
+  it('stops counting at 100, which the badge shows as 99+', async () => {
+    const a = await login()
+    const g = await someGroup(a.user.id)
+    await notify(t.ctx, a.user.id, 'chain_done', { groupId: g, hops: 2 })
+    const [first] = await t.db.select().from(notifications)
+    await t.db.insert(notifications).values(
+      Array.from({ length: 120 }, () => ({
+        userId: a.user.id,
+        teamId: first!.teamId,
+        type: 'chain_done',
+        payload: { groupId: g },
+      })),
+    )
+    expect(await unread(a.api)).toEqual({ n: 100 })
   })
 })
 

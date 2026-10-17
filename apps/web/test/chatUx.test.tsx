@@ -167,7 +167,7 @@ function mockApi(
     'GET /users': () => [],
     'GET /bots': () => bots,
     'GET /machines': () => [],
-    'GET /notifications': () => [],
+    'GET /notifications/unread': () => ({ n: 0 }),
     'GET /groups/g1/timeline': (_b, path) => (typeof timeline === 'function' ? timeline(path) : timeline),
     'POST /groups/g1/read': () => group(),
     ...extra,

@@ -148,7 +148,7 @@ const renderChat = (timeline: { messages: MessageDto[]; runs: RunDto[] }, g = gr
     'GET /groups': [g],
     'GET /bots': [bot],
     'GET /machines': [],
-    'GET /notifications': [],
+    'GET /notifications/unread': { n: 0 },
     'GET /groups/g1/timeline?limit=50': timeline,
   })
   return render(

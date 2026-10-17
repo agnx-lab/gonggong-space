@@ -153,7 +153,7 @@ const routes = (groups: GroupDto[], extra: Record<string, unknown> = {}) => ({
   'GET /users': users,
   'GET /bots': bots,
   'GET /machines': [],
-  'GET /notifications': [],
+  'GET /notifications/unread': { n: 0 },
   'GET /groups/g1/timeline?limit=50': { messages: [], runs: [] },
   'GET /groups/g1/bot-states': [],
   'GET /groups/g1/params': params,

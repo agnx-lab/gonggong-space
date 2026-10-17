@@ -180,7 +180,7 @@ function mockApi(extra: Record<string, (body: unknown) => unknown> = {}) {
     'GET /users': () => [],
     'GET /bots': () => [bot],
     'GET /machines': () => [],
-    'GET /notifications': () => [],
+    'GET /notifications/unread': () => ({ n: 0 }),
     'GET /groups/g1/timeline': () => timeline,
     'POST /groups/g1/read': () => group,
     ...extra,
