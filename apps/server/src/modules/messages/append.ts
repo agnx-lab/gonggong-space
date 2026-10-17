@@ -39,12 +39,12 @@ export async function appendTarget(
 export async function requeueAppends(ctx: Ctx, run: typeof runs.$inferSelect, applied: number) {
   if (run.stoppedBy) return
   const pending = await ctx.db
-    .select()
+    .select({ id: messages.id })
     .from(messages)
     .where(and(eq(messages.groupId, run.groupId), sql`${messages.meta}->>'appendTo' = ${run.id}`))
     .orderBy(asc(messages.seq))
   for (const m of pending.slice(applied)) {
-    if (await hasRun(ctx, m.groupId, m.id)) continue
+    if (await hasRun(ctx, run.groupId, m.id)) continue
     const [row] = await ctx.db
       .update(messages)
       .set({ meta: sql`${messages.meta} || ${JSON.stringify({ mentions: [run.botId] })}::jsonb` })

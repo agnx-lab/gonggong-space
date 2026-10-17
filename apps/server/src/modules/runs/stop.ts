@@ -151,8 +151,20 @@ async function stoppedByEdit(ctx: Ctx, run: RunRow) {
 
 /** The chain's initiator learns when a relay chain (more than one hop) has no unfinished run left (spec §8.11). */
 export async function notifyChainDone(ctx: Ctx, run: RunRow) {
+  // Next hops are only created from a run's handoffs (triggerChain), so this run is a chain of one.
+  if (!run.parentRunId && !run.handoffs.length) return
   const ids = await chainIds(ctx.db, run.id)
-  const chain = await ctx.db.select().from(runs).where(inArray(runs.id, ids))
+  const chain = await ctx.db
+    .select({
+      id: runs.id,
+      parentRunId: runs.parentRunId,
+      hop: runs.hop,
+      status: runs.status,
+      stoppedBy: runs.stoppedBy,
+      originUserId: runs.originUserId,
+    })
+    .from(runs)
+    .where(inArray(runs.id, ids))
   const root = chain.find((r) => r.parentRunId === null)
   const hops = Math.max(...chain.map((r) => r.hop))
   if (!root || hops < 2 || chain.some((r) => !TERMINAL_RUN_STATUS.includes(r.status as never))) return
@@ -179,7 +191,14 @@ export async function notifyChainDone(ctx: Ctx, run: RunRow) {
  */
 export async function interruptNote(tx: Tx, run: RunRow, at: string) {
   const [prev] = await tx
-    .select()
+    .select({
+      id: runs.id,
+      status: runs.status,
+      stoppedBy: runs.stoppedBy,
+      interrupt: runs.interrupt,
+      filesChanged: runs.filesChanged,
+      sync: runs.sync,
+    })
     .from(runs)
     .where(
       and(
