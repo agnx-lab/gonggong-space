@@ -310,7 +310,7 @@ describe('Avatar', () => {
 describe('Badge and Tag', () => {
   it('caps the count at 99+', () => {
     render(<Badge count={128} />)
-    expect(screen.getByLabelText('128 条未读').textContent).toBe('99+')
+    expect(screen.getByLabelText('99+ 条未读').textContent).toBe('99+')
   })
 
   it('renders nothing for zero', () => {

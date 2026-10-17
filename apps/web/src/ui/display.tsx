@@ -51,17 +51,21 @@ export type BadgeProps =
   | { count: number; muted?: boolean }
   | { variant?: BadgeVariant; size?: 'xs' | 'sm'; children: ReactNode }
 
+/** An unread count as shown: the server stops counting at 100, so 100 and up read 99+. */
+export const unreadCount = (n: number) => (n > 99 ? '99+' : String(n))
+
 /** Unread count (`count`, capped at 99+, hidden at 0); with children it is a pre-Pane label badge. */
 export function Badge(props: BadgeProps) {
   if (!('count' in props)) return <Tag tone={BADGE_TONE[props.variant ?? 'default']}>{props.children}</Tag>
   if (!props.count) return null
+  const n = unreadCount(props.count)
   return (
     <span
       className={cx('ui-badge', props.muted && 'ui-badge--muted')}
       role="img"
-      aria-label={t('{n} 条未读', { n: props.count })}
+      aria-label={t('{n} 条未读', { n })}
     >
-      {props.count > 99 ? '99+' : props.count}
+      {n}
     </span>
   )
 }
