@@ -77,6 +77,7 @@ const bot: BotDto = {
   gitEmail: null,
   gitDefaultEmail: 'b1@bots.gonggong.local',
   sharedWith: [],
+  agentSettings: {},
   approval: 'ask',
   allowlist: [],
   alwaysAllow: [],
@@ -170,6 +171,7 @@ const detail = (o: Partial<RunDetailDto> = {}): RunDetailDto => ({
   run: run({ model: 'opus', effort: 'high' }),
   patch,
   purged: false,
+  settings: null,
   patchRepos: [],
   sessionId: 'sess-7f3a',
   retentionDays: 30,
@@ -502,6 +504,31 @@ describe('run tab', () => {
     writeText.mockRejectedValueOnce(new Error('denied'))
     fireEvent.click(within(rail).getByRole('button', { name: '复制会话 ID' }))
     expect(await screen.findByText('复制失败')).toBeTruthy()
+  })
+
+  it('shows what the agent settings came from behind ⓘ', async () => {
+    mockApi(() =>
+      detail({
+        settings: {
+          provider: 'Kimi For Coding',
+          contextWindow: 262144,
+          autoCompactWindow: 200000,
+          inheritCli: true,
+          fromCli: ['language', 'CLAUDE_CODE_EFFORT_LEVEL'],
+          fromBot: ['thinking'],
+        },
+      }),
+    )
+    renderChat()
+    const rail = await openProcess()
+    fireEvent.click(within(rail).getByRole('button', { name: '机器与会话' }))
+    const box = within(rail).getByRole('region', { name: 'Agent 设置' })
+    expect(box.textContent).toContain('Kimi For Coding')
+    expect(box.textContent).toContain('256K')
+    expect(box.textContent).toContain('200K')
+    expect(box.textContent).toContain('继承本机 CLI 配置是')
+    expect(box.textContent).toContain('语言、CLAUDE_CODE_EFFORT_LEVEL')
+    expect(box.textContent).toContain('扩展思考')
   })
 
   it('opens the diff of a file path clicked in a bot reply', async () => {

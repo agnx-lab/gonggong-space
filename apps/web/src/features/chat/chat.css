@@ -409,6 +409,11 @@
   stroke: var(--accent);
   stroke-linecap: round;
 }
+.ctx-meter circle.ctx-meter__mark {
+  fill: var(--label-secondary);
+  stroke: var(--content-bg);
+  stroke-width: 0.8;
+}
 .ctx-meter[data-level="warning"] {
   color: var(--tint-orange-text);
 }

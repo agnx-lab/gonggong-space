@@ -35,6 +35,8 @@ import { fmtDuration, fmtUsage, RUN_STATUS } from '../../chat/TimelineItems'
 import { DiffPane } from '../../diff/DiffPane'
 import type { DiffSource } from '../../diff/store'
 import { useWorkspaceDiff, type WorkspaceDiff } from '../../diff/useWorkspaceDiff'
+import { fieldLabel, tokensLabel } from '../../machines/agentSettings'
+import { OFFICIAL_NAME } from '../../machines/providers'
 import { ActivityDock } from '../../runs/ActivityDock'
 import { ProcessView } from '../../runs/ProcessView'
 import { approvalText, buildSteps } from '../../runs/process'
@@ -281,6 +283,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
             </GroupRow>
           </GroupBox>
         ) : null}
+        {more && detail?.settings ? <RunSettings settings={detail.settings} /> : null}
         <Tabs size="sm" items={VIEWS} value={view} onChange={(v) => patch(tabKey, { view: v })} />
       </div>
       <div className={cx('run-tab__body', view === 'diff' && 'run-tab__body--fill')}>
@@ -432,6 +435,30 @@ async function stopTask(runId: string, taskId: string) {
     toast({ type: 'error', message: t('停止失败：{error}', { error: (e as Error).message }) })
     throw e
   }
+}
+
+/** What the run's agent settings came from (session.config). */
+function RunSettings({ settings: s }: { settings: NonNullable<RunDetailDto['settings']> }) {
+  const names = (ids: string[]) => ids.map(fieldLabel).join(t('、'))
+  const rows = [
+    [t('供应商'), s.provider ?? OFFICIAL_NAME],
+    [t('上下文窗口'), s.contextWindow ? tokensLabel(s.contextWindow) : t('默认')],
+    [t('自动压缩窗口'), s.autoCompactWindow ? tokensLabel(s.autoCompactWindow) : t('默认')],
+    [t('继承本机 CLI 配置'), s.inheritCli ? t('是') : t('否')],
+    ...(s.fromCli.length ? [[t('来自本机 CLI'), names(s.fromCli)]] : []),
+    ...(s.fromBot.length ? [[t('Bot 覆盖'), names(s.fromBot)]] : []),
+  ]
+  return (
+    <section aria-label={t('Agent 设置')}>
+      <GroupBox>
+        {rows.map(([label, value]) => (
+          <GroupRow key={label} label={label}>
+            <span className="run-tab__val">{value}</span>
+          </GroupRow>
+        ))}
+      </GroupBox>
+    </section>
+  )
 }
 
 function SessionId({ id }: { id: string }) {

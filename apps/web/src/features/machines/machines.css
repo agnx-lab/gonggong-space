@@ -378,6 +378,10 @@
 .mx-field-row {
   width: 100%;
 }
+.mx-preset {
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
 .mx-field-row > .ui-field {
   flex: 1;
   min-width: 0;
