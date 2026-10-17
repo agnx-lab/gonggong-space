@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AgentSettings, AgentSettingValues, RunSettingsSnapshot } from './agent-settings.js'
 import {
   AgentKind,
   Allowlist,
@@ -267,6 +268,7 @@ export const UpdateMachineReq = z.object({ name: z.string().trim().max(64) })
  *   DELETE /api/machines/:id/providers/:pid                 → ProviderStoreView
  *   PUT    /api/machines/:id/providers/default  UseProviderReq → ProviderStoreView
  *   PUT    /api/machines/:id/providers/official OfficialProviderReq → ProviderStoreView
+ *   PUT    /api/machines/:id/agent-settings   AgentSettingsReq → ProviderStoreView (machine owner)
  *   POST   /api/machines/:id/providers/import-link ImportLinkReq → ProviderSavedDto
  *   GET    /api/machines/:id/ccswitch                       → CcSwitchPreviewDto
  *   POST   /api/machines/:id/ccswitch/apply   CcSwitchApplyReq → CcSwitchImportedDto
@@ -291,6 +293,8 @@ export type ProviderSavedDto = z.infer<typeof ProviderSavedDto>
 export const UseProviderReq = z.object({ agent: AgentKind, choice: z.string().min(1) })
 export const OfficialProviderReq = OfficialInput.extend({ agent: AgentKind })
 export type OfficialProviderReq = z.input<typeof OfficialProviderReq>
+export const AgentSettingsReq = AgentSettings.extend({ agent: AgentKind })
+export type AgentSettingsReq = z.input<typeof AgentSettingsReq>
 /** `choice`: a provider id of the bot's agent, `official` or `inherit`. */
 export const BotProviderReq = z.object({ choice: z.string().min(1) })
 /** What a new session of the bot may pick: asked live of its machine, else what it reported. */
@@ -382,6 +386,8 @@ export const BotDto = z.object({
   gitName: z.string().nullable(),
   gitEmail: z.string().nullable(),
   gitDefaultEmail: z.string(),
+  /** Overrides of `botOverride` agent settings (field id → value); empty = the machine's defaults. */
+  agentSettings: AgentSettingValues,
   /** Members the owner shared the bot with: each may DM it (in a managed workspace of its own) and see its details. */
   sharedWith: z.array(z.string()),
 })
@@ -513,6 +519,8 @@ export const UpdateBotReq = z.object({
   /** Bot owner only; null = default. */
   gitName: z.string().trim().min(1).max(80).nullable().optional(),
   gitEmail: z.email().max(200).nullable().optional(),
+  /** Bot owner only; replaces the overrides (only `botOverride` fields of the bot's agent kind). */
+  agentSettings: AgentSettingValues.optional(),
 })
 /** POST /api/bots/:id/share-requests: a member asks the owner to share the bot with them. */
 export const BotShareRequestReq = z.object({ reason: z.string().trim().max(200).default('') })
@@ -1106,6 +1114,8 @@ export const RunDetailDto = z.object({
   purged: z.boolean(),
   /** The (group, bot) conversation's current agent session. */
   sessionId: z.string().nullable(),
+  /** What the run's agent settings came from (session.config); null = codex / not reported. */
+  settings: RunSettingsSnapshot.nullable(),
   /** System param runRetentionDays: how long the full process is kept. */
   retentionDays: z.number().int(),
   events: z.array(z.object({ id: z.number().int(), at: z.string(), event: RunEvent })),

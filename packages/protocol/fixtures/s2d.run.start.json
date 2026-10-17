@@ -14,10 +14,22 @@
     "approval": "allowlist",
     "allowlist": ["go build", "npm test"],
     "alwaysAllow": ["npm run build", "tool:mcp__fs__read"],
-    "git": { "name": "小王的 Claude", "email": "b1@bots.gonggong.local" }
+    "git": {
+      "name": "小王的 Claude",
+      "email": "b1@bots.gonggong.local"
+    },
+    "agentSettings": {
+      "language": "english",
+      "thinking": "false"
+    }
   },
   "workspace": {
-    "repo": { "id": "r_pay", "url": "git@git.corp:pay/pay-server.git", "branch": "main", "protocol": "auto" },
+    "repo": {
+      "id": "r_pay",
+      "url": "git@git.corp:pay/pay-server.git",
+      "branch": "main",
+      "protocol": "auto"
+    },
     "cdPath": null,
     "protectBase": true,
     "extraDirs": ["/Users/wl/pay-sdk"]
@@ -34,7 +46,13 @@
         "body": "退款 v1 下周一下线",
         "at": "2026-09-23T10:12:00Z",
         "attachments": [
-          { "id": "a1", "name": "shot.png", "size": 312000, "mime": "image/png", "messageId": "m9" }
+          {
+            "id": "a1",
+            "name": "shot.png",
+            "size": 312000,
+            "mime": "image/png",
+            "messageId": "m9"
+          }
         ]
       }
     ],
@@ -50,9 +68,18 @@
       }
     ],
     "attachments": [
-      { "id": "a1", "name": "shot.png", "size": 312000, "mime": "image/png", "messageId": "m9" }
+      {
+        "id": "a1",
+        "name": "shot.png",
+        "size": 312000,
+        "mime": "image/png",
+        "messageId": "m9"
+      }
     ],
-    "quote": { "author": "小王的 Claude", "body": "字段变化如下" }
+    "quote": {
+      "author": "小王的 Claude",
+      "body": "字段变化如下"
+    }
   },
   "newSessionReason": null,
   "mcpServers": [
@@ -61,9 +88,16 @@
       "name": "wiki-search",
       "command": "npx",
       "args": ["@corp/mcp-wiki"],
-      "env": { "WIKI_TOKEN": "x" }
+      "env": {
+        "WIKI_TOKEN": "x"
+      }
     },
-    { "transport": "http", "name": "grafana", "url": "https://mcp.corp/grafana", "headers": {} }
+    {
+      "transport": "http",
+      "name": "grafana",
+      "url": "https://mcp.corp/grafana",
+      "headers": {}
+    }
   ],
   "skills": [
     {

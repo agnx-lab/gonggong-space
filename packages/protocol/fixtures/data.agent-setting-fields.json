@@ -1,0 +1,145 @@
+[
+  {
+    "id": "contextWindow",
+    "agent": "claude",
+    "layer": "provider",
+    "target": "env",
+    "key": "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+    "type": "tokens",
+    "options": ["200000", "262144", "1000000"]
+  },
+  {
+    "id": "autoCompactWindow",
+    "agent": "claude",
+    "layer": "provider",
+    "target": "env",
+    "key": "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    "type": "tokens",
+    "min": 100000,
+    "max": 1000000
+  },
+  {
+    "id": "maxOutputTokens",
+    "agent": "claude",
+    "layer": "provider",
+    "target": "env",
+    "key": "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+    "type": "tokens"
+  },
+  {
+    "id": "disableThinking",
+    "agent": "claude",
+    "layer": "provider",
+    "target": "env",
+    "key": "CLAUDE_CODE_DISABLE_THINKING",
+    "type": "flag"
+  },
+  {
+    "id": "disableBetas",
+    "agent": "claude",
+    "layer": "provider",
+    "target": "env",
+    "key": "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS",
+    "type": "flag"
+  },
+  {
+    "id": "toolSearch",
+    "agent": "claude",
+    "layer": "provider",
+    "target": "env",
+    "key": "ENABLE_TOOL_SEARCH",
+    "type": "bool"
+  },
+  {
+    "id": "apiTimeout",
+    "agent": "claude",
+    "layer": "provider",
+    "target": "env",
+    "key": "API_TIMEOUT_MS",
+    "type": "ms"
+  },
+  {
+    "id": "language",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "settings",
+    "key": "language",
+    "type": "text",
+    "botOverride": true
+  },
+  {
+    "id": "thinking",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "settings",
+    "key": "alwaysThinkingEnabled",
+    "type": "bool",
+    "botOverride": true
+  },
+  {
+    "id": "attribution",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "settings",
+    "key": "attribution",
+    "type": "enum",
+    "options": ["none"],
+    "botOverride": true
+  },
+  {
+    "id": "gitInstructions",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "settings",
+    "key": "includeGitInstructions",
+    "type": "bool"
+  },
+  {
+    "id": "autoMemory",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "settings",
+    "key": "autoMemoryEnabled",
+    "type": "bool"
+  },
+  {
+    "id": "autoCompact",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "settings",
+    "key": "autoCompactEnabled",
+    "type": "bool"
+  },
+  {
+    "id": "bashTimeout",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "env",
+    "key": "BASH_DEFAULT_TIMEOUT_MS",
+    "type": "ms"
+  },
+  {
+    "id": "bashMaxTimeout",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "env",
+    "key": "BASH_MAX_TIMEOUT_MS",
+    "type": "ms"
+  },
+  {
+    "id": "mcpIdleTimeout",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "env",
+    "key": "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT",
+    "type": "ms"
+  },
+  {
+    "id": "nonessentialTraffic",
+    "agent": "claude",
+    "layer": "agent",
+    "target": "env",
+    "key": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "type": "flag"
+  }
+]

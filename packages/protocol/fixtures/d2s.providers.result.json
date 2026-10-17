@@ -35,7 +35,8 @@
           "sonnet": "kimi-for-coding"
         },
         "env": {
-          "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "262144"
+          "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "262144",
+          "GITHUB_TOKEN": "****wxyz"
         },
         "proxy": "http://user:****@10.0.0.2:3128",
         "wireApi": null,
@@ -70,7 +71,28 @@
         "agent": "claude",
         "provider": "kimi-coding-1a2b"
       }
-    ]
+    ],
+    "agentSettings": {
+      "claude": {
+        "values": {
+          "language": "chinese",
+          "autoMemory": "false"
+        },
+        "inheritCli": false
+      }
+    },
+    "cli": {
+      "claude": {
+        "values": {
+          "language": "english",
+          "contextWindow": "200000"
+        },
+        "conflicts": ["CLAUDE_CODE_EFFORT_LEVEL"],
+        "hooks": 2,
+        "permissionRules": 5,
+        "version": "2.1.296"
+      }
+    }
   },
   "id": "kimi-coding-1a2b"
 }

@@ -1,0 +1,14 @@
+{
+  "t": "providers.cmd",
+  "requestId": "rq-4",
+  "action": "agentSettings",
+  "agent": "claude",
+  "agentSettings": {
+    "values": {
+      "language": "chinese",
+      "bashTimeout": "300000",
+      "attribution": "none"
+    },
+    "inheritCli": true
+  }
+}
