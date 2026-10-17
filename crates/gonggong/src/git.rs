@@ -1,12 +1,15 @@
 //! Workspace git plumbing for partition mode (spec §5): shells out to the machine's `git` so its credentials apply.
 use crate::protocol::{DiffRepo, GitStatus, PATCH_MAX_BYTES, RepoKind, RepoStatus, WorkspaceKind};
 use crate::t;
-use std::collections::{BTreeMap, BTreeSet};
-use std::hash::{DefaultHasher, Hasher};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
+use tokio::sync::OnceCell;
 
 /// Daemon-private files inside a workspace; never reported as the agent's changes.
 pub(crate) const PRIVATE_DIR: &str = ".gonggong/";
@@ -103,27 +106,78 @@ struct Probe {
     dirty: u32,
 }
 
-async fn probe(dir: &Path) -> Result<Probe, String> {
-    let branch = git(dir, &["symbolic-ref", "--short", "-q", "HEAD"]).await.ok().map(|b| b.trim().to_string());
-    let upstream = match branch {
-        Some(_) => git(dir, &["rev-parse", "--abbrev-ref", "@{upstream}"]).await.ok().map(|u| u.trim().to_string()),
-        None => None,
+async fn probe(dir: &Path, scans: &Scans) -> Result<Probe, String> {
+    let position = async {
+        let branch = scans.branch(dir).await;
+        let upstream = match branch {
+            Some(_) => git(dir, &["rev-parse", "--abbrev-ref", "@{upstream}"]).await.ok(),
+            None => None,
+        };
+        let (ahead, behind) = match upstream {
+            Some(_) => {
+                let counts = git(dir, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]).await?;
+                let mut n = counts.split_whitespace().map(|n| n.parse::<u32>().ok());
+                (n.next().flatten(), n.next().flatten())
+            }
+            None => (None, None),
+        };
+        Ok::<_, String>((branch, ahead, behind))
     };
-    let (ahead, behind) = match upstream {
-        Some(_) => {
-            let counts = git(dir, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]).await?;
-            let mut n = counts.split_whitespace().map(|n| n.parse::<u32>().ok());
-            (n.next().flatten(), n.next().flatten())
-        }
-        None => (None, None),
-    };
-    let dirty = porcelain(dir).await?.len() as u32;
+    let (position, dirty) = tokio::join!(position, scans.porcelain(dir));
+    let ((branch, ahead, behind), dirty) = (position?, dirty?.len() as u32);
     Ok(Probe { branch, ahead, behind, dirty })
+}
+
+/// Per-repo results shared by the steps that end a turn, so each work tree is scanned and staged once.
+#[derive(Default)]
+struct Scans {
+    porcelain: Memo<Result<BTreeMap<String, String>, String>>,
+    trees: Memo<Result<String, String>>,
+    branches: Memo<Option<String>>,
+}
+
+impl Scans {
+    async fn porcelain(&self, dir: &Path) -> Result<BTreeMap<String, String>, String> {
+        self.porcelain.get(dir, porcelain(dir)).await
+    }
+
+    async fn tree(&self, dir: &Path) -> Result<String, String> {
+        self.trees.get(dir, work_tree(dir)).await
+    }
+
+    async fn branch(&self, dir: &Path) -> Option<String> {
+        self.branches.get(dir, branch(dir)).await
+    }
+}
+
+/// One value per repo dir, computed by its first caller while later ones wait for it.
+struct Memo<T>(Mutex<HashMap<PathBuf, Arc<OnceCell<T>>>>);
+
+impl<T> Default for Memo<T> {
+    fn default() -> Self {
+        Self(Mutex::default())
+    }
+}
+
+impl<T: Clone> Memo<T> {
+    async fn get(&self, dir: &Path, compute: impl Future<Output = T>) -> T {
+        let cell = self.0.lock().unwrap().entry(dir.to_path_buf()).or_default().clone();
+        cell.get_or_init(|| compute).await.clone()
+    }
 }
 
 /// The root's position plus every other repo's, those of the additional directories `extras` as `extra` repos under
 /// their absolute paths; Err when none of them holds a repo.
 pub async fn status(dir: &Path, extras: &[PathBuf], workspace: WorkspaceKind) -> Result<GitStatus, String> {
+    status_in(dir, extras, workspace, &Scans::default()).await
+}
+
+async fn status_in(
+    dir: &Path,
+    extras: &[PathBuf],
+    workspace: WorkspaceKind,
+    scans: &Scans,
+) -> Result<GitStatus, String> {
     let mut repos = vec![];
     let mut any = false;
     for (root, label) in roots(dir, extras) {
@@ -132,7 +186,7 @@ pub async fn status(dir: &Path, extras: &[PathBuf], workspace: WorkspaceKind) ->
             if label.is_empty() && r.kind == RepoKind::Root {
                 continue;
             }
-            let p = probe(&root.join(&r.path)).await?;
+            let p = probe(&root.join(&r.path), scans).await?;
             let (branch, ahead, behind, dirty) = (p.branch, p.ahead, p.behind, p.dirty > 0);
             let (path, kind) = (under(&label, &r.path), extra_kind(&label, r.kind));
             repos.push(RepoStatus { path, kind, branch, ahead, behind, dirty });
@@ -155,7 +209,7 @@ pub async fn status(dir: &Path, extras: &[PathBuf], workspace: WorkspaceKind) ->
             repos,
         });
     }
-    let p = probe(dir).await?;
+    let p = probe(dir, scans).await?;
     let (branch, ahead, behind, dirty_count) = (p.branch, p.ahead, p.behind, Some(p.dirty));
     Ok(GitStatus { branch, ahead, behind, dirty: p.dirty > 0, dirty_count, checked_at, workspace, repos })
 }
@@ -285,9 +339,11 @@ pub(crate) async fn submodules(dir: &Path) -> BTreeSet<String> {
 #[derive(Clone)]
 pub struct Snapshot {
     head: Option<String>,
-    /// Without submodule paths: their contents are tracked by `subs`.
-    tree: BTreeMap<String, (String, Option<u64>)>,
-    /// Tree object of the whole work tree (untracked files included): the baseline of the turn's patch.
+    /// Porcelain entries (path → `XY`) of the paths dirty at the start, without submodule paths: their contents are
+    /// tracked by `subs`.
+    tree: BTreeMap<String, String>,
+    /// Tree object of the whole work tree (untracked files included): the baseline of the turn's patch, and of what
+    /// the turn edited in already-dirty files.
     base: Option<String>,
     /// Checked-out submodules, by path.
     subs: BTreeMap<String, Snapshot>,
@@ -297,75 +353,62 @@ async fn head(dir: &Path) -> Option<String> {
     git(dir, &["rev-parse", "-q", "--verify", "HEAD"]).await.ok().map(|h| h.trim().to_string())
 }
 
-/// Porcelain entries plus a content fingerprint, so edits to an already-dirty file still register.
-async fn tree(dir: &Path, subs: &BTreeSet<String>) -> Result<BTreeMap<String, (String, Option<u64>)>, String> {
-    let entries: Vec<_> = porcelain(dir).await?.into_iter().filter(|(path, _)| !subs.contains(path)).collect();
-    let dir = dir.to_path_buf();
-    // Dirty files can be large and many: read them off the async workers.
-    tokio::task::spawn_blocking(move || {
-        entries
-            .into_iter()
-            .map(|(path, xy)| {
-                let hash = fingerprint(&dir.join(&path));
-                (path, (xy, hash))
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// Streamed content hash; None when the path can't be read as a file.
-fn fingerprint(path: &Path) -> Option<u64> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).ok()?;
-    let (mut h, mut buf, mut len) = (DefaultHasher::new(), [0u8; 64 * 1024], 0u64);
-    loop {
-        match file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                h.write(&buf[..n]);
-                len += n as u64;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => return None,
-        }
-    }
-    h.write_u64(len);
-    Some(h.finish())
-}
-
 pub async fn snapshot(dir: &Path) -> Result<Snapshot, String> {
-    let base = work_tree(dir).await.inspect_err(|e| tracing::warn!("work tree snapshot failed: {e}")).ok();
-    let paths = submodules(dir).await;
+    let (base, paths, head, tree) = tokio::join!(work_tree(dir), submodules(dir), head(dir), porcelain(dir));
+    let base = base.inspect_err(|e| tracing::warn!("work tree snapshot failed: {e}")).ok();
+    let mut tree = tree?;
+    tree.retain(|path, _| !paths.contains(path));
     let mut subs = BTreeMap::new();
     for path in &paths {
         subs.insert(path.clone(), Box::pin(snapshot(&dir.join(path))).await?);
     }
-    Ok(Snapshot { head: head(dir).await, tree: tree(dir, &paths).await?, base, subs })
+    Ok(Snapshot { head, tree, base, subs })
+}
+
+/// A scratch index, deleted with its lock however the staging ends: a diff dropped on timeout leaves nothing behind.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Self {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        Scratch(std::env::temp_dir().join(format!("gonggong-index-{}-{nanos}-{seq}", std::process::id())))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+        let mut lock = self.0.clone().into_os_string();
+        lock.push(".lock");
+        let _ = std::fs::remove_file(lock);
+    }
 }
 
 /// Writes the current work tree (tracked + untracked, honoring .gitignore, without `.gonggong/`) as a tree object,
 /// staging through a scratch copy of the index so the user's staging area stays as it was.
 async fn work_tree(dir: &Path) -> Result<String, String> {
-    let index = PathBuf::from(git(dir, &["rev-parse", "--path-format=absolute", "--git-path", "index"]).await?.trim());
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let scratch = std::env::temp_dir().join(format!("gonggong-index-{}-{nanos}", std::process::id()));
-    let copy = scratch.clone();
-    tokio::task::spawn_blocking(move || if index.exists() { std::fs::copy(&index, &copy).map(drop) } else { Ok(()) })
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| t!("无法复制 git index：{e}", e = e))?;
+    let (index, ignored) = tokio::join!(
+        git(dir, &["rev-parse", "--path-format=absolute", "--git-path", "index"]),
+        git(dir, &["check-ignore", "-q", ".gonggong"])
+    );
+    let index = PathBuf::from(index?.trim());
+    // The guard is made inside the copy task: if this future is dropped meanwhile, the task's output still drops it.
+    let scratch = tokio::task::spawn_blocking(move || {
+        let scratch = Scratch::new();
+        if index.exists() {
+            std::fs::copy(&index, &scratch.0)?;
+        }
+        Ok::<_, std::io::Error>(scratch)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| t!("无法复制 git index：{e}", e = e))?;
     // Naming an ignored path in a pathspec is an error, so the exclusion is only spelled out when git doesn't ignore it.
-    let ignored = git(dir, &["check-ignore", "-q", ".gonggong"]).await.is_ok();
-    let spec: &[&str] = if ignored { &["."] } else { &[".", ":(exclude).gonggong"] };
-    let tree = async {
-        run_git(dir, &[&["add", "-A", "--"][..], spec].concat(), Some(&scratch)).await?;
-        run_git(dir, &["write-tree"], Some(&scratch)).await
-    }
-    .await;
-    let _ = std::fs::remove_file(&scratch);
-    Ok(tree?.trim().to_string())
+    let spec: &[&str] = if ignored.is_ok() { &["."] } else { &[".", ":(exclude).gonggong"] };
+    run_git(dir, &[&["add", "-A", "--"][..], spec].concat(), Some(&scratch.0)).await?;
+    Ok(run_git(dir, &["write-tree"], Some(&scratch.0)).await?.trim().to_string())
 }
 
 /// A workspace patch (None when nothing differs, capped at PATCH_MAX_BYTES) and the repos it spans.
@@ -387,7 +430,7 @@ enum Scope<'a> {
 
 /// What changed since the snapshot.
 pub async fn patch_since(dir: &Path, snap: &Snapshot) -> Result<Diff, String> {
-    diff(vec![(dir.to_path_buf(), String::new(), Scope::Turn(snap))]).await
+    diff(vec![(dir.to_path_buf(), String::new(), Scope::Turn(snap))], &Scans::default()).await
 }
 
 /// A git root whose changes a turn tracks: the workspace (label '') or an additional directory, labelled with its
@@ -413,15 +456,35 @@ pub async fn track(dir: &Path, extras: &[PathBuf]) -> Vec<Tracked> {
 
 /// What changed in every tracked root since its snapshot, one patch.
 pub async fn turn_patch(tracked: &[Tracked]) -> Result<Diff, String> {
-    diff(tracked.iter().map(|t| (t.dir.clone(), t.label.clone(), Scope::Turn(&t.snap))).collect()).await
+    turn_patch_in(tracked, &Scans::default()).await
+}
+
+async fn turn_patch_in(tracked: &[Tracked], scans: &Scans) -> Result<Diff, String> {
+    diff(tracked.iter().map(|t| (t.dir.clone(), t.label.clone(), Scope::Turn(&t.snap))).collect(), scans).await
 }
 
 pub async fn turn_changed(tracked: &[Tracked]) -> Result<usize, String> {
+    turn_changed_in(tracked, &Scans::default()).await
+}
+
+async fn turn_changed_in(tracked: &[Tracked], scans: &Scans) -> Result<usize, String> {
     let mut n = 0;
     for t in tracked {
-        n += changed_since(&t.dir, &t.snap).await?;
+        n += changed_in(&t.dir, &t.snap, scans).await?;
     }
     Ok(n)
+}
+
+/// What a turn left behind: the workspace's [`status`], the number of paths it changed ([`turn_changed`]) and its
+/// patch ([`turn_patch`]), worked out together so each repo is scanned and staged once.
+pub async fn turn_end(
+    dir: &Path,
+    extras: &[PathBuf],
+    kind: WorkspaceKind,
+    tracked: &[Tracked],
+) -> (Result<GitStatus, String>, Result<usize, String>, Result<Diff, String>) {
+    let scans = Scans::default();
+    tokio::join!(status_in(dir, extras, kind, &scans), turn_changed_in(tracked, &scans), turn_patch_in(tracked, &scans))
 }
 
 /// [`discard`] in every tracked root.
@@ -435,18 +498,19 @@ pub async fn turn_discard(tracked: &[Tracked]) -> Result<usize, String> {
 
 /// Everything not committed yet: each repo's HEAD (or the empty tree before its first commit) against its work tree.
 pub async fn uncommitted_patch(dir: &Path, extras: &[PathBuf]) -> Result<Diff, String> {
-    diff(roots(dir, extras).into_iter().map(|(d, l)| (d, l, Scope::Uncommitted)).collect()).await
+    let roots = roots(dir, extras).into_iter().map(|(d, l)| (d, l, Scope::Uncommitted)).collect();
+    diff(roots, &Scans::default()).await
 }
 
 /// Each repo's branch changes against its own main branch, uncommitted ones included; a repo on its main (or
 /// detached, or without one) contributes nothing.
 pub async fn base_patch(dir: &Path, extras: &[PathBuf]) -> Result<Diff, String> {
-    diff(roots(dir, extras).into_iter().map(|(d, l)| (d, l, Scope::Base)).collect()).await
+    diff(roots(dir, extras).into_iter().map(|(d, l)| (d, l, Scope::Base)).collect(), &Scans::default()).await
 }
 
 /// Each repo of each root diffed on its own, outer before inner, paths prefixed with the repo's path below the root's
 /// label; a parent leaves its submodules' commit pointers out. Stops reading once the patch is sure to be capped.
-async fn diff(roots: Vec<(PathBuf, String, Scope<'_>)>) -> Result<Diff, String> {
+async fn diff(roots: Vec<(PathBuf, String, Scope<'_>)>, scans: &Scans) -> Result<Diff, String> {
     let mut patch = String::new();
     let mut repos = vec![];
     // Patch length once each repo's share is in (0: nothing to compare, usize::MAX: no room was left for it).
@@ -454,7 +518,7 @@ async fn diff(roots: Vec<(PathBuf, String, Scope<'_>)>) -> Result<Diff, String> 
     for (dir, label, scope) in roots {
         for r in discover(&dir).await {
             let rdir = dir.join(&r.path);
-            let branch = branch(&rdir).await;
+            let branch = scans.branch(&rdir).await;
             let (from, base) = match &scope {
                 Scope::Turn(snap) => match find(snap, &r.path) {
                     Some(s) => (s.base.clone(), None),
@@ -475,7 +539,7 @@ async fn diff(roots: Vec<(PathBuf, String, Scope<'_>)>) -> Result<Diff, String> 
                 Some(_) if room == 0 => usize::MAX,
                 Some(from) => {
                     let prefix = if path.is_empty() { String::new() } else { format!("{path}/") };
-                    diff_repo(&rdir, &prefix, &from, room, &mut patch).await?;
+                    diff_repo(&rdir, &prefix, &from, room, &mut patch, scans).await?;
                     patch.len()
                 }
             });
@@ -511,9 +575,19 @@ fn find<'a>(snap: &'a Snapshot, path: &str) -> Option<&'a Snapshot> {
 }
 
 /// Appends one repo's patch from `from` to its work tree, its submodules' commit pointers left out.
-async fn diff_repo(dir: &Path, prefix: &str, from: &str, room: usize, patch: &mut String) -> Result<(), String> {
-    let to = work_tree(dir).await?;
-    let subs = submodules(dir).await;
+async fn diff_repo(
+    dir: &Path,
+    prefix: &str,
+    from: &str,
+    room: usize,
+    patch: &mut String,
+    scans: &Scans,
+) -> Result<(), String> {
+    let (to, subs) = tokio::join!(scans.tree(dir), submodules(dir));
+    let to = to?;
+    if to == from {
+        return Ok(());
+    }
     let (src, dst) = (format!("--src-prefix=a/{prefix}"), format!("--dst-prefix=b/{prefix}"));
     let excluded: Vec<String> = subs.iter().map(|p| format!(":(exclude,literal){p}")).collect();
     let mut args = vec!["diff", "--no-color", "--no-ext-diff", "--no-renames", &src, &dst, from, &to, "--", "."];
@@ -562,9 +636,13 @@ fn cap_patch(mut patch: String) -> String {
 }
 
 pub async fn changed_since(dir: &Path, snap: &Snapshot) -> Result<usize, String> {
-    let mut n = touched(dir, snap).await?.len();
+    changed_in(dir, snap, &Scans::default()).await
+}
+
+async fn changed_in(dir: &Path, snap: &Snapshot, scans: &Scans) -> Result<usize, String> {
+    let mut n = touched(dir, snap, scans).await?.len();
     for (path, sub) in live_subs(dir, snap) {
-        n += Box::pin(changed_since(&dir.join(path), sub)).await?;
+        n += Box::pin(changed_in(&dir.join(path), sub, scans)).await?;
     }
     Ok(n)
 }
@@ -589,7 +667,7 @@ pub async fn discard(dir: &Path, snap: &Snapshot) -> Result<usize, String> {
 async fn discard_own(dir: &Path, snap: &Snapshot) -> Result<usize, String> {
     let base = snap.base.as_deref().ok_or(t!("这一轮开始时的工作区快照不可用"))?;
     let exists = async |rev: &str, path: &str| git(dir, &["cat-file", "-e", &format!("{rev}:{path}")]).await.is_ok();
-    let paths = touched(dir, snap).await?;
+    let paths = touched(dir, snap, &Scans::default()).await?;
     let (mut from_head, mut created) = (vec![], vec![]);
     for path in &paths {
         let file = dir.join(path);
@@ -642,13 +720,14 @@ fn remove(root: &Path, file: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Distinct paths the turn touched: committed since the snapshot's HEAD ∪ work-tree entries whose state changed.
-/// Submodule paths are left out: their contents count on their own.
-async fn touched(dir: &Path, snap: &Snapshot) -> Result<BTreeSet<String>, String> {
-    let mut subs = submodules(dir).await;
+/// Distinct paths the turn touched: committed since the snapshot's HEAD ∪ porcelain entries whose `XY` changed ∪
+/// paths whose content differs from the snapshot's work tree (edits to already-dirty files). Submodule paths are left
+/// out: their contents count on their own.
+async fn touched(dir: &Path, snap: &Snapshot, scans: &Scans) -> Result<BTreeSet<String>, String> {
+    let (mut subs, now_head, now, to) = tokio::join!(submodules(dir), head(dir), scans.porcelain(dir), scans.tree(dir));
     subs.extend(snap.subs.keys().cloned());
     let mut paths = BTreeSet::new();
-    if let Some(now) = head(dir).await
+    if let Some(now) = now_head
         && snap.head.as_ref() != Some(&now)
     {
         let base = snap.head.as_deref().unwrap_or(EMPTY_TREE);
@@ -656,9 +735,31 @@ async fn touched(dir: &Path, snap: &Snapshot) -> Result<BTreeSet<String>, String
         let own = diff.split('\0').filter(|p| !p.is_empty() && !p.starts_with(PRIVATE_DIR) && !subs.contains(*p));
         paths.extend(own.map(String::from));
     }
-    let now = tree(dir, &subs).await?;
-    paths.extend(now.iter().filter(|(p, s)| snap.tree.get(*p) != Some(s)).map(|(p, _)| p.clone()));
+    let mut now = now?;
+    now.retain(|path, _| !subs.contains(path));
+    paths.extend(now.iter().filter(|(p, xy)| snap.tree.get(*p) != Some(*xy)).map(|(p, _)| p.clone()));
     paths.extend(snap.tree.keys().filter(|p| !now.contains_key(*p)).cloned());
+    if let Some(from) = &snap.base {
+        paths.extend(edited(dir, from, &to?).await?.into_iter().filter(|p| !subs.contains(p)));
+    }
+    Ok(paths)
+}
+
+/// Paths whose content or mode differs between two trees, gitlinks (submodules, embedded repos) left out.
+async fn edited(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
+    if from == to {
+        return Ok(vec![]);
+    }
+    let raw = git(dir, &["diff", "--raw", "-z", "--no-renames", from, to]).await?;
+    let mut tokens = raw.split('\0');
+    let mut paths = vec![];
+    // `:<old mode> <new mode> <old id> <new id> <status>` then the path.
+    while let (Some(meta), Some(path)) = (tokens.next(), tokens.next()) {
+        let gitlink = meta.trim_start_matches(':').split(' ').take(2).any(|mode| mode == "160000");
+        if !gitlink && !path.starts_with(PRIVATE_DIR) {
+            paths.push(path.to_string());
+        }
+    }
     Ok(paths)
 }
 
@@ -1224,17 +1325,28 @@ mod tests {
     }
 
     #[test]
-    fn fingerprints_follow_content_across_read_chunks() {
-        let d = tempfile::tempdir().unwrap();
-        let (a, b) = (d.path().join("a"), d.path().join("b"));
-        let body = "y".repeat(200_000);
-        fs::write(&a, &body).unwrap();
-        fs::write(&b, &body).unwrap();
-        assert_eq!(fingerprint(&a), fingerprint(&b));
-        fs::write(&b, format!("{body}z")).unwrap();
-        assert_ne!(fingerprint(&a), fingerprint(&b));
-        assert_eq!(fingerprint(d.path()), None);
-        assert_eq!(fingerprint(&d.path().join("missing")), None);
+    fn dropping_a_scratch_index_deletes_it_and_its_lock() {
+        let (a, b) = (Scratch::new(), Scratch::new());
+        assert_ne!(a.0, b.0);
+        let lock = PathBuf::from(format!("{}.lock", a.0.display()));
+        fs::write(&a.0, "index").unwrap();
+        fs::write(&lock, "").unwrap();
+        let path = a.0.clone();
+        drop(a);
+        assert!(!path.exists() && !lock.exists());
+    }
+
+    #[tokio::test]
+    async fn edits_to_already_dirty_files_count_without_their_porcelain_changing() {
+        let r = Remote::new();
+        let w = r.clone_to("w");
+        fs::write(w.join("README.md"), "dirty before\n").unwrap();
+        fs::write(w.join("draft.txt"), "untracked before\n").unwrap();
+        let snap = snapshot(&w).await.unwrap();
+        fs::write(w.join("README.md"), "dirty before\nand during\n").unwrap();
+        fs::write(w.join("draft.txt"), "untracked before\nand during\n").unwrap();
+        assert_eq!(git(&w, &["status", "--porcelain"]).await.unwrap(), " M README.md\n?? draft.txt\n");
+        assert_eq!(changed_since(&w, &snap).await.unwrap(), 2);
     }
 
     #[tokio::test]

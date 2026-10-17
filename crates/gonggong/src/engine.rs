@@ -79,6 +79,8 @@ pub(crate) struct Inner {
     tunnel: tokio::sync::watch::Sender<bool>,
     /// Every viewer of a live turn refetches its diff as the run moves, and each diff stages the whole work tree.
     diffs: Coalesce<String, DiffResult>,
+    /// The @ file popover queries on every keystroke.
+    listings: files::Listings,
     diff_slots: Arc<tokio::sync::Semaphore>,
     /// Agent tools and providers driven from the Web.
     manage: Manage,
@@ -88,6 +90,8 @@ pub(crate) struct Inner {
 type DiffResult = Result<git::Diff, String>;
 /// Workspace diffs computed at once; more wait for a slot.
 const DIFF_SLOTS: usize = 2;
+/// Viewers of a live turn each refetch its diff every 2 s (LIVE_REFETCH_MS): one result serves them all.
+const DIFF_TTL: Duration = Duration::from_millis(1500);
 
 /// Drops a run from `Inner::preparing` however `start` exits.
 struct Preparing<'a>(&'a Inner, String);
@@ -124,7 +128,8 @@ impl Engine {
             casts,
             previews: tunnel::Allow::default(),
             tunnel: tokio::sync::watch::Sender::new(false),
-            diffs: Coalesce::default(),
+            diffs: Coalesce::with_ttl(DIFF_TTL),
+            listings: files::Listings::default(),
             diff_slots: Arc::new(tokio::sync::Semaphore::new(DIFF_SLOTS)),
             manage,
             replicas,
@@ -311,9 +316,9 @@ impl Handler for Engine {
             }
             ServerToDaemon::FilesList(req) => {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
-                let out = out.clone();
+                let (inner, out) = (self.0.clone(), out.clone());
                 tokio::spawn(async move {
-                    let (entries, error) = match files::list(&dir, &req.query, req.limit as usize).await {
+                    let (entries, error) = match inner.listings.list(&dir, &req.query, req.limit as usize).await {
                         Ok(entries) => (entries, None),
                         Err(e) => (vec![], Some(e)),
                     };
@@ -393,7 +398,11 @@ impl Handler for Engine {
                     };
                     let root = repos.first().filter(|r| r.kind == RepoKind::Root);
                     let base = root.and_then(|r| r.base.clone());
-                    let branch = if git::is_repo(&dir) { git::branch(&dir).await } else { None };
+                    let branch = match root {
+                        Some(r) => r.branch.clone(),
+                        None if git::is_repo(&dir) => git::branch(&dir).await,
+                        None => None,
+                    };
                     out.send(DaemonToServer::WorkspaceDiffResult {
                         request_id: req.request_id,
                         patch,

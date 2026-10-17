@@ -509,11 +509,10 @@ impl Shared {
         };
         // Before the submit: catching up afterwards writes the others' changes into the tree.
         if let Some(g) = git {
-            let result = async {
-                Ok::<_, String>((git::status(&g.cwd, &g.extras, g.kind).await?, git::turn_changed(&g.tracked).await?))
-            };
-            let patch = git::turn_patch(&g.tracked).await.inspect_err(|e| tracing::warn!("git patch failed: {e}"));
-            let git = result.await.inspect_err(|e| tracing::warn!("git post-turn failed: {e}")).ok();
+            let (status, changed, patch) = git::turn_end(&g.cwd, &g.extras, g.kind, &g.tracked).await;
+            let patch = patch.inspect_err(|e| tracing::warn!("git patch failed: {e}"));
+            let git = status.and_then(|s| Ok((s, changed?)));
+            let git = git.inspect_err(|e| tracing::warn!("git post-turn failed: {e}")).ok();
             let mut s = self.0.lock().unwrap();
             if let Some(a) = s.active.as_mut() {
                 if let Some(d) = git.as_ref().and(patch.ok()) {
