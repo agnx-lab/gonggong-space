@@ -1,9 +1,10 @@
-import type { BotDto, DiffScope } from '@gonggong/protocol'
+import type { BotDto, DiffScope, WebEvent } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tabKey, useWorkbench, type WorkbenchTab } from '../src/app/workbench'
 import { useWorkspace } from '../src/app/workspace'
 import { TabContent, TabLabel } from '../src/features/workbench/TabContent'
+import { realtime } from '../src/lib/realtime'
 
 const PATCHES: Record<string, string> = {
   uncommitted: [
@@ -60,7 +61,10 @@ beforeEach(() => {
   useWorkspace.setState({ bots: [{ id: 'b1', name: '小王的 Claude' } as BotDto] })
   useWorkbench.setState({ groupId: 'g1', open: true, benches: {} })
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 const open = (t = tab()) => {
   act(() => {
@@ -86,6 +90,30 @@ describe('diff tab', () => {
     expect(current()[0]).toMatchObject({ scope: 'base', file: null })
     expect(await screen.findByText('+c')).toBeTruthy()
     expect(screen.getByText('feat/x → main')).toBeTruthy()
+  })
+
+  it('reads nothing while hidden, not even as the bot runs, and catches up once shown', async () => {
+    let push: ((e: WebEvent) => void) | undefined
+    vi.spyOn(realtime, 'subscribe').mockImplementation((h) => {
+      push = h
+      return () => {}
+    })
+    act(() => {
+      useWorkbench.getState().show(tab())
+    })
+    const { rerender } = render(<TabContent tab={tab()} active={false} />)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      act(() => push?.({ t: 'run.progress', runId: 'r1', groupId: 'g1', botId: 'b1' }))
+      act(() => vi.advanceTimersByTime(2000))
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(calls).toEqual([])
+
+    rerender(<TabContent tab={tab()} active />)
+    expect(await screen.findByText('+new')).toBeTruthy()
+    expect(calls).toEqual(['/api/groups/g1/bots/b1/diff?scope=uncommitted'])
   })
 
   it('locates a changed file in the bot file browser', async () => {

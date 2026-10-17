@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { useBenchMode } from '../../app/ChatLayout'
 import { useIsMobile } from '../../app/viewport'
 import { liveFrames, tabKey, useBench, useWorkbench, type WorkbenchMode } from '../../app/workbench'
@@ -125,10 +125,13 @@ function PhoneWorkbench() {
   )
 }
 
-/** The chat page's workbench column: the current group's tabs, bodies kept mounted except sleeping web frames. */
-export function Workbench() {
+/**
+ * The chat page's workbench column: the current group's tabs, bodies kept mounted except sleeping web frames. Memoized:
+ * the chat page re-renders with every message, the tabs only follow their own stores.
+ */
+export const Workbench = memo(function Workbench() {
   return useIsMobile() ? <PhoneWorkbench /> : <DesktopWorkbench />
-}
+})
 
 function DesktopWorkbench() {
   const bench = useBench()

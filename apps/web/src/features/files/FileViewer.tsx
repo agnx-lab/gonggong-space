@@ -1,5 +1,5 @@
 import { FILE_TEXT_MAX_BYTES, type FileTextDto } from '@gonggong/protocol'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type LineRange, useWorkbench } from '../../app/workbench'
 import { api } from '../../lib/api'
 import { copyWithToast } from '../../lib/clipboard'
@@ -76,7 +76,8 @@ const TEXTUAL: ViewKind[] = ['md', 'html', 'text', 'unknown']
 
 const level = (line: string) => (/ERROR|FAIL/.test(line) ? 'error' : /WARN/.test(line) ? 'warn' : null)
 
-function Lines({
+/** Memoized: a file can hold up to 2 MB of text, split, highlighted and drawn line by line. */
+const Lines = memo(function Lines({
   text,
   colored,
   lang,
@@ -87,9 +88,12 @@ function Lines({
   lang: Lang | null
   line?: LineRange
 }) {
-  const lines = text.replace(/\n$/, '').split('\n')
-  const shown = lines.slice(0, LINES_MAX)
-  const tokens = useHighlight(shown.join('\n'), lang)
+  const { count, shown, code } = useMemo(() => {
+    const lines = text.replace(/\n$/, '').split('\n')
+    const shown = lines.slice(0, LINES_MAX)
+    return { count: lines.length, shown, code: shown.join('\n') }
+  }, [text])
+  const tokens = useHighlight(code, lang)
   const first = useRef<HTMLDivElement>(null)
   const from = line?.from
   const to = line?.to
@@ -119,14 +123,14 @@ function Lines({
           )
         })}
       </div>
-      {lines.length > shown.length ? (
+      {count > shown.length ? (
         <div className="fv__note">
-          {t('仅显示前 {max} 行，共 {n} 行，完整内容请下载', { max: LINES_MAX, n: lines.length })}
+          {t('仅显示前 {max} 行，共 {n} 行，完整内容请下载', { max: LINES_MAX, n: count })}
         </div>
       ) : null}
     </>
   )
-}
+})
 
 function Download({ url, name, message }: { url: string; name: string; message: string }) {
   return (

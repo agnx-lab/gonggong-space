@@ -12,14 +12,15 @@ export const locateFile = (botId: string, path: string) =>
   openTab({ kind: 'files', botId, dir: path.split('/').slice(0, -1).join('/'), selected: path })
 
 /** A bot workspace's changes in this group: uncommitted work or the branch against main (design §4.4). */
-export function DiffTab({ tab, tabKey }: TabProps<'diff'>) {
+export function DiffTab({ tab, tabKey, active }: TabProps<'diff'>) {
   const groupId = useWorkbench((s) => s.groupId)
   const patch = useWorkbench((s) => s.patch)
   const source = useMemo(
     () => (groupId ? { groupId, botId: tab.botId, runId: null } : null),
     [groupId, tab.botId],
   )
-  const diff = useWorkspaceDiff(source, tab.scope)
+  // Each read runs git diff on the bot's machine: a hidden tab reads nothing and catches up once shown.
+  const diff = useWorkspaceDiff(active ? source : null, tab.scope)
   return (
     <div className="wb-diff">
       <DiffPane

@@ -124,7 +124,8 @@ describe('notification center', () => {
 
     fireEvent.click(within(list).getByText('小王的 Claude 请求执行 go build ./...'))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/g/g1?run=r2'))
-    expect(calls.some((c) => c.path === '/notifications/n1/read')).toBe(true)
+    // 全部标为已读 already read it.
+    expect(calls.some((c) => c.path === '/notifications/n1/read')).toBe(false)
     await waitFor(() => expect(screen.queryByTestId('notification-list')).toBeNull())
   })
 
@@ -155,8 +156,8 @@ describe('notification center', () => {
     expect(screen.getByTestId('where').textContent).toBe('/')
   })
 
-  it('opens a bot shared with me from its notification', async () => {
-    mockApi({
+  it('opens a bot shared with me from its notification, reading it', async () => {
+    const calls = mockApi({
       'GET /notifications': [
         note({ type: 'bot_shared', payload: { botId: 'b1', botName: '小王的 Claude', byName: '王磊' } }),
       ],
@@ -167,6 +168,7 @@ describe('notification center', () => {
     const list = await screen.findByTestId('notification-list')
     fireEvent.click(await within(list).findByText('王磊 将 小王的 Claude 共享给你，可以和它私聊'))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/bot/b1'))
+    expect(calls.some((c) => c.path === '/notifications/n1/read')).toBe(true)
   })
 
   it('shows handled items as 已处理, follows live resolutions and clamps long text', async () => {
@@ -196,6 +198,24 @@ describe('notification center', () => {
     const resolved = { ...note({ id: 'n2' }), readAt: done, resolvedAt: done }
     push({ t: 'notification.resolved', notifications: [resolved], unread: 0 })
     await waitFor(() => expect(within(second).getByText('已处理')).toBeTruthy())
+    realtime.stop()
+  })
+
+  it('puts a new notification on top of the open list without reloading it', async () => {
+    const calls = mockApi({ 'GET /notifications': [note({ id: 'n1' })] })
+    vi.stubGlobal('WebSocket', FakeSocket)
+    realtime.start()
+    renderShell()
+    fireEvent.click(screen.getByRole('button', { name: /^通知/ }))
+    const list = await screen.findByTestId('notification-list')
+    await within(list).findByText('待审批')
+    push({
+      t: 'notification.new',
+      notification: note({ id: 'n9', type: 'offline_expired', payload: { groupId: 'g1', botName: 'B' } }),
+    })
+    await waitFor(() => expect(list.querySelectorAll('.notif__item')).toHaveLength(2))
+    expect(within(list.querySelector('.notif__item') as HTMLElement).getByText('Bot 离线作废')).toBeTruthy()
+    expect(calls.filter((c) => c.path === '/notifications')).toHaveLength(1)
     realtime.stop()
   })
 

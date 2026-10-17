@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { HighlighterCore } from 'shiki/core'
 import './highlight.css'
 
@@ -161,7 +161,8 @@ const ITALIC = 1
 const BOLD = 2
 const UNDERLINE = 4
 
-export function Tokens({ tokens }: { tokens: HlToken[] }) {
+/** Memoized: token lines stay the same objects until the code changes, so re-rendered views skip them. */
+export const Tokens = memo(function Tokens({ tokens }: { tokens: HlToken[] }) {
   return tokens.map((t, i) => {
     const fs = t.fontStyle ?? 0
     const style = {
@@ -178,4 +179,4 @@ export function Tokens({ tokens }: { tokens: HlToken[] }) {
       </span>
     )
   })
-}
+})

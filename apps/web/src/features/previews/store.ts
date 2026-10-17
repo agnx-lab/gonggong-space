@@ -21,9 +21,7 @@ function sync() {
       })
   })
   // Events missed while offline: the next use reloads.
-  realtime.onStatus((s) => {
-    if (s === 'open') useStore.setState({}, true)
-  })
+  realtime.onReconnect(() => useStore.setState({}, true))
 }
 
 export function loadPreviews(groupId: string) {

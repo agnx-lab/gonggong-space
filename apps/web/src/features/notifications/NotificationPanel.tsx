@@ -1,5 +1,5 @@
 import { type NotificationDto, notificationView, type PermissionOption } from '@gonggong/protocol'
-import { type AnimationEvent, useCallback, useEffect, useState } from 'react'
+import { type AnimationEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useWorkspace } from '../../app/workspace'
 import { api } from '../../lib/api'
@@ -20,6 +20,7 @@ import {
   useEscape,
   usePresence,
 } from '../../ui'
+import { otherTeam } from '../teams/store'
 import { PushAction } from './NotificationSettings'
 import './notifications.css'
 import { t } from '../../i18n'
@@ -121,7 +122,8 @@ function Panel({
   const navigate = useNavigate()
   const [items, setItems] = useState<NotificationDto[] | null>(null)
   const [failed, setFailed] = useState(false)
-  const count = useWorkspace((s) => s.notifCount)
+  // Pushed since the panel opened: a list read while they arrived may predate them.
+  const arrived = useRef<NotificationDto[]>([])
   const groups = useWorkspace((s) => s.groups)
   const outside = (n: NotificationDto) =>
     n.type === 'approval' &&
@@ -132,19 +134,27 @@ function Panel({
 
   const load = useCallback(() => {
     setFailed(false)
-    api.get<NotificationDto[]>('/notifications').then(setItems, () => setFailed(true))
+    api.get<NotificationDto[]>('/notifications').then(
+      (list) => setItems([...arrived.current.filter((n) => !list.some((x) => x.id === n.id)), ...list]),
+      () => setFailed(true),
+    )
   }, [])
 
-  // Refetch whenever a new one arrives while open.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: count is the refresh trigger
-  useEffect(load, [count])
+  useEffect(load, [load])
 
   useEffect(
     () =>
       realtime.subscribe((e) => {
-        if (e.t !== 'notification.resolved') return
-        const done = new Map(e.notifications.map((n) => [n.id, n]))
-        setItems((list) => list?.map((n) => done.get(n.id) ?? n) ?? null)
+        if (e.t === 'notification.new') {
+          // Same scope as the list and the badge: this team's and platform-level ones.
+          const n = e.notification
+          if (otherTeam(n.teamId)) return
+          arrived.current = [n, ...arrived.current]
+          setItems((list) => list && [n, ...list.filter((x) => x.id !== n.id)])
+        } else if (e.t === 'notification.resolved') {
+          const done = new Map(e.notifications.map((n) => [n.id, n]))
+          setItems((list) => list?.map((n) => done.get(n.id) ?? n) ?? null)
+        }
       }),
     [],
   )

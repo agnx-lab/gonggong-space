@@ -7,7 +7,7 @@ import type {
   SystemParams,
   UserDto,
 } from '@gonggong/protocol'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
@@ -456,6 +456,37 @@ describe('机器与网络 · 实时', () => {
     })
     await waitFor(() => expect(within(rowOf('cc-mbp')).getByText('在线')).toBeTruthy())
     expect(calls.filter((c) => c.path === '/admin/machines').length).toBe(2)
+  })
+
+  it('loads once on the first connect and again after a reconnect', async () => {
+    const sockets: { onopen: (() => void) | null; onclose: (() => void) | null }[] = []
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        onopen: (() => void) | null = null
+        onclose: (() => void) | null = null
+        constructor() {
+          sockets.push(this)
+        }
+        close() {}
+      },
+    )
+    const calls = mockApi({
+      'GET /admin/machines': [],
+      'GET /admin/params': PARAMS,
+      'GET /bots': [],
+      'GET /machines': [],
+      'GET /notifications': [],
+    })
+    renderAt('/admin/machines')
+    await screen.findByText('还没有机器')
+    const loads = () => calls.filter((c) => c.path === '/admin/machines').length
+    await act(async () => sockets.at(-1)?.onopen?.())
+    expect(loads()).toBe(1)
+    await act(async () => sockets.at(-1)?.onclose?.())
+    await waitFor(() => expect(sockets).toHaveLength(2), { timeout: 2000 })
+    await act(async () => sockets.at(-1)?.onopen?.())
+    expect(loads()).toBe(2)
   })
 
   it('catches the machine list up when a hidden tab is shown again', async () => {

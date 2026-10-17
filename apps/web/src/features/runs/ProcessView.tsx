@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { cx } from '../../lib/cx'
-import { useNow } from '../../lib/now'
+import { Elapsed } from '../../lib/now'
 import { Button, Icon, type IconName, Mascot, type MascotCostume } from '../../ui'
 import { Markdown } from '../chat/Markdown'
 import { type Action, buildItems, fmtWorked, GROUP_SEP, type Item } from './activity'
@@ -22,6 +22,7 @@ export function ProcessView({
   onOpenDiff,
   onStopTask,
   costume,
+  active = true,
 }: {
   steps: Step[]
   root: string | null
@@ -32,13 +33,14 @@ export function ProcessView({
   onStopTask?: (taskId: string) => Promise<unknown>
   /** The bot's role, acting out the thinking between calls. */
   costume?: MascotCostume
+  /** False while out of sight (a hidden workbench tab): its clock stops. */
+  active?: boolean
 }) {
   // Only the user's own folding is remembered; everything starts folded (ZCode / Codex).
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  const items = buildItems(steps, root, live, workedMs)
+  const items = useMemo(() => buildItems(steps, root, live, workedMs), [steps, root, live, workedMs])
   // Between calls the model is thinking: say so, like Codex's `Working (12s)` line.
   const idle = live && !steps.some((s) => s.running)
-  const now = useNow(idle)
   const ctx: Ctx = {
     open,
     toggle: (key, current = !!open[key]) => setOpen((o) => ({ ...o, [key]: !current })),
@@ -56,7 +58,11 @@ export function ProcessView({
         <li className="act-item act-working" aria-live="polite">
           <Mascot className="act-working__mascot" action="think" costume={costume} size={32} />
           <span className="act-shimmer">{t('正在处理')}</span>
-          {startedAt ? <span className="act-row__meta">{fmtWorked(now - Date.parse(startedAt))}</span> : null}
+          {startedAt ? (
+            <span className="act-row__meta">
+              <Elapsed from={Date.parse(startedAt)} ticking={active} format={fmtWorked} />
+            </span>
+          ) : null}
         </li>
       ) : null}
     </ol>

@@ -17,6 +17,7 @@ import { ScheduleTag } from '../src/features/schedules/ScheduleTag'
 import { resetSchedules } from '../src/features/schedules/store'
 import { realtime } from '../src/lib/realtime'
 import { mockApi } from './mockApi'
+import { startRealtime } from './socket'
 
 const bot = (o: Partial<BotDto>): BotDto => ({
   id: 'b1',
@@ -114,6 +115,17 @@ describe('schedules panel', () => {
         body: { enabled: false },
       }),
     )
+  })
+
+  it('loads once on the first connect and again after a reconnect', async () => {
+    const calls = mockApi({ 'GET /groups/g1/schedules': list(schedule()) })
+    const rt = startRealtime()
+    render(<SchedulesView groupId="g1" />)
+    await screen.findByText('日报')
+    await rt.open()
+    expect(calls).toHaveLength(1)
+    await rt.reconnect()
+    expect(calls).toHaveLength(2)
   })
 
   it('follows realtime updates', async () => {

@@ -30,12 +30,10 @@ export function ProviderBanner({ group }: { group: GroupDto }) {
     const offEvents = realtime.subscribe((e) => {
       if (e.t === 'group.providerState' && e.groupId === group.id) setItems(e.items)
     })
-    const offStatus = realtime.onStatus((st) => {
-      if (st === 'open') load()
-    })
+    const offReconnect = realtime.onReconnect(load)
     return () => {
       offEvents()
-      offStatus()
+      offReconnect()
     }
   }, [group.id])
 

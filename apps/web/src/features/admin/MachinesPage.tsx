@@ -72,14 +72,12 @@ export function MachinesPage() {
     const offEvents = realtime.subscribe((e) => {
       if (e.t === 'machine.updated' || e.t === 'machine.removed') void load()
     })
-    const offStatus = realtime.onStatus((st) => {
-      if (st === 'open') void load()
-    })
+    const offReconnect = realtime.onReconnect(() => void load())
     return () => {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', poll)
       offEvents()
-      offStatus()
+      offReconnect()
     }
   }, [load])
   const old = machines?.filter(outdated) ?? []

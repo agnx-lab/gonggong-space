@@ -11,3 +11,22 @@ export function useNow(ticking: boolean) {
   }, [ticking])
   return now
 }
+
+/**
+ * Time from `from` to `to`, or to now while `to` is null; a leaf, so the per-second tick (while `ticking`) re-renders
+ * only this text and not the view around it.
+ */
+export function Elapsed({
+  from,
+  to = null,
+  ticking,
+  format,
+}: {
+  from: number
+  to?: number | null
+  ticking: boolean
+  format: (ms: number) => string
+}) {
+  const now = useNow(ticking && to === null)
+  return format((to ?? now) - from)
+}

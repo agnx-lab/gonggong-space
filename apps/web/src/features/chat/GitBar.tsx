@@ -297,7 +297,7 @@ export function GitBar({ group }: { group: GroupDto }) {
     const load = () => loadBotStates(group.id).catch(() => {})
     load()
     // Updates pushed while the socket was down are lost: catch up on reconnect.
-    return realtime.onStatus((st) => st === 'open' && load())
+    return realtime.onReconnect(load)
   }, [group.id, botKey])
 
   if (!group.botIds.length) return null

@@ -90,6 +90,40 @@ describe('realtime client', () => {
     rt.stop()
   })
 
+  it('reports reconnects only: not the first open after subscribing while connecting', () => {
+    const rt = createRealtime()
+    rt.start()
+    const reconnect = vi.fn()
+    const off = rt.onReconnect(reconnect)
+    last().open()
+    expect(reconnect).not.toHaveBeenCalled()
+
+    last().drop()
+    vi.advanceTimersByTime(500)
+    last().open()
+    expect(reconnect).toHaveBeenCalledTimes(1)
+
+    off()
+    last().drop()
+    vi.advanceTimersByTime(1000)
+    last().open()
+    expect(reconnect).toHaveBeenCalledTimes(1)
+    rt.stop()
+  })
+
+  it('counts an already open socket as connected, so its first drop and return is a reconnect', () => {
+    const rt = createRealtime()
+    rt.start()
+    last().open()
+    const reconnect = vi.fn()
+    rt.onReconnect(reconnect)
+    last().drop()
+    vi.advanceTimersByTime(500)
+    last().open()
+    expect(reconnect).toHaveBeenCalledTimes(1)
+    rt.stop()
+  })
+
   it('stops without reconnecting and unsubscribes', () => {
     const rt = createRealtime()
     const handler = vi.fn()

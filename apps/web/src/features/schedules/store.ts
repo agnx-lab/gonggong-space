@@ -25,9 +25,7 @@ function sync() {
     if (e.t === 'group.schedules') useStore.setState({ [e.groupId]: e.schedules })
   })
   // Events missed while offline: the next use reloads.
-  realtime.onStatus((s) => {
-    if (s === 'open') useStore.setState({}, true)
-  })
+  realtime.onReconnect(() => useStore.setState({}, true))
 }
 
 function load(groupId: string) {
