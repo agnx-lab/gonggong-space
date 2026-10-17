@@ -10,7 +10,6 @@ mod daemon;
 mod engine;
 mod git_identity;
 mod hosted;
-mod i18n;
 mod net;
 mod providers_run;
 mod service;

@@ -1,4 +1,4 @@
-//! Its own process: switching the locale here cannot leak into other tests.
+//! Its own binary: the locale is process-wide, and tests/it sets it to Chinese from tests running alongside.
 use gonggong::i18n::{Locale, set_locale};
 use gonggong::protocol::Approval;
 use gonggong::t;
