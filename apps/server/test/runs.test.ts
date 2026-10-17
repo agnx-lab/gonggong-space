@@ -3,7 +3,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { groupBots, messages, notifications, runEvents, runs, systemParams } from '../src/db/schema.js'
 import { forgetSysParams } from '../src/modules/admin/params.js'
-import { publishRuns } from '../src/modules/runs/dto.js'
+import { listRuns, publishRuns, runDtoLoader } from '../src/modules/runs/dto.js'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
 import { listBotStates } from '../src/modules/workspaces/state.js'
 import { createTestApp, inbox, type TestApp } from './support/app.js'
@@ -498,5 +498,69 @@ describe('run engine', () => {
       headers: { cookie: await t.seed.cookie(outsider.id) },
     })
     expect(denied.statusCode).toBe(404)
+  })
+})
+
+describe('timeline runs', () => {
+  it('lists the page’s runs and, on request, the group’s live ones: once each, in queue order', async () => {
+    const alice = await t.seed.user({ name: '王磊' })
+    const bot = await t.seed.bot({ ownerId: alice.id, name: 'A' })
+    const group = await t.seed.group({ createdBy: alice.id, botIds: [bot.id] })
+    const other = await t.seed.group({ createdBy: alice.id, botIds: [bot.id] })
+    const say = async (groupId: string) =>
+      (
+        await t.db
+          .insert(messages)
+          .values({ groupId, kind: 'user', authorUserId: alice.id, body: 'x' })
+          .returning()
+      )[0]!
+    const old = await say(group.id)
+    const page = [await say(group.id), await say(group.id)]
+    const elsewhere = await say(other.id)
+    const run = async (
+      m: typeof old,
+      status: string,
+      second: number,
+      extra: Partial<typeof runs.$inferInsert> = {},
+    ) =>
+      (
+        await t.db
+          .insert(runs)
+          .values({
+            groupId: m.groupId,
+            botId: bot.id,
+            triggerMessageId: m.id,
+            originUserId: alice.id,
+            status,
+            queuedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, second)),
+            patch: 'diff --git a/x b/x',
+            ...extra,
+          })
+          .returning()
+      )[0]!
+    const oldLive = await run(old, 'running', 4, { startedAt: new Date(), model: 'opus', effort: 'high' })
+    await run(old, 'completed', 1)
+    await run(old, 'queued', 2)
+    const done = await run(page[0]!, 'completed', 3, {
+      usage: { input: 1, output: 2 },
+      delegation: { subagents: { a: 'running' }, tasks: { b: 'paused' } },
+      step: '王磊 执行了 /stop',
+      stepI18n: { key: '{user} 执行了 /stop', params: { user: '王磊' } },
+      interrupt: 'pending',
+      stoppedBy: alice.id,
+      endedAt: new Date(),
+      filesChanged: 3,
+    })
+    const waiting = await run(page[1]!, 'awaiting_approval', 0)
+    await run(elsewhere, 'running', 5)
+
+    const rows = await t.db.select().from(runs)
+    const toDto = await runDtoLoader(t.ctx, rows)
+    const cards = (...want: (typeof old)['id'][]) => want.map((id) => toDto(rows.find((r) => r.id === id)!))
+    const ids = page.map((m) => m.id)
+    expect(await listRuns(t.ctx, group.id, ids, true)).toEqual(cards(waiting.id, done.id, oldLive.id))
+    expect(await listRuns(t.ctx, group.id, ids)).toEqual(cards(waiting.id, done.id))
+    expect(await listRuns(t.ctx, group.id, [], true)).toEqual(cards(waiting.id, oldLive.id))
+    expect(await listRuns(t.ctx, group.id, [])).toEqual([])
   })
 })

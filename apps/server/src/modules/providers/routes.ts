@@ -137,6 +137,8 @@ export function providerRoutes(ctx: Ctx) {
         const me = await requireUser(ctx, req)
         const m = await owned(req, me.id)
         const { agent, ...agentSettings } = AgentSettingsReq.parse(req.body)
+        // Older daemons drop an action they do not know, which would leave the request waiting out the timeout.
+        requireFeature(ctx, m.id, 'agentSettings', '请先升级该机器的 daemon 才能使用 Agent 设置')
         const res = view(
           (await providersCmd(ctx, m.id, { action: 'agentSettings', agent, agentSettings })).view,
         )

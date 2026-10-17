@@ -1,11 +1,12 @@
-import type {
-  AgentSettingValues,
-  DiffRepo,
-  I18nText,
-  RunSettingsSnapshot,
-  RunSyncDone,
+import {
+  type AgentSettingValues,
+  type DiffRepo,
+  type I18nText,
+  LIVE_RUN_STATUSES,
+  type RunSettingsSnapshot,
+  type RunSyncDone,
 } from '@gonggong/protocol'
-import { sql } from 'drizzle-orm'
+import { type AnyColumn, sql } from 'drizzle-orm'
 import {
   bigint,
   bigserial,
@@ -507,6 +508,13 @@ export const messageReactions = pgTable(
   (t) => [primaryKey({ columns: [t.messageId, t.userId, t.emoji] })],
 )
 
+/**
+ * `status IN (…)` with the statuses written out, not bound: a bound list hides from a generic plan that it implies a
+ * partial index's predicate (`runs_group_live`).
+ */
+export const statusIn = (status: AnyColumn, statuses: readonly string[]) =>
+  sql`${status} in (${sql.raw(statuses.map((s) => `'${s}'`).join(', '))})`
+
 export const runs = pgTable(
   'runs',
   {
@@ -585,6 +593,7 @@ export const runs = pgTable(
     index('runs_waiting').on(t.queuedAt).where(sql`${t.status} = 'offline_wait'`),
     index('runs_finalizing').on(t.botId).where(sql`${t.finalizing}`),
     index('runs_unpurged_ended').on(t.endedAt).where(sql`${t.purgedAt} is null`),
+    index('runs_group_live').on(t.groupId).where(statusIn(t.status, LIVE_RUN_STATUSES)),
   ],
 )
 

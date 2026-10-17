@@ -1,7 +1,8 @@
 import { PROTOCOL_VERSION, type RunStart, type WebEvent } from '@gonggong/protocol'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { messages, runs } from '../src/db/schema.js'
+import { messages, runEvents, runs } from '../src/db/schema.js'
+import { stopRuns } from '../src/modules/runs/stop.js'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
 import { createTestApp, inbox, type TestApp } from './support/app.js'
 
@@ -11,7 +12,7 @@ beforeEach(async () => {
 })
 afterEach(() => t.close())
 
-async function daemon(token: string) {
+async function daemon(token: string, activeRuns: string[] = []) {
   const ws = t.ws('/ws/daemon')
   const box = inbox(ws)
   await box.opened
@@ -23,10 +24,61 @@ async function daemon(token: string) {
       daemonVersion: '0.1.0',
       machine: { name: 'mbp', os: 'macos', arch: 'aarch64' },
       agents: [],
+      activeRuns,
     }),
   )
   expect(await box.next()).toMatchObject({ t: 'welcome' })
-  return { ws, box }
+  const send = (m: unknown) => ws.send(JSON.stringify(m))
+  return { ws, box, send }
+}
+
+/** One bot on one machine running one turn; `deltas` are the pushed run.delta texts. */
+async function oneRun() {
+  const alice = await t.seed.user({ name: '王磊' })
+  const { machine, token } = await t.seed.machine(alice.id)
+  const bot = await t.seed.bot({ ownerId: alice.id, name: 'A', machineId: machine.id, binding: 'bound' })
+  const group = await t.seed.group({ createdBy: alice.id, botIds: [bot.id] })
+  const d = await daemon(token)
+  const deltas: string[] = []
+  t.ctx.bus.attach(alice.id, (e) => {
+    if (e.t === 'run.delta') deltas.push(e.text)
+  })
+  const [m] = await t.db
+    .insert(messages)
+    .values({
+      groupId: group.id,
+      kind: 'user',
+      authorUserId: alice.id,
+      body: '@A go',
+      meta: { mentions: [bot.id] },
+    })
+    .returning()
+  await triggerRuns(t.ctx, m!)
+  const runId = (await d.box.next<RunStart>()).runId
+  const text = (delta: string) => d.send({ t: 'run.event', runId, event: { kind: 'text', delta } })
+  // A background task is accepted after the turn ended too: once it is stored, earlier reports were handled.
+  const task = async (taskId: string, to = d) => {
+    to.send({
+      t: 'run.event',
+      runId,
+      event: { kind: 'task', taskId, name: 'x', taskType: 'shell', state: 'running' },
+    })
+    await expect
+      .poll(async () =>
+        (await t.db.select().from(runEvents).where(eq(runEvents.runId, runId))).some(
+          (e) => (e.payload as { taskId?: string }).taskId === taskId,
+        ),
+      )
+      .toBe(true)
+  }
+  const stored = async () =>
+    (
+      await t.db
+        .select()
+        .from(runEvents)
+        .where(and(eq(runEvents.runId, runId), eq(runEvents.kind, 'text')))
+    ).map((e) => e.payload)
+  return { alice, machine, token, group, d, runId, deltas, text, task, stored }
 }
 
 it('handles one machine’s reports while another machine’s are stuck', async () => {
@@ -78,4 +130,69 @@ it('handles one machine’s reports while another machine’s are stuck', async 
   release()
   await lock
   await expect.poll(() => delta(runA)).toBe(true)
+})
+
+it('streams later chunks of a checked run without waiting on its row', async () => {
+  const { runId, deltas, text } = await oneRun()
+  text('a ')
+  await expect.poll(() => deltas.join('')).toBe('a ')
+
+  let release = () => {}
+  const held = new Promise<void>((r) => {
+    release = r
+  })
+  let locked = () => {}
+  const lock = t.db.transaction(async (tx) => {
+    await tx.select().from(runs).where(eq(runs.id, runId)).for('update')
+    locked()
+    await held
+  })
+  await new Promise<void>((r) => {
+    locked = r
+  })
+  try {
+    text('b ')
+    await expect.poll(() => deltas.join('')).toBe('a b ')
+  } finally {
+    release()
+    await lock
+  }
+})
+
+it('drops chunks that arrive after the run ended', async () => {
+  const { runId, deltas, text, task, stored, d } = await oneRun()
+  text('a ')
+  await expect.poll(() => deltas.join('')).toBe('a ')
+  d.send({
+    t: 'run.done',
+    runId,
+    outcome: 'completed',
+    reply: '',
+    filesChanged: 0,
+    usage: null,
+    sessionId: null,
+    newSessionReason: null,
+    error: null,
+    git: null,
+    patch: null,
+    appendsApplied: 0,
+  })
+  text('late ')
+  await task('t1')
+  expect(deltas.join('')).toBe('a ')
+  expect(await stored()).toMatchObject([{ kind: 'text' }])
+})
+
+it('drops chunks of a run stopped while its machine was away', async () => {
+  const { alice, token, group, runId, deltas, text, task, d, machine } = await oneRun()
+  text('a ')
+  await expect.poll(() => deltas.join('')).toBe('a ')
+  d.ws.close()
+  await expect.poll(() => t.ctx.hub.isOnline(machine.id)).toBe(false)
+  expect(await stopRuns(t.ctx, { groupId: group.id }, alice)).toMatchObject([{ status: 'interrupted' }])
+
+  const back = await daemon(token, [runId])
+  back.send({ t: 'run.event', runId, event: { kind: 'text', delta: 'late ' } })
+  await task('t1', back)
+  expect(deltas.join('')).toBe('a ')
 })

@@ -1,7 +1,7 @@
 import type { ApprovalDto, GroupParams, QuestionSetDto, RunDto, RunStatus, Usage } from '@gonggong/protocol'
-import { and, asc, eq, inArray, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, type SQL } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
-import { approvals, attachments, groups, questionSets, runs, users } from '../../db/schema.js'
+import { approvals, attachments, groups, questionSets, runs, statusIn, users } from '../../db/schema.js'
 import { PARAM_DEFAULTS } from '../admin/params.js'
 import { mirrorRun } from '../feishu/mirror.js'
 import { groupParams } from '../groups/params.js'
@@ -12,9 +12,37 @@ import { stepI18nOf } from './step.js'
 export type RunRow = typeof runs.$inferSelect
 type ApprovalRow = typeof approvals.$inferSelect
 
+/** The columns a run card is built from: never the patch, which may be large. */
+const cardColumns = {
+  id: runs.id,
+  groupId: runs.groupId,
+  botId: runs.botId,
+  triggerMessageId: runs.triggerMessageId,
+  triggerUserId: runs.triggerUserId,
+  hop: runs.hop,
+  status: runs.status,
+  step: runs.step,
+  stepI18n: runs.stepI18n,
+  filesChanged: runs.filesChanged,
+  usage: runs.usage,
+  newSessionReason: runs.newSessionReason,
+  queuedAt: runs.queuedAt,
+  startedAt: runs.startedAt,
+  endedAt: runs.endedAt,
+  parentRunId: runs.parentRunId,
+  originUserId: runs.originUserId,
+  interrupt: runs.interrupt,
+  stoppedBy: runs.stoppedBy,
+  delegation: runs.delegation,
+  model: runs.model,
+  effort: runs.effort,
+  sync: runs.sync,
+}
+type CardRow = Pick<RunRow, keyof typeof cardColumns>
+
 /** Pure mapping; `runDtoLoader` loads `approvals`, `questions` and `hopMax` (defaults: none / none / system param). */
 export const runDto = (
-  r: RunRow,
+  r: CardRow,
   extra: {
     approvals?: ApprovalDto[]
     questions?: QuestionSetDto[]
@@ -80,7 +108,7 @@ export const approvalDto = (a: ApprovalRow, decidedByName: string | null): Appro
 })
 
 /** Loads what cards need beyond the row (approval records, the group's hop limit) for `rows`, then maps them. */
-export async function runDtoLoader(ctx: Ctx, rows: RunRow[]): Promise<(r: RunRow) => RunDto> {
+export async function runDtoLoader(ctx: Ctx, rows: CardRow[]): Promise<(r: CardRow) => RunDto> {
   if (!rows.length) return (r) => runDto(r)
   const ids = rows.map((r) => r.id)
   const [aps, qs, groupRows] = await Promise.all([
@@ -129,18 +157,25 @@ export async function listRuns(
   triggerMessageIds?: string[],
   withLive = false,
 ): Promise<RunDto[]> {
-  if (triggerMessageIds?.length === 0 && !withLive) return []
-  const byTrigger = triggerMessageIds?.length ? inArray(runs.triggerMessageId, triggerMessageIds) : undefined
-  const rows = await ctx.db
-    .select()
-    .from(runs)
-    .where(
-      and(
-        eq(runs.groupId, groupId),
-        triggerMessageIds && withLive ? or(byTrigger, inArray(runs.status, LIVE)) : byTrigger,
-      ),
-    )
-    .orderBy(asc(runs.queuedAt))
+  // Two lookups, each served by its own index (runs_trigger, runs_group_live), instead of one OR over the group's
+  // whole history.
+  const select = (where?: SQL) =>
+    ctx.db
+      .select(cardColumns)
+      .from(runs)
+      .where(and(eq(runs.groupId, groupId), where))
+  const [paged, live] = await Promise.all([
+    !triggerMessageIds
+      ? select()
+      : triggerMessageIds.length
+        ? select(inArray(runs.triggerMessageId, triggerMessageIds))
+        : [],
+    triggerMessageIds && withLive ? select(statusIn(runs.status, LIVE)) : [],
+  ])
+  const seen = new Set(paged.map((r) => r.id))
+  const rows = [...paged, ...live.filter((r) => !seen.has(r.id))].sort(
+    (a, b) => a.queuedAt.getTime() - b.queuedAt.getTime(),
+  )
   return rows.map(await runDtoLoader(ctx, rows))
 }
 

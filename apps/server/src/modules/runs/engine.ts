@@ -102,11 +102,17 @@ export function startRunEngine(ctx: Ctx) {
       for (const { run } of unfinished)
         await finalize(ctx, run).catch((err) => console.error('run finalize:', err))
     })
+  // While a machine is away its runs may end server-side (a /stop while offline): their streams are checked again.
+  const onOffline = (machineId: string) => {
+    for (const st of streams.values()) if (st.owner?.machineId === machineId) st.owner = undefined
+  }
   ctx.hub.on('message', onMessage)
   ctx.hub.on('online', onOnline)
+  ctx.hub.on('offline', onOffline)
   return async () => {
     ctx.hub.off('message', onMessage)
     ctx.hub.off('online', onOnline)
+    ctx.hub.off('offline', onOffline)
     await Promise.all([...chains.values()].map((c) => c.tail))
     for (const [runId, st] of streams) if (st.ctx === ctx) await forgetStream(runId)
   }
@@ -139,12 +145,15 @@ async function liveRun(
 }
 
 async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent) {
-  const run = await liveRun(ctx, machineId, runId, raw.kind === 'task' ? 'ended' : 'live')
-  if (!run) return
   if (raw.kind === 'text' || raw.kind === 'thought') {
-    await pushDelta(ctx, run, await appendStream(ctx, runId, raw))
+    // Only a stream's first chunk is checked against the row: the stream is dropped whenever the run ends.
+    const run = checkedRun(runId, machineId) ?? (await liveRun(ctx, machineId, runId))
+    if (!run) return
+    await pushDelta(ctx, run, await appendStream(ctx, { machineId, runId, groupId: run.groupId }, raw))
     return
   }
+  const run = await liveRun(ctx, machineId, runId, raw.kind === 'task' ? 'ended' : 'live')
+  if (!run) return
   await pushDelta(ctx, run, await closeStream(runId))
   const event = redactDeep(raw)
   await ctx.db.insert(runEvents).values({ runId, kind: event.kind, payload: sealEvent(event) })
@@ -215,8 +224,17 @@ type Segment = {
   /** Length of `plain` already stored. */
   saved: number
 }
+/** Who a stream's run was found live for: its machine and group. */
+type Owner = { machineId: string; runId: string; groupId: string }
 /** A run's open stream: its latest segment, stored on a debounce through one ordered write chain. */
-type Open = { ctx: Ctx; runId: string; seg?: Segment; timer?: NodeJS.Timeout; write: Promise<void> }
+type Open = {
+  ctx: Ctx
+  runId: string
+  seg?: Segment
+  timer?: NodeJS.Timeout
+  write: Promise<void>
+  owner?: Owner
+}
 
 /** Rows roll over at a line end past this size, so a store (rewriting the whole row) stays bounded. */
 const SEGMENT = 8 * 1024
@@ -243,8 +261,18 @@ export async function flushStream(runId: string) {
   await st.write
 }
 
-/** A run that ended without run.done (daemon lost, account disabled) no longer streams; what it sent is kept. */
+function checkedRun(runId: string, machineId: string) {
+  const owner = streams.get(runId)?.owner
+  return owner?.machineId === machineId ? { id: runId, groupId: owner.groupId } : undefined
+}
+
+/**
+ * A run that ended without run.done (daemon lost, account disabled) no longer streams; what it sent is kept. Its
+ * later chunks are checked against the row again.
+ */
 export async function forgetStream(runId: string) {
+  const st = streams.get(runId)
+  if (st) st.owner = undefined
   await flushStream(runId)
   streams.delete(runId)
 }
@@ -327,12 +355,14 @@ const segment = (kind: Stream['kind'], agentId: string | undefined, plain: strin
  * Streamed chunks extend the run's latest event of the same kind and agent, so redaction sees whole lines even
  * when a secret is split across chunks. Returns the redacted text now safe to push live.
  */
-async function appendStream(ctx: Ctx, runId: string, { kind, delta, agentId }: Stream) {
+async function appendStream(ctx: Ctx, owner: Owner, { kind, delta, agentId }: Stream) {
+  const { runId } = owner
   let st = streams.get(runId)
   if (!st) {
     st = { ctx, runId, seg: await lastSegment(ctx, runId), write: Promise.resolve() }
     streams.set(runId, st)
   }
+  st.owner = owner
   const prev = st.seg
   let out = ''
   let seg: Segment

@@ -449,6 +449,13 @@
       "when": 1792208158964,
       "tag": "0063_green_carnage",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1792222688822,
+      "tag": "0064_giant_zzzax",
+      "breakpoints": true
     }
   ]
 }

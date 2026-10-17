@@ -19,6 +19,7 @@ import {
   messages,
   questionSets,
   runs,
+  statusIn,
   teamMembers,
   teams,
   users,
@@ -188,7 +189,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
       })
       .from(runs)
       .innerJoin(bots, eq(bots.id, runs.botId))
-      .where(and(inArray(runs.groupId, gids), inArray(runs.status, LIVE_RUN_STATUSES)))
+      .where(and(inArray(runs.groupId, gids), statusIn(runs.status, LIVE_RUN_STATUSES)))
       .orderBy(asc(runs.queuedAt)),
     ctx.db
       .select({ groupId: feishuChats.groupId, chatId: feishuChats.chatId, name: feishuChats.name })
