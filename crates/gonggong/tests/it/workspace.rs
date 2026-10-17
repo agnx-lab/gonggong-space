@@ -69,6 +69,7 @@ fn rig() -> Rig {
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
     let engine = Engine::new(EngineConfig {
         home: home.path().to_path_buf(),
+        user_home: home.path().to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle: Duration::from_secs(60),
         api: None,
@@ -459,6 +460,7 @@ async fn runs_use_the_managed_clone_recreating_it_if_deleted_or_the_cd_directory
             allowlist: vec![],
             always_allow: vec![],
             git: None,
+            agent_settings: Default::default(),
         },
         workspace: WorkspaceSpec {
             repo: Some(remote.spec("rp")),
@@ -537,6 +539,7 @@ fn run_start(run_id: &str, group: &str, cd: &Path) -> RunStart {
             allowlist: vec![],
             always_allow: vec![],
             git: None,
+            agent_settings: Default::default(),
         },
         workspace: WorkspaceSpec {
             repo: None,

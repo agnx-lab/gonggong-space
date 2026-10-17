@@ -115,6 +115,7 @@ fn engine(home: &Path, api: &Config) -> Engine {
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
     Engine::new(EngineConfig {
         home: home.to_path_buf(),
+        user_home: home.to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle: Duration::from_secs(60),
         api: Some(api.clone()),
@@ -205,6 +206,7 @@ impl Rig {
                 allowlist: vec![],
                 always_allow: vec![],
                 git: None,
+                agent_settings: Default::default(),
             },
             workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false, extra_dirs: vec![] },
             resume_session_id: None,

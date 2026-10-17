@@ -258,6 +258,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
       allowlist: bot.allowlist,
       alwaysAllow: bot.alwaysAllow,
       git: gitIdentity(bot),
+      agentSettings: bot.agentSettings,
       ...config,
     },
     workspace: {

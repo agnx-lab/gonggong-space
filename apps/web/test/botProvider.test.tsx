@@ -78,6 +78,7 @@ const bot = (o: Partial<BotDto> = {}): BotDto => ({
   gitEmail: null,
   gitDefaultEmail: 'b1@bots.gonggong.local',
   sharedWith: [],
+  agentSettings: {},
   approval: 'ask',
   allowlist: [],
   alwaysAllow: [],
@@ -111,6 +112,8 @@ const VIEW: ProviderStoreView = {
   bots: {},
   providers: [provider('p1', 'Kimi'), provider('p2', 'GLM'), provider('p3', 'Codex 中转', 'codex')],
   sessions: [],
+  agentSettings: {},
+  cli: {},
 }
 
 beforeEach(() => {
@@ -219,5 +222,54 @@ describe('bot provider', () => {
     renderDetail(bot(), { ...me, id: 'u9', role: 'sysadmin' })
     fireEvent.click(await screen.findByRole('button', { name: '模型' }))
     await waitFor(() => expect(screen.getByRole('menuitemcheckbox', { name: 'kimi-k2' })).toBeTruthy())
+  })
+})
+
+describe('bot agent settings', () => {
+  const view = { ...VIEW, agentSettings: { claude: { values: { thinking: 'true' }, inheritCli: true } } }
+
+  it('follows the machine until overridden, and saves the overrides', async () => {
+    const calls = mockApi({
+      'GET /machines/m1/providers': view,
+      'GET /bots/b1/catalog': { catalog: KIMI },
+      'PATCH /bots/b1': bot(),
+    })
+    renderDetail()
+    const thinking = await screen.findByRole('button', { name: '扩展思考' })
+    await waitFor(() => expect(thinking.textContent).toContain('跟随本机（当前：开）'))
+    fireEvent.click(thinking)
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '关' }))
+    fireEvent.click(screen.getByRole('button', { name: '提交署名' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '不署名' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '语言' }), { target: { value: 'english' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({
+        agentSettings: { thinking: 'false', attribution: 'none', language: 'english' },
+      }),
+    )
+  })
+
+  it('goes back to following the machine', async () => {
+    const calls = mockApi({
+      'GET /machines/m1/providers': view,
+      'GET /bots/b1/catalog': { catalog: KIMI },
+      'PATCH /bots/b1': bot(),
+    })
+    renderDetail(bot({ agentSettings: { thinking: 'false' } }))
+    const thinking = await screen.findByRole('button', { name: '扩展思考' })
+    expect(thinking.textContent).toBe('关')
+    fireEvent.click(thinking)
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: /跟随本机/ }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ agentSettings: {} }))
+  })
+
+  it("shows the overrides read-only to anyone but the bot's owner", () => {
+    mockApi({})
+    renderDetail(bot({ agentSettings: { thinking: 'false' } }), { ...me, id: 'u9', role: 'sysadmin' })
+    expect(screen.queryByRole('button', { name: '扩展思考' })).toBeNull()
+    expect(screen.getByText('只有 Bot 主人可以修改 Agent 设置')).toBeTruthy()
+    expect(screen.getByText('语言：跟随本机 · 扩展思考：关 · 提交署名：跟随本机')).toBeTruthy()
   })
 })

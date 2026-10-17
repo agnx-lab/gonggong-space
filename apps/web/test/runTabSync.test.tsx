@@ -62,6 +62,7 @@ const detail = (o: Partial<RunDetailDto> & { events: RunDetailDto['events'] }): 
   run: run(),
   patch: null,
   purged: false,
+  settings: null,
   patchRepos: [],
   sessionId: null,
   retentionDays: 30,

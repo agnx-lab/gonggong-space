@@ -311,6 +311,8 @@ pub struct Turn {
     pub repos: Vec<DiffRepo>,
     /// Force group: how the turn's submit settled.
     pub sync: Option<RunSyncDone>,
+    /// Claude: the auto-compact window the run started with, if known.
+    pub compact_window: Option<u64>,
     tools: HashMap<(Option<String>, String), ToolState>,
     /// Subagents spawned this turn, by their ACP session id.
     subagents: HashMap<String, Subagent>,
@@ -342,7 +344,8 @@ impl Turn {
                     ..Default::default()
                 };
                 self.usage = Some(usage.clone());
-                Some(RunEvent::Usage { usage, context: Some(ContextUsage { used: u.used, size: u.size }) })
+                let compact_at = self.compact_window.map(|w| w.min(u.size));
+                Some(RunEvent::Usage { usage, context: Some(ContextUsage { used: u.used, size: u.size, compact_at }) })
             }
             SessionUpdate::SessionInfoUpdate(u) => {
                 if let Some(title) = session_failure(u.meta.as_ref()) {
@@ -557,6 +560,7 @@ mod tests {
             allowlist: vec![],
             always_allow: vec![],
             git: None,
+            agent_settings: Default::default(),
         };
         let s = system_prompt(&bot);
         assert!(s.starts_with("你是团队群聊里的 Bot「小王」"));
@@ -675,7 +679,13 @@ mod tests {
         assert_eq!(t.usage, Some(Usage { total_tokens: Some(1200), cost_usd: Some(0.5), ..Default::default() }));
         assert!(matches!(
             usage,
-            Some(RunEvent::Usage { context: Some(ContextUsage { used: 1200, size: 200000 }), .. })
+            Some(RunEvent::Usage { context: Some(ContextUsage { used: 1200, size: 200000, compact_at: None }), .. })
+        ));
+        t.compact_window = Some(180000);
+        let usage = t.apply("s", SessionUpdate::UsageUpdate(UsageUpdate::new(1300, 150000)));
+        assert!(matches!(
+            usage,
+            Some(RunEvent::Usage { context: Some(ContextUsage { compact_at: Some(150000), .. }), .. })
         ));
     }
 

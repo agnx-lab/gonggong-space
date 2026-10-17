@@ -15,6 +15,7 @@ import {
 } from '../ipc'
 import { AGENTS, VENDOR } from '../lib/labels'
 import { fail, PathValue } from '../lib/ui'
+import { AgentSettingsBox } from '../providers/AgentSettingsBox'
 import { ProviderBox } from '../providers/ProviderBox'
 import { useProviderSwitch } from '../providers/switch'
 import { useDaemon } from '../store'
@@ -145,7 +146,12 @@ export function AgentsPage(_: PageProps) {
             onPickPath={() => pickPath(a.kind)}
             onResetPath={() => ipc.resetAgentPath(a.kind).then(load, fail)}
           />
-          {providers ? <ProviderBox agent={a.kind} data={providers} onSwitch={switcher.request} /> : null}
+          {providers ? (
+            <>
+              <ProviderBox agent={a.kind} data={providers} onSwitch={switcher.request} />
+              <AgentSettingsBox agent={a.kind} data={providers} />
+            </>
+          ) : null}
         </div>
       ))}
       {switcher.dialog}

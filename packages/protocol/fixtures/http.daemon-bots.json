@@ -32,6 +32,9 @@
     "gitName": null,
     "gitEmail": null,
     "gitDefaultEmail": "b1@bots.gonggong.local",
-    "sharedWith": []
+    "sharedWith": [],
+    "agentSettings": {
+      "language": "english"
+    }
   }
 ]

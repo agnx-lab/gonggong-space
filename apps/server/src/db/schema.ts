@@ -1,4 +1,10 @@
-import type { DiffRepo, I18nText, RunSyncDone } from '@gonggong/protocol'
+import type {
+  AgentSettingValues,
+  DiffRepo,
+  I18nText,
+  RunSettingsSnapshot,
+  RunSyncDone,
+} from '@gonggong/protocol'
 import { sql } from 'drizzle-orm'
 import {
   bigint,
@@ -205,6 +211,8 @@ export const bots = pgTable('bots', {
   /** Author/committer of the agent's git commits; null = bot name / `defaultGitEmail`. */
   gitName: text('git_name'),
   gitEmail: text('git_email'),
+  /** Owner's overrides of `botOverride` agent settings (field id → value). */
+  agentSettings: jsonb('agent_settings').$type<AgentSettingValues>().notNull().default({}),
   createdBy: uuid('created_by')
     .notNull()
     .references(() => users.id),
@@ -564,6 +572,8 @@ export const runs = pgTable(
     effort: text('effort'),
     /** Force group: RunSyncDone as reported with run.done. */
     sync: jsonb('sync').$type<RunSyncDone>(),
+    /** What the run's agent settings came from (session.config); null = codex / not reported. */
+    settings: jsonb('settings').$type<RunSettingsSnapshot>(),
   },
   (t) => [
     index('runs_bot_status').on(t.botId, t.status),

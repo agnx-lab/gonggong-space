@@ -2,10 +2,15 @@
 //! file named in `_meta` (process env loses to `~/.claude/settings.json`; an inline object would land on argv). Codex:
 //! the adapter's env only. The official login gets only its extra variables and proxy, the same way. Keys go to the 0600 file or the child's env, never to
 //! argv, logs or errors.
-use crate::providers::{self, API_KEY, AUTH_TOKEN, OFFICIAL, Official, Provider, Store};
+use crate::agent_settings::{
+    self, AUTO_COMPACT, AgentSettings, CONTEXT_WINDOW, CliSettingsSnapshot, Layer, RunSettingsSnapshot, Target,
+};
+use crate::protocol::{AgentKind, RunBot};
+use crate::providers::{self, API_KEY, AUTH_TOKEN, OFFICIAL, Provider, Selection, Store};
 use crate::t;
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -26,8 +31,123 @@ const CLAUDE_RESET: [(&str, &str); 7] = [
     ("CLAUDE_CODE_USE_VERTEX", "0"),
 ];
 
-pub fn claude_settings_path(home: &Path, provider_id: &str) -> PathBuf {
-    home.join("run").join(format!("{SETTINGS_PREFIX}{provider_id}.json"))
+/// `selection`: a provider id or [`OFFICIAL`]; `overlay`: a hash of the agent settings layered on it, if any.
+pub fn claude_settings_path(home: &Path, selection: &str, overlay: Option<&str>) -> PathBuf {
+    let name = match overlay {
+        Some(hash) => format!("{SETTINGS_PREFIX}{selection}.{hash}.json"),
+        None => format!("{SETTINGS_PREFIX}{selection}.json"),
+    };
+    home.join("run").join(name)
+}
+
+/// What a Claude adapter process starts with besides its env: the flag-settings file, whether the CLI's user-level
+/// config is loaded too, and where the run's settings came from. Any change restarts the adapter for the next turn.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaudeLaunch {
+    /// None: nothing to set (the official login without extras or agent settings).
+    pub file: Option<(PathBuf, Value)>,
+    pub inherit_cli: bool,
+    pub snapshot: RunSettingsSnapshot,
+}
+
+impl ClaudeLaunch {
+    /// Composed lowest precedence first: the machine's agent defaults, the bot's overrides, the model's context window
+    /// (unless the provider sets one), the provider's or official login's env, the connection.
+    pub fn new(
+        home: &Path,
+        selection: &Selection,
+        defaults: &AgentSettings,
+        bot: &RunBot,
+        cli: Option<&CliSettingsSnapshot>,
+    ) -> Result<ClaudeLaunch> {
+        let (mut top, mut env) = (Map::new(), Map::new());
+        let mut put = |f: &agent_settings::Field, v: &str| match f.target {
+            Target::Settings => top.insert(f.key.into(), agent_settings::settings_value(f, v)),
+            Target::Env => env.insert(f.key.into(), v.into()),
+        };
+        for (id, v) in &defaults.values {
+            if let Some(f) = agent_settings::by_id(id) {
+                put(f, v);
+            }
+        }
+        let mut from_bot = vec![];
+        for f in agent_settings::fields(AgentKind::Claude, Some(Layer::Agent)).filter(|f| f.bot_override) {
+            if let Some(v) = bot.agent_settings.get(f.id) {
+                put(f, v);
+                from_bot.push(f.id.to_string());
+            }
+        }
+        let base = match selection {
+            Selection::Provider(p) => {
+                let preset = p.preset_id.as_deref().and_then(|id| providers::preset(p.agent, id));
+                let window = model(p, bot.model.as_deref()).and_then(|m| preset?.model_context.get(&m).copied());
+                if let Some(w) = window.filter(|_| !p.env.contains_key(CONTEXT_WINDOW)) {
+                    env.insert(CONTEXT_WINDOW.into(), w.to_string().into());
+                }
+                claude_settings(p)?
+            }
+            Selection::Official(o) => json!({ "env": o.process_env() }),
+        };
+        let overlay = (!top.is_empty() || !env.is_empty()).then(|| {
+            let digest = Sha256::digest(json!({ "settings": top, "env": env }).to_string());
+            digest.iter().take(6).map(|b| format!("{b:02x}")).collect::<String>()
+        });
+        let Value::Object(mut base) = base else { unreachable!("settings are an object") };
+        if let Some(Value::Object(e)) = base.remove("env") {
+            env.extend(e);
+        }
+        top.extend(base);
+        let file = match selection {
+            Selection::Official(o) if o.is_empty() && overlay.is_none() => None,
+            _ => Some(claude_settings_path(home, selection.key(), overlay.as_deref())),
+        };
+        let inherit_cli = defaults.inherit_cli;
+        let cli = cli.filter(|_| inherit_cli);
+        let sets = |id: &str| {
+            agent_settings::by_id(id).is_some_and(|f| match f.target {
+                Target::Settings => top.contains_key(f.key),
+                Target::Env => env.contains_key(f.key),
+            })
+        };
+        let from_cli = cli.map_or(vec![], |c| {
+            let fields = c.values.keys().filter(|id| !sets(id));
+            fields.chain(c.conflicts.iter().filter(|k| !env.contains_key(*k))).cloned().collect()
+        });
+        let number = |key: &str, id: &str| {
+            let ours = env.get(key).and_then(Value::as_str);
+            ours.or_else(|| cli?.values.get(id).map(String::as_str)).and_then(|v| v.parse().ok())
+        };
+        let snapshot = RunSettingsSnapshot {
+            provider: match selection {
+                Selection::Provider(p) => Some(p.name.clone()),
+                Selection::Official(_) => None,
+            },
+            context_window: number(CONTEXT_WINDOW, "contextWindow"),
+            auto_compact_window: number(AUTO_COMPACT, "autoCompactWindow"),
+            inherit_cli,
+            from_cli,
+            from_bot,
+        };
+        top.insert("env".into(), Value::Object(env));
+        Ok(ClaudeLaunch { file: file.map(|f| (f, Value::Object(top))), inherit_cli, snapshot })
+    }
+
+    pub fn settings_path(&self) -> Option<&Path> {
+        self.file.as_ref().map(|(path, _)| path.as_path())
+    }
+
+    /// Tokens at which Claude Code compacts, when the run sets (or inherits) an auto-compact window.
+    pub fn compact_at(&self, window: u64) -> Option<u64> {
+        self.snapshot.auto_compact_window.map(|w| w.min(window))
+    }
+
+    /// Writes the settings file (0600, atomic) unless it is current.
+    pub fn write(&self) -> Result<()> {
+        match &self.file {
+            Some((path, settings)) => write_settings(path, settings),
+            None => Ok(()),
+        }
+    }
 }
 
 /// Claude Code flag settings routing every request to `p`.
@@ -60,17 +180,6 @@ pub fn claude_settings(p: &Provider) -> Result<Value> {
     Ok(json!({ "apiKeyHelper": "", "env": env }))
 }
 
-/// Writes `p`'s settings file ([`claude_settings_path`], 0600, atomic) unless it is current.
-pub fn write_claude_settings(home: &Path, p: &Provider) -> Result<()> {
-    write_settings(&claude_settings_path(home, &p.id), &claude_settings(p)?)
-}
-
-/// The official login's extras as flag settings ([`claude_settings_path`] of [`OFFICIAL`]): they win over
-/// `~/.claude/settings.json` like a provider's, and leave its login alone.
-pub fn write_official_settings(home: &Path, o: &Official) -> Result<()> {
-    write_settings(&claude_settings_path(home, OFFICIAL), &json!({ "env": o.process_env() }))
-}
-
 fn write_settings(path: &Path, settings: &Value) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(settings)?;
     if std::fs::read(path).is_ok_and(|current| current == bytes) {
@@ -101,7 +210,8 @@ pub fn prune(home: &Path, store: &Store) {
     let Ok(entries) = std::fs::read_dir(home.join("run")) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(id) = name.to_str().and_then(|n| n.strip_prefix(SETTINGS_PREFIX)?.strip_suffix(".json")) else {
+        let stem = name.to_str().and_then(|n| n.strip_prefix(SETTINGS_PREFIX)?.strip_suffix(".json"));
+        let Some(id) = stem.and_then(|s| s.split('.').next()) else {
             continue;
         };
         if id != OFFICIAL
@@ -144,6 +254,7 @@ pub fn model(p: &Provider, wanted: Option<&str>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::protocol::AgentKind::{Claude, Codex};
+    use crate::providers::Official;
 
     fn custom() -> Provider {
         let mut p = Provider::custom(Claude, "X".into(), "https://x.test".into(), "sk-x-0123456789".into());
@@ -165,6 +276,37 @@ mod tests {
         assert!(!claude_settings(&p).unwrap_err().to_string().contains("sk-x"));
     }
 
+    fn bot(model: Option<&str>, overrides: &[(&str, &str)]) -> RunBot {
+        RunBot {
+            id: "b1".into(),
+            name: "小王".into(),
+            agent_kind: Claude,
+            system_prompt: String::new(),
+            tier: crate::protocol::Tier::Workspace,
+            model: model.map(Into::into),
+            effort: None,
+            approval: Default::default(),
+            allowlist: vec![],
+            always_allow: vec![],
+            git: None,
+            agent_settings: overrides.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        }
+    }
+
+    fn defaults(pairs: &[(&str, &str)], inherit_cli: bool) -> AgentSettings {
+        AgentSettings { values: pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), inherit_cli }
+    }
+
+    fn launch(home: &Path, selection: &Selection, d: &AgentSettings, b: &RunBot) -> ClaudeLaunch {
+        let l = ClaudeLaunch::new(home, selection, d, b, None).unwrap();
+        l.write().unwrap();
+        l
+    }
+
+    fn read(path: &Path) -> Value {
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
     #[test]
     fn prune_keeps_only_stored_providers() {
         let home = tempfile::tempdir().unwrap();
@@ -172,20 +314,135 @@ mod tests {
         let kept = store.add(custom()).unwrap();
         let mut gone = custom();
         gone.id = "gone-1".into();
+        let (none, language) = (defaults(&[], true), defaults(&[("language", "english")], true));
+        let mut files = vec![];
         for p in [store.get(&kept).unwrap(), &gone] {
-            write_claude_settings(home.path(), p).unwrap();
+            for d in [&none, &language] {
+                let l = launch(home.path(), &Selection::Provider(Box::new(p.clone())), d, &bot(None, &[]));
+                files.push(l.settings_path().unwrap().to_path_buf());
+            }
         }
         std::fs::write(home.path().join("run/other.json"), "{}").unwrap();
         let official = Official { env: Default::default(), proxy: Some("http://p.test:1".into()) };
-        write_official_settings(home.path(), &official).unwrap();
+        let o = launch(home.path(), &Selection::Official(official), &none, &bot(None, &[]));
         prune(home.path(), &store);
-        let official: Value =
-            serde_json::from_slice(&std::fs::read(claude_settings_path(home.path(), OFFICIAL)).unwrap()).unwrap();
+        let official = read(o.settings_path().unwrap());
+        assert_eq!(o.settings_path(), Some(claude_settings_path(home.path(), OFFICIAL, None).as_path()));
         assert_eq!(official, json!({ "env": official["env"].clone() }), "no apiKeyHelper: the login stays");
         assert_eq!(official["env"]["HTTPS_PROXY"], "http://p.test:1");
-        assert!(claude_settings_path(home.path(), &kept).exists());
-        assert!(!claude_settings_path(home.path(), "gone-1").exists());
+        assert_eq!(files[0], claude_settings_path(home.path(), &kept, None), "no overlay: the plain name");
+        assert!(files[1].file_name().unwrap().to_str().unwrap().starts_with(&format!("claude-{kept}.")));
+        assert!(files[0].exists() && files[1].exists());
+        assert!(!files[2].exists() && !files[3].exists(), "both files of the removed provider");
         assert!(home.path().join("run/other.json").exists());
+    }
+
+    #[test]
+    fn agent_defaults_then_bot_overrides_then_the_provider_then_the_connection() {
+        let home = tempfile::tempdir().unwrap();
+        let mut p = custom();
+        p.env.insert("BASH_DEFAULT_TIMEOUT_MS".into(), "9000".into());
+        let d = defaults(
+            &[
+                ("language", "chinese"),
+                ("thinking", "true"),
+                ("autoMemory", "false"),
+                ("bashTimeout", "300000"),
+                ("bashMaxTimeout", "600000"),
+                ("nonessentialTraffic", "1"),
+            ],
+            true,
+        );
+        let b = bot(None, &[("language", "english"), ("attribution", "none"), ("autoMemory", "true")]);
+        let l = launch(home.path(), &Selection::Provider(Box::new(p)), &d, &b);
+        let s = read(l.settings_path().unwrap());
+        assert_eq!(s["language"], "english", "the bot's override");
+        assert_eq!(s["alwaysThinkingEnabled"], true, "a JSON boolean");
+        assert_eq!(s["autoMemoryEnabled"], false, "not a bot override field: the machine default stays");
+        assert_eq!(s["attribution"], json!({ "commit": "", "pr": "" }));
+        assert_eq!(s["apiKeyHelper"], "");
+        let env = &s["env"];
+        assert_eq!(env["BASH_DEFAULT_TIMEOUT_MS"], "9000", "the provider's env wins");
+        assert_eq!(
+            (env["BASH_MAX_TIMEOUT_MS"].as_str(), env["ANTHROPIC_BASE_URL"].as_str()),
+            (Some("600000"), Some("https://x.test"))
+        );
+        assert_eq!(env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1");
+        for locked in agent_settings::LOCKED_CLAUDE_SETTINGS.iter().filter(|k| **k != "apiKeyHelper") {
+            assert!(s.get(locked).is_none(), "{locked}");
+        }
+        assert_eq!(
+            (l.snapshot.from_bot.clone(), l.snapshot.provider.as_deref()),
+            (vec!["language".to_string(), "attribution".into()], Some("X"))
+        );
+        assert!(l.inherit_cli);
+    }
+
+    #[test]
+    fn the_official_login_gets_a_file_only_with_something_to_set() {
+        let home = tempfile::tempdir().unwrap();
+        let official = Selection::Official(Official::default());
+        let plain = ClaudeLaunch::new(home.path(), &official, &defaults(&[], true), &bot(None, &[]), None).unwrap();
+        assert_eq!(plain.file, None);
+        plain.write().unwrap();
+        assert!(!home.path().join("run").exists());
+        let l = launch(home.path(), &official, &defaults(&[("autoCompact", "false")], false), &bot(None, &[]));
+        let s = read(l.settings_path().unwrap());
+        assert_eq!(s, json!({ "autoCompactEnabled": false, "env": {} }));
+        assert!(!l.inherit_cli && l.snapshot.provider.is_none());
+    }
+
+    #[test]
+    fn the_models_context_window_fills_in_unless_the_provider_sets_one() {
+        let home = tempfile::tempdir().unwrap();
+        let mut p = Provider::from_preset(providers::preset(Claude, "kimi-coding").unwrap(), "sk-k-0123456789".into());
+        p.id = "kimi-1".into();
+        let none = defaults(&[], true);
+        let l = launch(home.path(), &Selection::Provider(Box::new(p.clone())), &none, &bot(None, &[]));
+        assert_eq!(
+            l.settings_path(),
+            Some(claude_settings_path(home.path(), "kimi-1", None).as_path()),
+            "set by the preset"
+        );
+        assert_eq!(l.snapshot.context_window, Some(262144));
+        p.env.clear();
+        let l =
+            launch(home.path(), &Selection::Provider(Box::new(p.clone())), &none, &bot(Some("kimi-for-coding"), &[]));
+        assert_eq!(read(l.settings_path().unwrap())["env"][CONTEXT_WINDOW], "262144", "from the preset's modelContext");
+        assert_ne!(l.settings_path(), Some(claude_settings_path(home.path(), "kimi-1", None).as_path()));
+        assert_eq!(
+            (l.snapshot.context_window, l.snapshot.auto_compact_window, l.compact_at(262144)),
+            (Some(262144), None, None)
+        );
+        let other = launch(home.path(), &Selection::Provider(Box::new(p)), &none, &bot(Some("k3"), &[]));
+        assert_eq!(other.snapshot.context_window, None, "no window known for that model");
+        assert_ne!(other.settings_path(), l.settings_path(), "another model, another file");
+    }
+
+    #[test]
+    fn the_snapshot_says_what_comes_from_the_cli() {
+        let home = tempfile::tempdir().unwrap();
+        let cli = CliSettingsSnapshot {
+            values: [("language", "english"), ("thinking", "true"), ("autoCompactWindow", "180000")]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            conflicts: vec!["CLAUDE_CODE_EFFORT_LEVEL".into(), "ANTHROPIC_BASE_URL".into()],
+            hooks: 0,
+            permission_rules: 0,
+            version: None,
+        };
+        let p = Selection::Provider(Box::new(custom()));
+        let d = defaults(&[("thinking", "false")], true);
+        let l = ClaudeLaunch::new(home.path(), &p, &d, &bot(None, &[]), Some(&cli)).unwrap();
+        assert_eq!(l.snapshot.from_cli, vec!["autoCompactWindow", "language", "CLAUDE_CODE_EFFORT_LEVEL"]);
+        assert_eq!(
+            (l.snapshot.auto_compact_window, l.compact_at(150000), l.compact_at(262144)),
+            (Some(180000), Some(150000), Some(180000))
+        );
+        let isolated = ClaudeLaunch::new(home.path(), &p, &defaults(&[], false), &bot(None, &[]), Some(&cli)).unwrap();
+        assert!(isolated.snapshot.from_cli.is_empty() && isolated.snapshot.auto_compact_window.is_none());
+        assert_ne!(isolated, l);
     }
 
     #[test]

@@ -1,1 +1,6 @@
-{ "t": "session.config", "runId": "r1", "model": "opus", "effort": "high" }
+{
+  "t": "session.config",
+  "runId": "r1",
+  "model": "opus",
+  "effort": "high"
+}

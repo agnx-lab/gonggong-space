@@ -21,6 +21,7 @@ fn rig(idle: Duration) -> Rig {
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
     let engine = Engine::new(EngineConfig {
         home: home.path().to_path_buf(),
+        user_home: home.path().to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle,
         api: None,
@@ -51,6 +52,7 @@ fn start(run_id: &str, text: &str) -> RunStart {
             allowlist: vec![],
             always_allow: vec![],
             git: None,
+            agent_settings: Default::default(),
         },
         workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false, extra_dirs: vec![] },
         resume_session_id: None,
@@ -94,7 +96,9 @@ impl Rig {
                 .expect("engine went quiet")
                 .unwrap();
             match msg {
-                DaemonToServer::SessionConfig { run_id, model, effort } => self.configs.push((run_id, model, effort)),
+                DaemonToServer::SessionConfig { run_id, model, effort, .. } => {
+                    self.configs.push((run_id, model, effort))
+                }
                 msg => return msg,
             }
         }

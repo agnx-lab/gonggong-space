@@ -363,6 +363,29 @@ describe('context meter', () => {
     fireEvent.click(await screen.findByRole('button', { name: '开新对话' }))
     await waitFor(() => expect(posted()).toEqual(['/compact @小王的 Claude', '/new @小王的 Claude']))
   })
+
+  it('marks where auto-compaction runs when the daemon knows it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              state('b1', { git: git(), context: { used: 50_000, size: 200_000, compactAt: 167_000 } }),
+              state('b2', { git: git(), context: { used: 50_000, size: 200_000 } }),
+            ]),
+          ),
+      ),
+    )
+    render(<GitBar group={group({ botIds: ['b1', 'b2'] })} />)
+    const meter = await screen.findByRole('button', { name: '小王的 Claude 上下文 50k / 200k' })
+    expect(meter.getAttribute('title')).toContain('约在 167k 时自动压缩')
+    expect(meter.querySelector('.ctx-meter__mark')).toBeTruthy()
+    const other = screen.getByRole('button', { name: '老李的 Codex 上下文 50k / 200k' })
+    expect(other.querySelector('.ctx-meter__mark')).toBeNull()
+    fireEvent.click(meter)
+    expect(await screen.findByText(/约在 167k 时自动压缩/)).toBeTruthy()
+  })
 })
 
 describe('bot state store', () => {

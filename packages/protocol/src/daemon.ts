@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import {
+  AgentSettings,
+  AgentSettingValues,
+  CliSettingsSnapshot,
+  RunSettingsSnapshot,
+} from './agent-settings.js'
+import {
   AgentKind,
   Answer,
   Approval,
@@ -266,6 +272,8 @@ export const RunStart = z.object({
     alwaysAllow: z.array(z.string()).default([]),
     /** Author and committer of the agent's git commits; null = the machine's git config. */
     git: z.object({ name: z.string(), email: z.string() }).nullable().default(null),
+    /** The bot's overrides of `botOverride` agent settings (field id → value). */
+    agentSettings: AgentSettingValues.default({}),
   }),
   workspace: WorkspaceSpec,
   /** Resume this ACP session if possible; null → start a new one. */
@@ -500,6 +508,8 @@ export const SessionConfig = z.object({
   runId: z.string(),
   model: z.string().nullable(),
   effort: z.string().nullable(),
+  /** Claude: what the run's settings came from; absent = codex / an older daemon. */
+  settings: RunSettingsSnapshot.optional(),
 })
 
 /** Local agent detection changed after hello (path set / reset, re-check); replaces the machine's agents. */
@@ -726,6 +736,8 @@ export const ProviderPreset = z.object({
   env: z.record(z.string(), z.string()),
   wireApi: z.string().nullable(),
   effort: z.string().nullable(),
+  /** Claude: context window per model id, filled into CLAUDE_CODE_MAX_CONTEXT_TOKENS unless the provider sets it. */
+  modelContext: z.record(z.string(), z.number().int()).default({}),
 })
 export type ProviderPreset = z.infer<typeof ProviderPreset>
 /** A machine's provider as it may leave the machine: `apiKey` masked to its last 4 characters at most. */
@@ -740,6 +752,7 @@ export const ProviderView = z.object({
   apiKeyField: z.string().nullable(),
   model: z.string().nullable(),
   models: ModelMap.nullable(),
+  /** Values of `isSecretEnv` variables masked like the API key. */
   env: z.record(z.string(), z.string()),
   /** Password masked; null = direct. */
   proxy: z.string().nullable(),
@@ -765,6 +778,10 @@ export const ProviderStoreView = z.object({
   /** Bot overrides: bot id → provider id or `official`; absent = inherit. */
   bots: z.record(z.string(), z.string()),
   providers: z.array(ProviderView),
+  /** Machine defaults per agent kind; absent = Claude Code's defaults, CLI config inherited. */
+  agentSettings: z.partialRecord(AgentKind, AgentSettings).default({}),
+  /** The CLI's own user-level config per agent kind; absent = none found / not read. */
+  cli: z.partialRecord(AgentKind, CliSettingsSnapshot).default({}),
   /** Latest session of each (group, bot) and the provider it is pinned to, for the switch confirmation. */
   sessions: z.array(
     z.object({ groupId: z.string(), botId: z.string(), agent: AgentKind, provider: z.string() }),
@@ -1165,6 +1182,7 @@ export const ProvidersCmd = z.object({
     'catalog',
     'botCatalog',
     'official',
+    'agentSettings',
   ]),
   agent: AgentKind.optional(),
   botId: z.string().optional(),
@@ -1173,6 +1191,8 @@ export const ProvidersCmd = z.object({
   provider: ProviderInput.optional(),
   /** For `official`, with `agent`. */
   official: OfficialInput.optional(),
+  /** For `agentSettings`, with `agent`: replaces that agent kind's machine defaults. */
+  agentSettings: AgentSettings.optional(),
   link: z.string().optional(),
   setDefault: z.boolean().optional(),
 })

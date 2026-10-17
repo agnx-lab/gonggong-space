@@ -41,6 +41,7 @@ import { DirPicker } from '../workspaces/DirPicker'
 import { type AgentConfig, AgentConfigFields, useBotCatalog } from './AgentConfig'
 import { ApprovalFields, type ApprovalValue } from './ApprovalFields'
 import { avatarSrc, BotAvatar, RolePicker, roleHint } from './avatars'
+import { BotAgentSettingRows, cleanOverrides } from './BotAgentSettings'
 import { ProviderModelFields, useMachineProviders, useProviderCatalog } from './BotProvider'
 import { BotShares } from './BotShares'
 import { DeleteBotDialog } from './DeleteBotDialog'
@@ -159,6 +160,8 @@ function UsageTab({ bot }: { bot: BotDto }) {
 export type BotTab = 'basic' | 'run' | 'access' | 'advanced' | 'share'
 
 const sameList = (a: string[], b: string[]) => a.join('\n') === b.join('\n')
+const sameMap = (a: Record<string, string>, b: Record<string, string>) =>
+  Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k, v]) => b[k] === v)
 
 /**
  * Settings of a bot, in tabs: who it is, where and with what it runs, who may use it and what it may do, the rest.
@@ -200,6 +203,7 @@ export function BotDetail({
   })
   const [gitName, setGitName] = useState(bot.gitName ?? '')
   const [gitEmail, setGitEmail] = useState(bot.gitEmail ?? '')
+  const [overrides, setOverrides] = useState(bot.agentSettings)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   /** false = closed; otherwise the folder the picker opens at. */
@@ -234,6 +238,8 @@ export function BotDetail({
     ...(owner && !sameList(approval.alwaysAllow, bot.alwaysAllow) && { alwaysAllow: approval.alwaysAllow }),
     ...(owner && (gitName.trim() || null) !== bot.gitName && { gitName: gitName.trim() || null }),
     ...(owner && (gitEmail.trim() || null) !== bot.gitEmail && { gitEmail: gitEmail.trim() || null }),
+    ...(owner &&
+      !sameMap(cleanOverrides(overrides), bot.agentSettings) && { agentSettings: cleanOverrides(overrides) }),
   }
   const dirty = Object.keys(patch).length > 0 || workspace !== bot.defaultWorkspace || picked !== null
 
@@ -342,6 +348,13 @@ export function BotDetail({
       ) : (
         <AgentConfigFields catalog={catalog} value={config} disabled={!canEdit} onChange={setConfig} />
       )}
+      <BotAgentSettingRows
+        agent={bot.agentKind}
+        value={overrides}
+        machine={view && !reason ? (view.agentSettings[bot.agentKind]?.values ?? {}) : undefined}
+        editable={owner}
+        onChange={setOverrides}
+      />
       {owner && bot.machineId ? (
         <FormRow
           label={t('默认工作区')}

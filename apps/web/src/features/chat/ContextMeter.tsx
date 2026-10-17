@@ -23,6 +23,11 @@ export function ContextMeter({
   const pct = Math.min(100, Math.round((context.used / Math.max(1, context.size)) * 100))
   const level = pct >= CRITICAL ? 'critical' : pct >= WARNING ? 'warning' : 'normal'
   const detail = `${fmtTokens(context.used)} / ${fmtTokens(context.size)}`
+  const compact = context.compactAt ? t('约在 {n} 时自动压缩', { n: fmtTokens(context.compactAt) }) : null
+  // Where the compaction point sits on the ring, clockwise from the top.
+  const angle = context.compactAt
+    ? (Math.min(1, context.compactAt / Math.max(1, context.size)) - 0.25) * 2 * Math.PI
+    : 0
   const send = (command: string) =>
     postMessage(groupId, {
       body: `/${command} @${bot}`,
@@ -43,7 +48,7 @@ export function ContextMeter({
           className="ctx-meter"
           data-level={level}
           aria-label={t('{bot} 上下文 {detail}', { bot, detail })}
-          title={t('上下文 {detail}', { detail })}
+          title={[t('上下文 {detail}', { detail }), compact].filter(Boolean).join(' · ')}
         >
           <svg viewBox="0 0 14 14" width={14} height={14} aria-hidden="true">
             <circle className="ctx-meter__track" cx={7} cy={7} r={R} />
@@ -55,6 +60,14 @@ export function ContextMeter({
               strokeDasharray={`${(pct / 100) * ARC} ${ARC}`}
               transform="rotate(-90 7 7)"
             />
+            {compact ? (
+              <circle
+                className="ctx-meter__mark"
+                cx={7 + R * Math.cos(angle)}
+                cy={7 + R * Math.sin(angle)}
+                r={1.4}
+              />
+            ) : null}
           </svg>
           {pct}%
         </button>
@@ -75,6 +88,7 @@ export function ContextMeter({
             }
           />
           <p className="ctx-pop__hint">
+            {context.compactAt ? t('约在 {n} 时自动压缩。', { n: fmtTokens(context.compactAt) }) : null}
             {level === 'critical' ? t('即将用满，Agent 会自动压缩。') : null}
             {t('压缩会把此前的对话总结后保留；开新对话则不再带上此前的对话。')}
           </p>

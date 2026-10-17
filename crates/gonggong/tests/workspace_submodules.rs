@@ -39,6 +39,7 @@ async fn managed_clones_check_out_submodules() {
     let home = tempfile::tempdir().unwrap();
     let engine = Engine::new(EngineConfig {
         home: home.path().to_path_buf(),
+        user_home: home.path().to_path_buf(),
         adapter_cmd: None,
         idle: Duration::from_secs(60),
         api: None,

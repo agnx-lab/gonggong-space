@@ -16,7 +16,7 @@ fn err(e: anyhow::Error) -> String {
 
 #[tauri::command]
 pub fn providers(host: State<'_, Host>) -> Result<StoreView> {
-    Ok(Store::load(&host.home).map_err(err)?.view())
+    Ok(Store::load(&host.home).map_err(err)?.view_with_cli(&host.home, &gonggong::config::user_home()))
 }
 
 fn web_url(server: &str, machine_id: &str) -> String {

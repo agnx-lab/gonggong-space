@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  AGENT_SETTING_FIELDS,
   DaemonBotDto,
   DaemonSkillRes,
   DaemonToServer,
@@ -30,6 +31,10 @@ describe('wire fixtures (shared with the Rust daemon)', () => {
     it(file, () => {
       const [dirn, kind, ...rest] = file.split('.')
       const raw = JSON.parse(readFileSync(join(dir, file), 'utf8'))
+      if (dirn === 'data') {
+        expect(raw).toEqual(JSON.parse(JSON.stringify(AGENT_SETTING_FIELDS)))
+        return
+      }
       if (dirn === 'tunnel' || dirn === 'http') {
         const schema =
           dirn === 'tunnel' ? tunnel[kind as keyof typeof tunnel] : http[kind as keyof typeof http]

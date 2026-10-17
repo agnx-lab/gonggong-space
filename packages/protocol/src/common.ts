@@ -43,7 +43,12 @@ export const Usage = z.object({
 export type Usage = z.infer<typeof Usage>
 
 /** Context window occupancy of an ACP session (usage_update): tokens in context now vs the model's window. */
-export const ContextUsage = z.object({ used: z.number().int(), size: z.number().int() })
+/** `compactAt`: tokens at which auto-compaction runs, when the daemon knows it. */
+export const ContextUsage = z.object({
+  used: z.number().int(),
+  size: z.number().int(),
+  compactAt: z.number().int().optional(),
+})
 export type ContextUsage = z.infer<typeof ContextUsage>
 
 /** Where a repo sits in a workspace: the root itself, a git submodule, or an independent repo found below a non-git root. */

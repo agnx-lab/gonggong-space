@@ -796,6 +796,21 @@ pub enum AgentsCmd {
         #[arg(long, value_name = "URL")]
         node_mirror: Option<String>,
     },
+    /// Show or change this machine's agent settings (defaults every bot runs with); running sessions pick a change
+    /// up from their next turn.
+    Settings {
+        #[arg(value_parser = crate::configure::parse_kind, default_value = "claude")]
+        agent: AgentKind,
+        /// Set a field, e.g. --set language=chinese (repeatable).
+        #[arg(long, value_name = "ID=VALUE")]
+        set: Vec<String>,
+        /// Back to Claude Code's default (repeatable).
+        #[arg(long, value_name = "ID")]
+        unset: Vec<String>,
+        /// Also load the CLI's own user-level config (~/.claude).
+        #[arg(long, value_name = "true|false")]
+        inherit_cli: Option<bool>,
+    },
 }
 
 /// `gg agents …`
@@ -821,6 +836,9 @@ pub async fn cli(home: &Path, cmd: Option<AgentsCmd>) -> Result<()> {
             Ok(())
         }
         Some(AgentsCmd::Mirror { value, node_mirror }) => set_mirror(home, value, node_mirror),
+        Some(AgentsCmd::Settings { agent, set, unset, inherit_cli }) => {
+            crate::provider_cli::agent_settings(home, &crate::config::user_home(), agent, set, unset, inherit_cli)
+        }
     }
 }
 

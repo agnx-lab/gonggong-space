@@ -1,5 +1,6 @@
 //! Wire types mirrored from `packages/protocol/src/{common,daemon}.ts`.
 //! `tests/contract.rs` round-trips every shared JSON fixture to keep both sides aligned.
+pub use crate::agent_settings::{AgentSettings, CliSettingsSnapshot, RunSettingsSnapshot};
 pub use crate::ccswitch::CandidateView;
 pub use crate::config::Mirror;
 pub use crate::providers::{ModelMap, Preset, StoreView};
@@ -83,9 +84,13 @@ pub struct Usage {
 
 /// Context window occupancy of an ACP session (usage_update).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ContextUsage {
     pub used: u64,
     pub size: u64,
+    /// Tokens at which auto-compaction runs, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -416,6 +421,9 @@ pub struct RunBot {
     /// Author and committer of the agent's git commits; `None` = the machine's git config.
     #[serde(default)]
     pub git: Option<GitIdentity>,
+    /// The bot's overrides of `bot_override` agent settings (field id → value).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub agent_settings: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1027,6 +1035,7 @@ pub enum ProvidersAction {
     Catalog,
     BotCatalog,
     Official,
+    AgentSettings,
 }
 
 /// Adds (no `id`) or edits a provider; absent fields keep the stored (or preset) value.
@@ -1077,6 +1086,9 @@ pub struct ProvidersCmd {
     /// For `official`, with `agent`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub official: Option<OfficialInput>,
+    /// For `agentSettings`, with `agent`: replaces that agent kind's machine defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_settings: Option<AgentSettings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1377,7 +1389,14 @@ pub enum DaemonToServer {
     #[serde(rename = "run.discarded", rename_all = "camelCase")]
     RunDiscarded { run_id: String, ok: bool, files: u32, error: Option<String> },
     #[serde(rename = "session.config", rename_all = "camelCase")]
-    SessionConfig { run_id: String, model: Option<String>, effort: Option<String> },
+    SessionConfig {
+        run_id: String,
+        model: Option<String>,
+        effort: Option<String>,
+        /// Claude: what the run's settings came from.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        settings: Option<RunSettingsSnapshot>,
+    },
     #[serde(rename = "repo.probe.result")]
     RepoProbeResult(RepoProbeResult),
     #[serde(rename = "service.state")]

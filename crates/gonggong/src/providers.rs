@@ -1,6 +1,7 @@
 //! Machine-local model providers (design §4.2/§4.3): third-party endpoints and keys per agent in
 //! `<home>/providers.json` (0600), the machine default per agent, per-bot overrides and the provider each ACP session
 //! was started with. Never sent anywhere unmasked: whatever leaves the machine goes through [`Store::view`].
+use crate::agent_settings::{self, AgentSettings, CliSettingsSnapshot};
 use crate::protocol::AgentKind;
 use crate::t;
 use anyhow::{Context, Result, bail};
@@ -18,16 +19,6 @@ pub const OFFICIAL_NAME: &str = "官方登录";
 pub const AUTH_TOKEN: &str = "ANTHROPIC_AUTH_TOKEN";
 pub const API_KEY: &str = "ANTHROPIC_API_KEY";
 pub const WIRE_RESPONSES: &str = "responses";
-
-/// Claude env keys carried besides the connection keys (§4.2.1).
-pub const EXTRA_ENV: [&str; 6] = [
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
-    "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
-    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS",
-    "ENABLE_TOOL_SEARCH",
-    "ANTHROPIC_SMALL_FAST_MODEL",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,6 +66,9 @@ pub struct Preset {
     pub wire_api: Option<String>,
     #[serde(default)]
     pub effort: Option<String>,
+    /// Claude: context window per model id, filled in unless the provider sets `CLAUDE_CODE_MAX_CONTEXT_TOKENS`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub model_context: BTreeMap<String, u64>,
 }
 
 #[derive(Deserialize)]
@@ -198,7 +192,7 @@ impl Provider {
         if self.api_key.trim().is_empty() {
             bail!(t!("API Key 不能为空"));
         }
-        validate_extras(&self.env, self.proxy.as_deref())
+        validate_extras(self.agent, &self.env, self.proxy.as_deref())
     }
 
     pub fn process_env(&self) -> BTreeMap<String, String> {
@@ -223,7 +217,7 @@ impl Provider {
             api_key_field: self.api_key_field.clone(),
             model: self.model.clone(),
             models: self.models.clone(),
-            env: self.env.clone(),
+            env: mask_env(&self.env),
             proxy: self.proxy.as_deref().map(mask_proxy),
             wire_api: self.wire_api.clone(),
             effort: self.effort.clone(),
@@ -248,14 +242,14 @@ fn process_env(vars: &BTreeMap<String, String>, proxy: Option<&str>) -> BTreeMap
     env
 }
 
-fn validate_extras(env: &BTreeMap<String, String>, proxy: Option<&str>) -> Result<()> {
+fn validate_extras(agent: AgentKind, env: &BTreeMap<String, String>, proxy: Option<&str>) -> Result<()> {
     if let Some(k) = env.keys().find(|k| !env_name(k)) {
         bail!(t!("环境变量名不合法：{name}", name = k));
     }
     if proxy.is_some_and(|u| !(u.starts_with("http://") || u.starts_with("https://"))) {
         bail!(t!("代理地址必须以 http:// 或 https:// 开头"));
     }
-    Ok(())
+    agent_settings::validate_env(agent, env)
 }
 
 /// What an agent's official login runs with besides the CLI's own config: extra variables and a proxy.
@@ -279,7 +273,7 @@ impl Official {
 
     /// Password masked, as for a provider.
     pub fn view(&self) -> OfficialView {
-        OfficialView { env: self.env.clone(), proxy: self.proxy.as_deref().map(mask_proxy) }
+        OfficialView { env: mask_env(&self.env), proxy: self.proxy.as_deref().map(mask_proxy) }
     }
 }
 
@@ -296,6 +290,22 @@ pub fn mask_key(key: &str) -> String {
         return "****".into();
     }
     format!("****{}", chars[chars.len() - 4..].iter().collect::<String>())
+}
+
+/// Secret-looking variables ([`agent_settings::secret_env`]) masked like the key.
+pub fn mask_env(env: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    env.iter().map(|(k, v)| (k.clone(), if agent_settings::secret_env(k) { mask_key(v) } else { v.clone() })).collect()
+}
+
+/// `input` as sent back from a view: a secret variable still carrying its masked value keeps the stored one.
+pub fn unmask_env(input: BTreeMap<String, String>, stored: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    input
+        .into_iter()
+        .map(|(k, v)| match stored.get(&k) {
+            Some(old) if agent_settings::secret_env(&k) && v == mask_key(old) => (k, old.clone()),
+            _ => (k, v),
+        })
+        .collect()
 }
 
 pub fn env_name(k: &str) -> bool {
@@ -343,6 +353,12 @@ pub struct StoreView {
     pub official: BTreeMap<AgentKind, OfficialView>,
     pub bots: BTreeMap<String, String>,
     pub providers: Vec<ProviderView>,
+    /// Machine defaults per agent kind; absent = Claude Code's defaults, CLI config inherited.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub agent_settings: BTreeMap<AgentKind, AgentSettings>,
+    /// The CLI's own user-level config per agent kind ([`Store::view_with_cli`]); absent = none found / not read.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cli: BTreeMap<AgentKind, CliSettingsSnapshot>,
     /// Latest session of each (group, bot), so a switch can say which groups keep the old provider.
     pub sessions: Vec<SessionView>,
 }
@@ -424,6 +440,9 @@ pub struct Store {
     /// Per-bot override: a provider id or [`OFFICIAL`]; absent = inherit the machine default.
     pub bots: BTreeMap<String, String>,
     pub providers: Vec<Provider>,
+    /// Machine defaults per agent kind; absent = defaults.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub agent_settings: BTreeMap<AgentKind, AgentSettings>,
     /// ACP session id → pin.
     pub sessions: BTreeMap<String, SessionPin>,
 }
@@ -585,11 +604,26 @@ impl Store {
     }
 
     pub fn set_official(&mut self, agent: AgentKind, official: Official) -> Result<()> {
-        validate_extras(&official.env, official.proxy.as_deref())?;
+        validate_extras(agent, &official.env, official.proxy.as_deref())?;
         if official.is_empty() {
             self.official.remove(&agent);
         } else {
             self.official.insert(agent, official);
+        }
+        Ok(())
+    }
+
+    pub fn agent_settings(&self, agent: AgentKind) -> AgentSettings {
+        self.agent_settings.get(&agent).cloned().unwrap_or_default()
+    }
+
+    /// Replaces the machine defaults of `agent`; running sessions pick them up from their next turn.
+    pub fn set_agent_settings(&mut self, agent: AgentKind, settings: AgentSettings) -> Result<()> {
+        settings.validate(agent)?;
+        if settings == AgentSettings::default() {
+            self.agent_settings.remove(&agent);
+        } else {
+            self.agent_settings.insert(agent, settings);
         }
         Ok(())
     }
@@ -680,6 +714,8 @@ impl Store {
             official: self.official.iter().map(|(a, o)| (*a, o.view())).collect(),
             bots: self.bots.clone(),
             providers: self.providers.iter().map(Provider::view).collect(),
+            agent_settings: self.agent_settings.clone(),
+            cli: BTreeMap::new(),
             sessions: self
                 .latest_sessions()
                 .into_iter()
@@ -691,6 +727,12 @@ impl Store {
                 })
                 .collect(),
         }
+    }
+
+    /// [`Store::view`] with the CLI's own config: `home` is gonggong's (for the CLI version), `user_home` the one
+    /// `~/.claude` lives in.
+    pub fn view_with_cli(&self, home: &Path, user_home: &Path) -> StoreView {
+        StoreView { cli: agent_settings::cli_snapshots(home, user_home), ..self.view() }
     }
 }
 
@@ -963,6 +1005,28 @@ mod tests {
         assert_eq!(view.providers[0].id, a);
         assert_eq!(mask_key("sk-12345"), "****");
         assert_eq!(mask_key("密钥密钥密钥密钥密钥"), "****密钥密钥");
+    }
+
+    #[test]
+    fn agent_settings_default_to_inheriting_the_cli_and_view_masks_secret_env() {
+        let store: Store =
+            serde_json::from_str(r#"{"agentSettings":{"claude":{"values":{"language":"chinese"}}}}"#).unwrap();
+        assert!(store.agent_settings(Claude).inherit_cli, "absent = inherit");
+        assert_eq!(store.agent_settings(Codex), AgentSettings::default());
+        let mut store = Store::default();
+        let id = kimi(&mut store);
+        store.edit(&id, |p| _ = p.env.insert("GITHUB_TOKEN".into(), "ghp-0123456789wxyz".into())).unwrap();
+        let view = store.view();
+        let env = &view.providers[0].env;
+        assert_eq!(
+            (env["GITHUB_TOKEN"].as_str(), env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"].as_str()),
+            ("****wxyz", "262144")
+        );
+        let back = unmask_env(env.clone(), &store.get(&id).unwrap().env);
+        assert_eq!(back, store.get(&id).unwrap().env, "the masked value sent back = unchanged");
+        let mut changed = env.clone();
+        changed.insert("GITHUB_TOKEN".into(), "ghp-new".into());
+        assert_eq!(unmask_env(changed, &store.get(&id).unwrap().env)["GITHUB_TOKEN"], "ghp-new");
     }
 
     #[test]

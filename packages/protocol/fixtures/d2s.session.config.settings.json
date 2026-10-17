@@ -1,0 +1,14 @@
+{
+  "t": "session.config",
+  "runId": "r2",
+  "model": "kimi-for-coding",
+  "effort": null,
+  "settings": {
+    "provider": "Kimi For Coding",
+    "contextWindow": 262144,
+    "autoCompactWindow": 200000,
+    "inheritCli": true,
+    "fromCli": ["language", "CLAUDE_CODE_EFFORT_LEVEL"],
+    "fromBot": ["thinking"]
+  }
+}

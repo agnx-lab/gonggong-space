@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   AgentKind,
+  AgentSettingsReq,
   type BotCatalogDto,
   BotProviderReq,
   CcSwitchApplyReq,
@@ -126,6 +127,20 @@ export function providerRoutes(ctx: Ctx) {
         const { agent, ...official } = OfficialProviderReq.parse(req.body)
         const res = view((await providersCmd(ctx, m.id, { action: 'official', agent, official })).view)
         await trail(me.id, 'machine.providers.official', { machineId: m.id })
+        return res
+      },
+    )
+
+    app.put<{ Params: Params }>(
+      '/api/machines/:id/agent-settings',
+      async (req): Promise<ProviderStoreView> => {
+        const me = await requireUser(ctx, req)
+        const m = await owned(req, me.id)
+        const { agent, ...agentSettings } = AgentSettingsReq.parse(req.body)
+        const res = view(
+          (await providersCmd(ctx, m.id, { action: 'agentSettings', agent, agentSettings })).view,
+        )
+        await trail(me.id, 'machine.providers.agentSettings', { machineId: m.id })
         return res
       },
     )

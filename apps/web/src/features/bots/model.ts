@@ -78,6 +78,7 @@ export type BotPatch = Partial<
     | 'alwaysAllow'
     | 'gitName'
     | 'gitEmail'
+    | 'agentSettings'
   >
 >
 

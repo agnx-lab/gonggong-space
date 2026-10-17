@@ -1,4 +1,5 @@
 //! One (group, bot) conversation: owns the adapter process, the ACP session and its turns (one at a time).
+use crate::agent_settings;
 use crate::ask::{self, Asker};
 use crate::attachments;
 use crate::engine::Inner;
@@ -10,7 +11,7 @@ use crate::protocol::{
     AgentCatalog, AgentCommand, AgentKind, Answer, ApprovalRequest, Attachment, Choice, DaemonToServer, McpServer,
     ModelChoice, Question, RunDone, RunEvent, RunOutcome, RunStart, RunStatus, Tier, Usage, WorkspaceKind,
 };
-use crate::providers::{OFFICIAL, RunPlan, Selection, Store};
+use crate::providers::{RunPlan, Selection, Store};
 use crate::replicas::SyncTurn;
 use crate::service::Outbox;
 use crate::skills;
@@ -63,6 +64,8 @@ struct Planned {
     /// Its session's pinned provider is gone: start a new session instead of resuming.
     removed: bool,
     skills: skills::Installed,
+    /// Claude only.
+    launch: Option<inject::ClaudeLaunch>,
 }
 
 /// Makes `req` the active turn and decides its provider from the store as of now, so CLI / desktop edits apply from
@@ -75,17 +78,32 @@ fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Planned> {
     let s = &req.start;
     let resolved = Store::load(home).and_then(|store| {
         inject::prune(home, &store);
-        store.resolve_run(s.bot.agent_kind, &s.bot.id, s.resume_session_id.as_deref())
+        let (selection, removed) =
+            match store.resolve_run(s.bot.agent_kind, &s.bot.id, s.resume_session_id.as_deref())? {
+                RunPlan::Resume(selection) => (selection, false),
+                RunPlan::New { selection, provider_removed } => (selection, provider_removed),
+            };
+        let launch = match s.bot.agent_kind {
+            AgentKind::Claude => {
+                let cli = agent_settings::read_cli(&engine.config.user_home, None);
+                let defaults = store.agent_settings(AgentKind::Claude);
+                Some(inject::ClaudeLaunch::new(home, &selection, &defaults, &s.bot, cli.as_ref())?)
+            }
+            AgentKind::Codex => None,
+        };
+        Ok((selection, removed, launch))
     });
-    let (selection, removed) = match resolved {
-        Ok(RunPlan::Resume(selection)) => (selection, false),
-        Ok(RunPlan::New { selection, provider_removed }) => (selection, provider_removed),
+    let (selection, removed, launch) = match resolved {
+        Ok(planned) => planned,
         Err(e) => {
             shared.finish(Err(format!("{e:#}")), None, None);
             return None;
         }
     };
-    Some(Planned { req, selection, removed, skills: skills::Installed::default() })
+    if let Some(l) = &launch {
+        shared.set_compact_window(l.snapshot.auto_compact_window);
+    }
+    Some(Planned { req, selection, removed, skills: skills::Installed::default(), launch })
 }
 
 /// Installs the turn's team skills before its adapter is chosen. None: it fails (and is reported) instead.
@@ -441,6 +459,12 @@ impl Shared {
             sealed: false,
         });
         true
+    }
+
+    fn set_compact_window(&self, window: Option<u64>) {
+        if let Some(a) = self.0.lock().unwrap().active.as_mut() {
+            a.turn.compact_window = window;
+        }
     }
 
     /// Arms change tracking for the repos among the workspace and its additional directories; the trees are never
@@ -941,7 +965,8 @@ pub(crate) async fn run(
                 None => break,
             },
         };
-        let result = match engine.adapter(&turn.req.start.bot, &turn.req.local, &turn.selection).await {
+        let launch = turn.launch.as_ref();
+        let result = match engine.adapter(&turn.req.start.bot, &turn.req.local, &turn.selection, launch).await {
             Ok(config) => connect(&engine, &shared, &ask, AcpAgent::new(config), turn, &mut rx, &mut resume).await,
             Err(e) => Err(format!("{e:#}")),
         };
@@ -1027,6 +1052,7 @@ async fn connect(
                 ask,
                 home: &engine.config.home,
                 selection: first.selection.clone(),
+                launch: first.launch.clone(),
                 skills: first.skills.clone(),
                 session: None,
                 mode: None,
@@ -1055,8 +1081,11 @@ async fn connect(
                         Ok(None) | Err(_) => return Ok(None),
                     }
                 };
-                // Claude only sees the plugin's skill list as it was when the process started.
-                if turn.selection != conv.selection || turn.skills.names != conv.skills.names {
+                // Claude only sees the plugin's skill list and its settings as they were when the process started.
+                if turn.selection != conv.selection
+                    || turn.launch != conv.launch
+                    || turn.skills.names != conv.skills.names
+                {
                     return Ok(Some(turn));
                 }
             }
@@ -1074,6 +1103,8 @@ struct Conversation<'a> {
     home: &'a Path,
     /// The provider this adapter process was started with.
     selection: Selection,
+    /// The Claude settings it was started with.
+    launch: Option<inject::ClaudeLaunch>,
     /// The team skills of the current turn; their names are those the process started with.
     skills: skills::Installed,
     session: Option<SessionId>,
@@ -1315,6 +1346,7 @@ impl Conversation<'_> {
             run_id: req.start.run_id.clone(),
             model: unlisted(&self.options).or_else(|| in_effect(SessionConfigOptionCategory::Model)),
             effort: in_effect(SessionConfigOptionCategory::ThoughtLevel),
+            settings: self.launch.as_ref().map(|l| l.snapshot.clone()),
         });
     }
 
@@ -1327,17 +1359,7 @@ impl Conversation<'_> {
         }
         let mut meta = Meta::new();
         meta.insert("systemPrompt".into(), serde_json::json!({ "append": system_prompt(&start.bot) }));
-        let settings = match &self.selection {
-            Selection::Provider(p) => Some(&p.id[..]),
-            Selection::Official(o) => (!o.is_empty()).then_some(OFFICIAL),
-        };
-        let mut options = serde_json::Map::new();
-        if let Some(id) = settings {
-            options.insert("settings".into(), serde_json::json!(inject::claude_settings_path(self.home, id)));
-        }
-        if !self.skills.names.is_empty() {
-            options.insert("plugins".into(), serde_json::json!([{ "type": "local", "path": self.skills.dir }]));
-        }
+        let options = claude_options(self.launch.as_ref(), &self.skills);
         if !options.is_empty() {
             meta.insert("claudeCode".into(), serde_json::json!({ "options": options }));
         }
@@ -1352,6 +1374,25 @@ impl Conversation<'_> {
         })
         .map_err(|e| t!("无法记录会话使用的供应商：{e}", e = format!("{e:#}")))
     }
+}
+
+/// `_meta.claudeCode.options`: the settings file, the setting sources when the CLI's user-level config is left out
+/// (the adapter's default loads user, project and local; ours are spread over it), the team skills plugin.
+fn claude_options(
+    launch: Option<&inject::ClaudeLaunch>,
+    skills: &skills::Installed,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut options = serde_json::Map::new();
+    if let Some(path) = launch.and_then(inject::ClaudeLaunch::settings_path) {
+        options.insert("settings".into(), serde_json::json!(path));
+    }
+    if launch.is_some_and(|l| !l.inherit_cli) {
+        options.insert("settingSources".into(), serde_json::json!(["project", "local"]));
+    }
+    if !skills.names.is_empty() {
+        options.insert("plugins".into(), serde_json::json!([{ "type": "local", "path": skills.dir }]));
+    }
+    options
 }
 
 /// MCP servers attached when a session is created or restored: the server's global layer plus the built-in ask
@@ -1372,4 +1413,35 @@ fn mcp_servers_for(start: &RunStart, ask: &acp::McpServer) -> Vec<acp::McpServer
         })
         .chain([ask.clone()])
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent_settings::RunSettingsSnapshot;
+
+    fn launch(inherit_cli: bool, settings: Option<&str>) -> inject::ClaudeLaunch {
+        inject::ClaudeLaunch {
+            file: settings.map(|p| (PathBuf::from(p), serde_json::json!({}))),
+            inherit_cli,
+            snapshot: RunSettingsSnapshot {
+                provider: None,
+                context_window: None,
+                auto_compact_window: None,
+                inherit_cli,
+                from_cli: vec![],
+                from_bot: vec![],
+            },
+        }
+    }
+
+    #[test]
+    fn claude_options_leave_out_the_user_config_only_when_asked() {
+        let none = skills::Installed::default();
+        assert!(claude_options(None, &none).is_empty());
+        assert!(claude_options(Some(&launch(true, None)), &none).is_empty(), "the adapter's default sources");
+        let isolated = claude_options(Some(&launch(false, Some("/h/run/claude-x.json"))), &none);
+        assert_eq!(isolated["settingSources"], serde_json::json!(["project", "local"]));
+        assert_eq!(isolated["settings"], "/h/run/claude-x.json");
+    }
 }

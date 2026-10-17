@@ -3,6 +3,7 @@ import { Button, GroupBox } from '@web/ui'
 import { t } from '../i18n'
 import { ipc, type Providers } from '../ipc'
 import { fail } from '../lib/ui'
+import { providerSummary } from './settings'
 
 export const OFFICIAL = 'official'
 export const OFFICIAL_NAME = t('官方登录')
@@ -21,24 +22,28 @@ export function ProviderBox({
   const current = data.machine[agent] ?? OFFICIAL
   const list = data.providers.filter((p) => p.agent === agent)
 
-  const row = (value: string, name: string, sub: string) => (
-    <div key={value} className="dk-row">
-      <label className="ui-radio dk-row__main dk-provider">
-        <input
-          type="radio"
-          name={`provider-${agent}`}
-          value={value}
-          checked={current === value}
-          onChange={() => onSwitch(agent, value)}
-        />
-        <span className="ui-radio__dot" />
-        <span className="dk-row__main">
-          <span>{name}</span>
-          <span className="dk-sub dk-ellipsis">{sub}</span>
-        </span>
-      </label>
-    </div>
-  )
+  const row = (value: string, name: string, sub: string, env: Record<string, string> = {}) => {
+    const summary = providerSummary(agent, env)
+    return (
+      <div key={value} className="dk-row">
+        <label className="ui-radio dk-row__main dk-provider">
+          <input
+            type="radio"
+            name={`provider-${agent}`}
+            value={value}
+            checked={current === value}
+            onChange={() => onSwitch(agent, value)}
+          />
+          <span className="ui-radio__dot" />
+          <span className="dk-row__main">
+            <span>{name}</span>
+            <span className="dk-sub dk-ellipsis">{sub}</span>
+            {summary ? <span className="dk-sub dk-ellipsis">{summary}</span> : null}
+          </span>
+        </label>
+      </div>
+    )
+  }
 
   return (
     <GroupBox>
@@ -51,9 +56,9 @@ export function ProviderBox({
         </span>
         <Button onClick={() => ipc.openProvidersInWeb().catch(fail)}>{t('在 Web 中管理')}</Button>
       </div>
-      {row(OFFICIAL, OFFICIAL_NAME, t('使用本机 CLI 自己的登录与配置'))}
+      {row(OFFICIAL, OFFICIAL_NAME, t('使用本机 CLI 自己的登录与配置'), data.official?.[agent]?.env)}
       {list.map((p) =>
-        row(p.id, p.name, [p.baseUrl, p.model, `Key ${p.apiKey}`].filter(Boolean).join(' · ')),
+        row(p.id, p.name, [p.baseUrl, p.model, `Key ${p.apiKey}`].filter(Boolean).join(' · '), p.env),
       )}
     </GroupBox>
   )

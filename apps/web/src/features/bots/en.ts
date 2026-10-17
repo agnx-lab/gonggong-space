@@ -255,4 +255,11 @@ export default {
   共享申请: 'Access requests',
   头像: 'Avatar',
   上传的图片代替角色形象显示: "An uploaded image shows instead of the role's face",
+  覆盖: 'Overrides',
+  '只有 Bot 主人可以修改 Agent 设置': "Only the Bot's owner can change its agent settings",
+  '{label}：{v}': '{label}: {v}',
+  跟随本机: 'Follow machine',
+  '跟随本机（当前：{v}）': 'Follow machine (now: {v})',
+  '「跟随本机」使用机器上的 Agent 设置；下次启动 agent 时生效':
+    '"Follow machine" uses the agent settings on the machine; takes effect the next time the agent starts',
 } satisfies Record<string, string>
