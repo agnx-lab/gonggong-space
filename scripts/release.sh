@@ -61,13 +61,34 @@ cast_target() { [[ $1 == windows-* ]] && echo x86_64-pc-windows-msvc || echo "$2
 CAST=(-j 4 --release --locked --manifest-path crates/gg-cast/Cargo.toml)
 
 rustup="$(command -v rustup || echo /opt/homebrew/opt/rustup/bin/rustup)"
+# gg-cast rarely changes and links libwebrtc (slow, GBs of memory), so each platform's build is kept under a key of
+# what it is built from (sources, lockfile, build image) and reused by later releases until that changes.
+# GONGGONG_CAST_CACHE: the cache dir (default ~/.cache/gonggong/gg-cast); GONGGONG_CAST_REBUILD=1 ignores it.
+cast_inputs=(crates/gg-cast/src crates/gg-cast/build.rs crates/gg-cast/Cargo.toml crates/gg-cast/Cargo.lock
+  scripts/release/cast.Dockerfile)
+cast_cache=""
+if [ "${GONGGONG_CAST_REBUILD:-}" != 1 ] && [ -z "$(git -C "$ROOT" status --porcelain -- "${cast_inputs[@]}")" ]; then
+  cast_cache="${GONGGONG_CAST_CACHE:-$HOME/.cache/gonggong/gg-cast}/$(git -C "$ROOT" ls-tree -r HEAD -- "${cast_inputs[@]}" |
+    git hash-object --stdin | cut -c1-16)"
+fi
+# cast_cached <key>: copies a cached gg-cast of <key> into $out; fails when there is none.
+cast_cached() {
+  [ -n "$cast_cache" ] && [ -f "$cast_cache/$1" ] || return 1
+  cp "$cast_cache/$1" "$out/$(cast_artifact "$1")"
+  echo "== gg-cast $1 (cached $(basename "$cast_cache"))"
+}
+cast_keep() {
+  [ -z "$cast_cache" ] || { mkdir -p "$cast_cache" && cp "$out/$(cast_artifact "$1")" "$cast_cache/$1"; }
+}
 # mac_cast <key> <target>: gg-cast for a macOS target, into $out.
 mac_cast() {
   local webrtc
+  cast_cached "$1" && return
   webrtc="$(webrtc_prebuilt "$2")"
   (cd "$ROOT" && LK_CUSTOM_WEBRTC="$webrtc" RUSTC="$("$rustup" which --toolchain stable rustc)" \
     "$rustup" run stable cargo build -q "${CAST[@]}" --target "$2")
   cp "$ROOT/crates/gg-cast/target/$2/release/gg-cast" "$out/$(cast_artifact "$1")"
+  cast_keep "$1"
 }
 
 docker_targets=()
@@ -99,14 +120,18 @@ if [ ${#docker_targets[@]} -gt 0 ]; then
   done
   builder "$out" "$script"
   host="linux-$(docker_arch)"
-  # GONGGONG_SKIP_DOCKER_CAST=1: release without the Linux/Windows gg-cast (their image needs apt.llvm.org + crates.io).
-  [ "${GONGGONG_SKIP_DOCKER_CAST:-}" = 1 ] || for p in "${docker_targets[@]}"; do
+  # GONGGONG_SKIP_DOCKER_CAST=1: no Linux/Windows gg-cast builds (their image needs apt.llvm.org + crates.io); cached
+  # ones are still released.
+  for p in "${docker_targets[@]}"; do
     key="${p%%:*}" target="$(cast_target "${p%%:*}" "${p#*:}")" exe="" build=build platform=""
+    cast_cached "$key" && continue
+    [ "${GONGGONG_SKIP_DOCKER_CAST:-}" = 1 ] && { echo "skip gg-cast $key: GONGGONG_SKIP_DOCKER_CAST" >&2; continue; }
     [[ $key == windows-* ]] && exe=.exe build=xwin\ build
     [[ $key == linux-* && $key != "$host" ]] && platform="linux/${key#linux-}"
     echo "== gg-cast $key ($target${platform:+, emulated})"
     cast_builder "$out" "$platform" "cargo $build -q ${CAST[*]} --target $target; \
       cp /target/$target/release/gg-cast$exe /out/$(cast_artifact "$key")"
+    cast_keep "$key"
   done
 fi
 
