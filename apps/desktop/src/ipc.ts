@@ -5,9 +5,12 @@
 import type {
   AgentInfo,
   AgentKind,
+  AgentSettings,
   BotDto,
+  CliSettingsSnapshot,
   DevtoolsBlocker,
   Locale,
+  OfficialSettings,
   Permission,
   RunEvent,
   RunStatus,
@@ -268,6 +271,12 @@ export interface Providers {
   /** Per-bot override; absent = inherit the machine default. */
   bots: Record<string, ProviderChoice>
   providers: ProviderView[]
+  /** Official login extras per agent; absent = none. */
+  official?: Partial<Record<AgentKind, OfficialSettings>>
+  /** Machine defaults per agent; absent = Claude Code's defaults, CLI config inherited. */
+  agentSettings?: Partial<Record<AgentKind, AgentSettings>>
+  /** The CLI's own user-level config per agent; absent = none found. */
+  cli?: Partial<Record<AgentKind, CliSettingsSnapshot>>
 }
 
 /** A group's session that keeps `from` after a switch until a new session starts on `to`. */
