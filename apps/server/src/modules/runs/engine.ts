@@ -192,10 +192,10 @@ async function onSessionConfig(
   msg: Extract<DaemonMsg, { t: 'session.config' }>,
 ) {
   if (!(await liveRun(ctx, machineId, msg.runId))) return
-  const { model, effort } = msg
+  const { model, effort, settings = null } = msg
   for (const row of await ctx.db
     .update(runs)
-    .set({ model, effort })
+    .set({ model, effort, settings })
     .where(eq(runs.id, msg.runId))
     .returning())
     await publishRun(ctx, row)

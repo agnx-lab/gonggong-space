@@ -42,6 +42,7 @@ const PROVIDERS: Record<string, MessageKey> = {
   'machine.providers.default': '修改机器的默认供应商',
   'machine.providers.official': '修改机器的官方登录设置',
   'machine.providers.import': '导入机器的供应商',
+  'machine.providers.agentSettings': '修改机器的 Agent 设置',
 }
 
 const TEAM_ROLE: Record<string, MessageKey> = { owner: '所有者', admin: '管理员', member: '成员' }

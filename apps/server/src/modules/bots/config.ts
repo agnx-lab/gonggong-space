@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import {
   type AgentCatalog,
   type AgentKind,
+  type AgentSettingValues,
+  fieldsFor,
   fitEffort,
   INHERIT_PROVIDER,
   modelEfforts,
@@ -17,6 +19,24 @@ import { fail } from '../../lib/errors.js'
 import type { SessionUser } from '../auth/session.js'
 import { relay, requireFeature } from '../machines/relay.js'
 import { machineAgents } from './dto.js'
+
+const TEXT_MAX = 64
+
+/** A bot may override only its agent kind's `botOverride` fields, each with a value its type allows. */
+export function assertBotAgentSettings(agent: AgentKind, values: AgentSettingValues) {
+  const fields = fieldsFor(agent, 'agent').filter((f) => f.botOverride)
+  for (const [id, value] of Object.entries(values)) {
+    const field = fields.find((f) => f.id === id)
+    if (!field) return fail('invalid', 'Bot 不能覆盖 Agent 设置「{id}」', { id })
+    const valid =
+      field.type === 'bool'
+        ? value === 'true' || value === 'false'
+        : field.type === 'enum'
+          ? !!field.options?.includes(value)
+          : field.type === 'text' && value.length <= TEXT_MAX
+    if (!valid) fail('invalid', 'Agent 设置「{id}」的取值无效', { id })
+  }
+}
 
 type Bot = Pick<typeof bots.$inferSelect, 'agentKind' | 'machineId'>
 type Config = { model: string | null; effort: string | null }
