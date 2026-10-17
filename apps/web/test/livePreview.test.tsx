@@ -195,6 +195,18 @@ describe('桌面应用预览 · 观看', () => {
     expect(watches()).toBe(3)
   })
 
+  it('keeps renewing while hidden when in control, so the control is not lost', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const calls = routes(preview({ control: { controller: LI, requests: [] } }))
+    const watches = () => calls.filter((c) => c.path === '/previews/p3/watch').length
+    render(<LiveTab tab={tab} tabKey="live:p3" active />)
+    await waitFor(() => expect(watches()).toBe(1))
+
+    setHidden(true)
+    await act(() => vi.advanceTimersByTimeAsync(2 * RENEW_MS))
+    expect(watches()).toBe(3)
+  })
+
   it('says why there is no picture', async () => {
     routes(preview({ live: { state: 'failed', error: '本机没有授予「屏幕录制」权限', missing: [] } }))
     render(<LiveTab tab={tab} tabKey="live:p3" active />)

@@ -92,16 +92,18 @@ export function useLiveRoom(previewId: string) {
 }
 
 /** Keeps the machine publishing while mounted and the page is shown, at `fps` or above (another viewer may ask for more). */
-export function useWatch(previewId: string, fps: LiveFps) {
+export function useWatch(previewId: string, fps: LiveFps, controlling: boolean) {
   const visible = useDocumentVisible()
+  // A hidden page lets its lease lapse, so the machine stops encoding and uploading a picture nobody sees. Not the
+  // one in control: a lapsed lease takes the control away too.
+  const keep = visible || controlling
   useEffect(() => {
-    // A hidden page lets its lease lapse, so the machine stops encoding and uploading a picture nobody sees.
-    if (!visible) return
+    if (!keep) return
     const watch = () => api.post(`/previews/${previewId}/watch`, { fps }).catch(() => {})
     void watch()
     const timer = setInterval(watch, RENEW_MS)
     return () => clearInterval(timer)
-  }, [previewId, fps, visible])
+  }, [previewId, fps, keep])
 }
 
 /** gg-cast's identity in the room. */

@@ -37,7 +37,6 @@ export function LiveView({ preview: p }: { preview: PreviewDto }) {
   const { track, publication, weak, error, send } = useLiveRoom(p.id)
   const live = useLiveStats(track)
   const rate = useFrameRate(live?.grade)
-  useWatch(p.id, rate.fps)
   const quality = useQuality(publication, rate.fps, live?.stats.width ?? null)
   const [figures, setFigures] = useSaved('gonggong.live.figures', ['shown', 'hidden'], 'shown')
   const video = useRef<HTMLVideoElement>(null)
@@ -45,6 +44,7 @@ export function LiveView({ preview: p }: { preview: PreviewDto }) {
   const pressed = useRef(false)
   const lastMove = useRef(0)
   const controlling = !!me && p.control?.controller?.id === me
+  useWatch(p.id, rate.fps, controlling)
 
   useEffect(() => {
     const el = video.current
