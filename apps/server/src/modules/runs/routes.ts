@@ -6,10 +6,10 @@ import type { Ctx } from '../../context.js'
 import { groupBots, groupMembers, messages, runEvents, runs } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { open } from '../../lib/seal.js'
+import { sysParams } from '../admin/params.js'
 import { requireUser } from '../auth/session.js'
 import { runDtoLoader } from './dto.js'
 import { flushStream } from './engine.js'
-import { runRetentionDays } from './retention.js'
 import { openEvent } from './sealed.js'
 
 /** Most rounds the session list returns; older ones are rarely worth scrolling back to. */
@@ -66,7 +66,7 @@ export function runRoutes(ctx: Ctx) {
         purged: row.run.purgedAt !== null,
         sessionId: gb?.sessionId ?? null,
         settings: row.run.settings,
-        retentionDays: await runRetentionDays(ctx),
+        retentionDays: (await sysParams(ctx.db)).runRetentionDays,
         events: joinStreams(
           events.map((e) => ({
             id: e.id,

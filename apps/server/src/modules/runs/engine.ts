@@ -1,6 +1,5 @@
-import { isDeepStrictEqual } from 'node:util'
 import type { RunDone, RunEvent } from '@gonggong/protocol'
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, inArray, isNull, or, type SQL, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import type { DaemonHub } from '../../daemon/hub.js'
 import { bots, groupBots, messages, runEvents, runs } from '../../db/schema.js'
@@ -15,7 +14,7 @@ import { onQuestionAsk, onQuestionWithdraw, voidQuestions } from '../questions/s
 import { settleSchedule } from '../schedules/engine.js'
 import { pauseStopped, requeueRun } from '../sync/resolve.js'
 import { publishBotState, updateBotState } from '../workspaces/state.js'
-import { publishRun, type RunRow } from './dto.js'
+import { cardColumns, publishRun, type RunRow } from './dto.js'
 import { redact, redactDeep } from './redact.js'
 import { schedule } from './scheduler.js'
 import { sealEvent } from './sealed.js'
@@ -24,6 +23,7 @@ import { notifyChainDone, stoppedDone } from './stop.js'
 import { triggerChain } from './trigger.js'
 
 const LIVE = ['running', 'awaiting_approval', 'awaiting_answer']
+const { patch: _patch, ...unpatched } = getTableColumns(runs)
 
 type DaemonMsg = Parameters<Parameters<DaemonHub['on']>[1]>[1]
 
@@ -102,9 +102,10 @@ export function startRunEngine(ctx: Ctx) {
       for (const { run } of unfinished)
         await finalize(ctx, run).catch((err) => console.error('run finalize:', err))
     })
-  // While a machine is away its runs may end server-side (a /stop while offline): their streams are checked again.
+  // While a machine is away its runs may end server-side (a /stop while offline): their reports are checked again.
   const onOffline = (machineId: string) => {
-    for (const st of streams.values()) if (st.owner?.machineId === machineId) st.owner = undefined
+    drops++
+    for (const [runId, owner] of owners) if (owner.machineId === machineId) owners.delete(runId)
   }
   ctx.hub.on('message', onMessage)
   ctx.hub.on('online', onOnline)
@@ -144,38 +145,76 @@ async function liveRun(
   return row?.run
 }
 
+/** Who a run was found live for: its machine, group and bot. */
+type Owner = { id: string; machineId: string; groupId: string; botId: string }
+
+/**
+ * Runs found live, so their further reports skip the row. Dropped wherever a run ends without its machine's
+ * run.done (machine offline, `forgetStream`) and on run.done itself.
+ */
+const owners = new Map<string, Owner>()
+/** Counts drops: a check that raced one is not remembered, as the row it read may predate the end. */
+let drops = 0
+
+/** `accept` as in `liveRun`; only an owner seen live is remembered. */
+async function ownerOf(ctx: Ctx, machineId: string, runId: string, accept: 'live' | 'ended' = 'live') {
+  const known = owners.get(runId)
+  if (known?.machineId === machineId) return known
+  const seen = drops
+  const run = await liveRun(ctx, machineId, runId, accept)
+  if (!run) return
+  const owner: Owner = { id: runId, machineId, groupId: run.groupId, botId: run.botId }
+  if (LIVE.includes(run.status) && seen === drops) owners.set(runId, owner)
+  return owner
+}
+
+function forgetOwner(runId: string) {
+  owners.delete(runId)
+  drops++
+}
+
 async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent) {
+  const run = await ownerOf(ctx, machineId, runId, raw.kind === 'task' ? 'ended' : 'live')
+  if (!run) return
   if (raw.kind === 'text' || raw.kind === 'thought') {
-    // Only a stream's first chunk is checked against the row: the stream is dropped whenever the run ends.
-    const run = checkedRun(runId, machineId) ?? (await liveRun(ctx, machineId, runId))
-    if (!run) return
-    await pushDelta(ctx, run, await appendStream(ctx, { machineId, runId, groupId: run.groupId }, raw))
+    await pushDelta(ctx, run, await appendStream(ctx, runId, raw))
     return
   }
-  const run = await liveRun(ctx, machineId, runId, raw.kind === 'task' ? 'ended' : 'live')
-  if (!run) return
   await pushDelta(ctx, run, await closeStream(runId))
   const event = redactDeep(raw)
   await ctx.db.insert(runEvents).values({ runId, kind: event.kind, payload: sealEvent(event) })
-  const patch =
-    event.kind === 'status' || event.kind === 'tool'
-      ? { step: event.kind === 'tool' ? event.title : event.step }
-      : event.kind === 'usage'
-        ? { usage: event.usage }
-        : null
-  let card = false
   // Updates of one tool call repeat its title: only a changed card is rebuilt and pushed.
-  if (patch && Object.entries(patch).some(([k, v]) => !isDeepStrictEqual(run[k as keyof typeof run], v)))
-    for (const row of await ctx.db.update(runs).set(patch).where(eq(runs.id, runId)).returning()) {
-      await publishRun(ctx, row)
-      card = true
-    }
+  const setChanged = (set: Partial<RunRow>, changed: SQL) =>
+    ctx.db
+      .update(runs)
+      .set(set)
+      .where(and(eq(runs.id, runId), changed))
+      .returning(cardColumns)
+  const step = event.kind === 'tool' ? event.title : event.kind === 'status' ? event.step : undefined
+  const updated =
+    step !== undefined
+      ? setChanged({ step }, sql`${runs.step} is distinct from ${step}`)
+      : event.kind === 'usage'
+        ? setChanged(
+            { usage: event.usage },
+            sql`${runs.usage} is distinct from ${JSON.stringify(event.usage)}::jsonb`,
+          )
+        : []
+  let card = false
+  for (const row of await updated) {
+    await publishRun(ctx, row)
+    card = true
+  }
   if (event.kind === 'usage' && event.context)
     await updateBotState(ctx, run.groupId, run.botId, { contextUsage: event.context })
   if (event.kind === 'subagent' || event.kind === 'task') {
     const [field, id] = event.kind === 'subagent' ? ['subagents', event.agentId] : ['tasks', event.taskId]
     const delegation = sql`jsonb_set(${runs.delegation}, ${`{${field}}`}::text[], coalesce(${runs.delegation} -> ${field}, '{}') || jsonb_build_object(${id}::text, ${event.state}::text))`
-    for (const row of await ctx.db.update(runs).set({ delegation }).where(eq(runs.id, runId)).returning()) {
+    for (const row of await ctx.db
+      .update(runs)
+      .set({ delegation })
+      .where(eq(runs.id, runId))
+      .returning(cardColumns)) {
       await publishRun(ctx, row)
       card = true
     }
@@ -224,8 +263,6 @@ type Segment = {
   /** Length of `plain` already stored. */
   saved: number
 }
-/** Who a stream's run was found live for: its machine and group. */
-type Owner = { machineId: string; runId: string; groupId: string }
 /** A run's open stream: its latest segment, stored on a debounce through one ordered write chain. */
 type Open = {
   ctx: Ctx
@@ -233,7 +270,6 @@ type Open = {
   seg?: Segment
   timer?: NodeJS.Timeout
   write: Promise<void>
-  owner?: Owner
 }
 
 /** Rows roll over at a line end past this size, so a store (rewriting the whole row) stays bounded. */
@@ -261,18 +297,12 @@ export async function flushStream(runId: string) {
   await st.write
 }
 
-function checkedRun(runId: string, machineId: string) {
-  const owner = streams.get(runId)?.owner
-  return owner?.machineId === machineId ? { id: runId, groupId: owner.groupId } : undefined
-}
-
 /**
  * A run that ended without run.done (daemon lost, account disabled) no longer streams; what it sent is kept. Its
- * later chunks are checked against the row again.
+ * later reports are checked against the row again.
  */
 export async function forgetStream(runId: string) {
-  const st = streams.get(runId)
-  if (st) st.owner = undefined
+  forgetOwner(runId)
   await flushStream(runId)
   streams.delete(runId)
 }
@@ -355,14 +385,12 @@ const segment = (kind: Stream['kind'], agentId: string | undefined, plain: strin
  * Streamed chunks extend the run's latest event of the same kind and agent, so redaction sees whole lines even
  * when a secret is split across chunks. Returns the redacted text now safe to push live.
  */
-async function appendStream(ctx: Ctx, owner: Owner, { kind, delta, agentId }: Stream) {
-  const { runId } = owner
+async function appendStream(ctx: Ctx, runId: string, { kind, delta, agentId }: Stream) {
   let st = streams.get(runId)
   if (!st) {
     st = { ctx, runId, seg: await lastSegment(ctx, runId), write: Promise.resolve() }
     streams.set(runId, st)
   }
-  st.owner = owner
   const prev = st.seg
   let out = ''
   let seg: Segment
@@ -390,11 +418,16 @@ async function appendStream(ctx: Ctx, owner: Owner, { kind, delta, agentId }: St
   return out
 }
 
-/** The stream ends: it is stored, and what was held back for a possible secret can go out. */
+/**
+ * The stream ends: it is stored, and what was held back for a possible secret can go out. The run's next chunk
+ * starts a new row, known to follow this report, so it is not read back.
+ */
 async function closeStream(runId: string) {
-  const seg = streams.get(runId)?.seg
+  const st = streams.get(runId)
+  const seg = st?.seg
   const out = seg && live(seg) ? unsent(seg, seg.plain.length) : ''
-  await forgetStream(runId)
+  await flushStream(runId)
+  if (st) st.seg = undefined
   return out
 }
 
@@ -411,22 +444,25 @@ async function writeSegment(ctx: Ctx, runId: string, { id, kind, agentId, plain 
   return row?.id
 }
 
-/** After a restart the cache is empty: the run's latest row, when it is a stream. */
+/** After a restart the cache is empty: the run's latest row, when it is a stream (a tool row is not read whole). */
 async function lastSegment(ctx: Ctx, runId: string): Promise<Segment | undefined> {
   const [last] = await ctx.db
-    .select()
+    .select({
+      id: runEvents.id,
+      kind: runEvents.kind,
+      delta: sql<string>`${runEvents.payload} ->> 'delta'`,
+      agentId: sql<string | null>`${runEvents.payload} ->> 'agentId'`,
+    })
     .from(runEvents)
     .where(eq(runEvents.runId, runId))
     .orderBy(desc(runEvents.id))
     .limit(1)
-  if (!last) return
-  const e = last.payload as RunEvent
-  if (e.kind !== 'text' && e.kind !== 'thought') return
-  const plain = open(e.delta)
+  if (!last || (last.kind !== 'text' && last.kind !== 'thought')) return
+  const plain = open(last.delta)
   return {
     id: last.id,
-    kind: e.kind,
-    agentId: e.agentId,
+    kind: last.kind,
+    agentId: last.agentId ?? undefined,
     plain,
     sent: plain.length,
     upto: -1,
@@ -436,6 +472,8 @@ async function lastSegment(ctx: Ctx, runId: string): Promise<Segment | undefined
 
 async function onDone(ctx: Ctx, machineId: string, done: RunDone) {
   const tail = await closeStream(done.runId)
+  // Reports after run.done are checked against the row again.
+  await forgetStream(done.runId)
   const owned = await liveRun(ctx, machineId, done.runId, 'unfinished')
   if (!owned) return
   await pushDelta(ctx, owned, tail)
@@ -479,7 +517,7 @@ async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
         ...stopped,
       })
       .where(and(eq(runs.id, owned.id), inArray(runs.status, LIVE)))
-      .returning()
+      .returning(unpatched)
     if (!run) return null
     const [state] =
       done.sessionId || done.git
@@ -515,7 +553,8 @@ async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
     await notifyMentions(ctx, ended.message, name)
   }
   if (ended.state && done.git) await publishBotState(ctx, ended.state)
-  return ended.run
+  // The sealed patch just written may be large and nothing after the end reads it, so it is not sent back.
+  return { ...ended.run, patch: null }
 }
 
 /**

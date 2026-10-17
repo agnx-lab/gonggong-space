@@ -332,7 +332,7 @@ export async function mirrorEdit(
  * Called on every run change (publishRun): mirrors its card, question and approval cards to the chat its trigger
  * is in. Keyed on the trigger rather than the binding, so a run live at unbind still ends properly in Feishu.
  */
-export async function mirrorRun(ctx: Ctx, run: Row) {
+export async function mirrorRun(ctx: Ctx, run: Pick<Row, 'id' | 'groupId' | 'triggerMessageId' | 'status'>) {
   if (!(await everBound(ctx, run.groupId))) return
   const [trigger] = await ctx.db
     .select({ id: feishuMessageLinks.id })
