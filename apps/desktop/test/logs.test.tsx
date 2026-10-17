@@ -16,8 +16,8 @@ const CHECKS: Check[] = [
 ]
 
 const LINES: LogLine[] = [
-  { level: 'info', text: '10:21:12 INFO  router  msg m_8812' },
-  { level: 'warn', text: '10:05:02 WARN  sync    local edit without lock' },
+  { seq: 1, level: 'info', text: '10:21:12 INFO  router  msg m_8812' },
+  { seq: 2, level: 'warn', text: '10:05:02 WARN  sync    local edit without lock' },
 ]
 
 beforeEach(() => {
@@ -73,14 +73,29 @@ describe('日志与诊断', () => {
     await waitFor(() =>
       expect(screen.getByTestId('log-pane').textContent).toContain('WARN  sync    local edit'),
     )
-    expect(m.recentLogs).toHaveBeenLastCalledWith('info', expect.any(Number))
+    expect(m.recentLogs).toHaveBeenLastCalledWith('info', expect.any(Number), null)
     fireEvent.click(screen.getByRole('radio', { name: 'warn' }))
-    await waitFor(() => expect(m.recentLogs).toHaveBeenLastCalledWith('warn', expect.any(Number)))
+    await waitFor(() => expect(m.recentLogs).toHaveBeenLastCalledWith('warn', expect.any(Number), null))
     const calls = m.recentLogs.mock.calls.length
     await act(async () => vi.advanceTimersByTime(2000))
     expect(m.recentLogs.mock.calls.length).toBeGreaterThan(calls)
     fireEvent.click(screen.getByRole('radio', { name: 'debug' }))
-    await waitFor(() => expect(m.recentLogs).toHaveBeenLastCalledWith('debug', expect.any(Number)))
+    await waitFor(() => expect(m.recentLogs).toHaveBeenLastCalledWith('debug', expect.any(Number), null))
+  })
+
+  it('fetches only the lines after the last one shown and appends them', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    render(<LogsPage go={() => {}} />)
+    const pane = screen.getByTestId('log-pane')
+    await waitFor(() => expect(pane.textContent).toContain('local edit'))
+    m.recentLogs.mockResolvedValue([{ seq: 7, level: 'error', text: '10:22:00 ERROR engine  boom' }])
+    await act(async () => vi.advanceTimersByTime(2000))
+    expect(m.recentLogs).toHaveBeenLastCalledWith('info', expect.any(Number), 2)
+    await waitFor(() => expect(pane.textContent).toContain('boom'))
+    expect(pane.textContent).toContain('router  msg m_8812')
+    await act(async () => vi.advanceTimersByTime(2000))
+    expect(m.recentLogs).toHaveBeenLastCalledWith('info', expect.any(Number), 7)
+    expect(pane.textContent?.match(/boom/g)).toHaveLength(1)
   })
 })
 

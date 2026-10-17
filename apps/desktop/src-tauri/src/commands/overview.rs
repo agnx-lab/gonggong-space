@@ -20,8 +20,14 @@ pub async fn overview(host: State<'_, Host>) -> super::Result<Overview> {
     Ok(Overview { workspaces: WorkspaceStat { count, detail } })
 }
 
-/// One run's process for the detail view; None once it aged out (or the daemon is not running).
-#[tauri::command]
-pub fn run_process(host: State<'_, Host>, run_id: String) -> Option<gonggong::status::Process> {
-    host.process(&run_id)
+/// One run's process for the detail view, from event `since` on (the view polls it); None once it aged out (or the
+/// daemon is not running). Async so it runs off the main thread.
+#[tauri::command(async)]
+pub fn run_process(
+    host: State<'_, Host>,
+    run_id: String,
+    since: Option<u64>,
+    rev: Option<u64>,
+) -> Option<gonggong::status::ProcessPatch> {
+    host.process_since(&run_id, since, rev)
 }

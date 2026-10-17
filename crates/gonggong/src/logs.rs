@@ -71,23 +71,47 @@ impl LogLine {
     }
 }
 
+/// A ring line numbered in arrival order, so a reader can ask for just the lines after its last one.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RingLine {
+    pub seq: u64,
+    #[serde(flatten)]
+    pub line: LogLine,
+}
+
+#[derive(Default)]
+struct Ring {
+    lines: VecDeque<RingLine>,
+    pushed: u64,
+}
+
 /// The recent-lines ring the desktop app reads.
 #[derive(Clone, Default)]
-pub struct Logs(Arc<Mutex<VecDeque<LogLine>>>);
+pub struct Logs(Arc<Mutex<Ring>>);
 
 impl Logs {
     pub fn push(&self, line: LogLine) {
         let mut ring = self.0.lock().unwrap();
-        if ring.len() == RING_CAP {
-            ring.pop_front();
+        if ring.lines.len() == RING_CAP {
+            ring.lines.pop_front();
         }
-        ring.push_back(line);
+        ring.pushed += 1;
+        let seq = ring.pushed;
+        ring.lines.push_back(RingLine { seq, line });
     }
 
-    /// The newest `limit` lines at or below `max`, oldest first.
-    pub fn recent(&self, max: LogLevel, limit: usize) -> Vec<LogLine> {
+    /// The newest `limit` lines at or below `max` that came after line `after`, oldest first.
+    pub fn recent(&self, max: LogLevel, limit: usize, after: Option<u64>) -> Vec<RingLine> {
         let ring = self.0.lock().unwrap();
-        let mut out: Vec<_> = ring.iter().rev().filter(|l| l.level <= max).take(limit).cloned().collect();
+        let mut out: Vec<_> = ring
+            .lines
+            .iter()
+            .rev()
+            .take_while(|l| after.is_none_or(|after| l.seq > after))
+            .filter(|l| l.line.level <= max)
+            .take(limit)
+            .cloned()
+            .collect();
         out.reverse();
         out
     }
@@ -240,7 +264,7 @@ mod tests {
         logs.push(line(LogLevel::Warn, "b"));
         logs.push(line(LogLevel::Debug, "c"));
         logs.push(line(LogLevel::Error, "d"));
-        let texts = |max, n| logs.recent(max, n).into_iter().map(|l| l.text).collect::<Vec<_>>();
+        let texts = |max, n| logs.recent(max, n, None).into_iter().map(|l| l.line.text).collect::<Vec<_>>();
         assert_eq!(texts(LogLevel::Debug, 10), ["a", "b", "c", "d"]);
         assert_eq!(texts(LogLevel::Info, 10), ["a", "b", "d"]);
         assert_eq!(texts(LogLevel::Warn, 10), ["b", "d"]);
@@ -248,8 +272,32 @@ mod tests {
         for i in 0..RING_CAP {
             logs.push(line(LogLevel::Info, &i.to_string()));
         }
-        assert_eq!(logs.recent(LogLevel::Debug, usize::MAX).len(), RING_CAP);
-        assert_eq!(logs.recent(LogLevel::Debug, 1)[0].text, (RING_CAP - 1).to_string());
+        assert_eq!(logs.recent(LogLevel::Debug, usize::MAX, None).len(), RING_CAP);
+        assert_eq!(logs.recent(LogLevel::Debug, 1, None)[0].line.text, (RING_CAP - 1).to_string());
+    }
+
+    #[test]
+    fn the_ring_serves_only_lines_after_the_last_one_a_reader_has() {
+        let logs = Logs::default();
+        logs.push(line(LogLevel::Info, "a"));
+        logs.push(line(LogLevel::Warn, "b"));
+        let seen = logs.recent(LogLevel::Info, 10, None);
+        assert!(seen[0].seq < seen[1].seq);
+        let last = seen[1].seq;
+        assert!(logs.recent(LogLevel::Info, 10, Some(last)).is_empty());
+        logs.push(line(LogLevel::Debug, "c"));
+        logs.push(line(LogLevel::Info, "d"));
+        logs.push(line(LogLevel::Error, "e"));
+        let texts = |max, n| logs.recent(max, n, Some(last)).into_iter().map(|l| l.line.text).collect::<Vec<_>>();
+        assert_eq!(texts(LogLevel::Info, 10), ["d", "e"]);
+        assert_eq!(texts(LogLevel::Info, 1), ["e"], "the newest when more came than asked for");
+        for i in 0..RING_CAP {
+            logs.push(line(LogLevel::Info, &i.to_string()));
+        }
+        let after_eviction = logs.recent(LogLevel::Info, 1, None)[0].seq;
+        assert_eq!(after_eviction, last + 3 + RING_CAP as u64, "numbers keep counting past evicted lines");
+        let json = serde_json::to_value(&logs.recent(LogLevel::Info, 1, None)[0]).unwrap();
+        assert_eq!(json, serde_json::json!({ "seq": after_eviction, "level": "info", "text": "1999" }));
     }
 
     #[test]
@@ -262,7 +310,7 @@ mod tests {
             tracing::debug!(target: "hyper_util::client", "noise");
             tracing::warn!("disk low");
         });
-        let got = logs.recent(LogLevel::Debug, 10);
+        let got: Vec<_> = logs.recent(LogLevel::Debug, 10, None).into_iter().map(|l| l.line).collect();
         assert_eq!(got.len(), 2);
         assert_eq!(&got[0].text[8..], " INFO  git     fetch origin repo=pay");
         assert_eq!(got[1].level, LogLevel::Warn);

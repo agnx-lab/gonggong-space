@@ -52,6 +52,14 @@ export interface RunProcess {
   events: { id: number; atMs: number; event: RunEvent }[]
   endedMs: number | null
   outcome: 'completed' | 'interrupted' | 'failed' | null
+  /** Bumped on every change. */
+  rev: number
+}
+
+/** `runProcess`: the events from the asked one on (it may have grown), none while `rev` is unchanged. */
+export interface ProcessPatch extends RunProcess {
+  /** The oldest event the daemon still keeps. */
+  firstId: number | null
 }
 
 export interface DaemonStatus {
@@ -195,6 +203,8 @@ export interface Check {
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 
 export interface LogLine {
+  /** Arrival order in the app's log. */
+  seq: number
   level: LogLevel
   text: string
 }
@@ -310,7 +320,8 @@ export const ipc = {
   startDaemon: () => invoke<void>('start_daemon'),
   readClipboard: () => readText(),
   overview: () => invoke<Overview>('overview'),
-  runProcess: (runId: string) => invoke<RunProcess | null>('run_process', { runId }),
+  runProcess: (runId: string, since: number | null, rev: number | null) =>
+    invoke<ProcessPatch | null>('run_process', { runId, since, rev }),
   settings: () => invoke<Settings>('get_settings'),
   setAutoUpgrade: (on: boolean) => invoke<void>('set_auto_upgrade', { on }),
   setMirror: (mirror: Mirror) => invoke<void>('set_mirror', { mirror }),
@@ -326,7 +337,9 @@ export const ipc = {
   measureNet: () => invoke<NetResult>('measure_net'),
   /** Asks where to save; resolves with the written path, or null when cancelled. */
   exportDiagnostics: () => invoke<string | null>('export_diagnostics'),
-  recentLogs: (level: LogLevel, limit: number) => invoke<LogLine[]>('recent_logs', { level, limit }),
+  /** The newest `limit` lines after line `after`. */
+  recentLogs: (level: LogLevel, limit: number, after: number | null) =>
+    invoke<LogLine[]>('recent_logs', { level, limit, after }),
   agents: () => invoke<AgentCard[]>('agents'),
   /** Resolves false when the file dialog was cancelled. */
   pickAgentPath: (kind: AgentKind) => invoke<boolean>('pick_agent_path', { kind }),

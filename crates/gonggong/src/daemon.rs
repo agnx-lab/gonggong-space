@@ -8,7 +8,7 @@ use crate::local::{CachedCatalog, LocalSettings, save_catalog};
 use crate::lock::Lock;
 use crate::protocol::{AgentInfo, RejectReason};
 use crate::service::{Fatal, Service};
-use crate::status::{Monitor, Status};
+use crate::status::{Monitor, ProcessPatch, Status};
 use crate::tools::ToolKind;
 use crate::upgrade::{GithubSource, Upgrader};
 use std::collections::HashSet;
@@ -107,8 +107,8 @@ impl Daemon {
         self.monitor.snapshot()
     }
 
-    pub fn process(&self, run_id: &str) -> Option<crate::status::Process> {
-        self.monitor.process(run_id)
+    pub fn process_since(&self, run_id: &str, after: Option<u64>, rev: Option<u64>) -> Option<ProcessPatch> {
+        self.monitor.process_since(run_id, after, rev)
     }
 
     pub fn subscribe(&self) -> watch::Receiver<Status> {
