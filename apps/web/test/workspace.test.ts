@@ -177,6 +177,62 @@ it('keeps each group live runs in step with run updates', () => {
   expect(runs()).toEqual([[], []])
 })
 
+it('keeps the same groups array when an event changes nothing the list shows', () => {
+  useSession.setState({ user: { id: 'me' } as never })
+  useWorkspace.setState({
+    bots: [{ id: 'mine', ownerId: 'me' }] as never,
+    groups: [
+      {
+        ...g,
+        lastSeq: 5,
+        liveRunIds: ['r1'],
+        liveRuns: [{ id: 'r1', botId: 'mine', status: 'running', needsMe: false }],
+      },
+      { ...g, id: 'd1', kind: 'dm', botIds: ['mine'], workspacePath: '/w' },
+    ],
+  })
+  const before = useWorkspace.getState().groups
+  const { applyEvent } = useWorkspace.getState()
+  const run = {
+    id: 'r1',
+    groupId: 'g1',
+    botId: 'mine',
+    status: 'running',
+    step: '读取 a.ts',
+    usage: { totalTokens: 10 },
+    originUserId: 'u2',
+    approvals: [],
+    questions: [],
+  } as unknown as RunDto
+  const botState = (groupId: string, path: string) =>
+    ({ t: 'group.botState', groupId, state: { botId: 'mine', path } }) as never
+
+  applyEvent({ t: 'run.updated', run: { ...run, step: '编辑 a.ts', usage: { totalTokens: 900 } } })
+  applyEvent({ t: 'run.updated', run: { ...run, id: 'r9', groupId: 'g9' } })
+  applyEvent({ t: 'run.updated', run: { ...run, id: 'r8', status: 'completed' } })
+  applyEvent({ t: 'message.new', message: msg({ seq: 5 }) })
+  applyEvent({ t: 'message.new', message: msg({ seq: 1, groupId: 'g9' }) })
+  applyEvent(botState('d1', '/w'))
+  applyEvent(botState('g1', '/elsewhere'))
+  expect(useWorkspace.getState().groups).toBe(before)
+
+  applyEvent({
+    t: 'run.updated',
+    run: {
+      ...run,
+      status: 'awaiting_answer',
+      questions: [{ status: 'pending', questions: [{ title: '用哪个分支？' }] }],
+    } as unknown as RunDto,
+  })
+  const after = useWorkspace.getState().groups
+  expect(after).not.toBe(before)
+  expect(after[0]!.liveRuns[0]).toMatchObject({ status: 'awaiting_answer', title: '用哪个分支？' })
+  expect(after[1]).toBe(before[1])
+  applyEvent(botState('d1', '/v'))
+  expect(useWorkspace.getState().groups[1]!.workspacePath).toBe('/v')
+  expect(useWorkspace.getState().groups[0]).toBe(after[0])
+})
+
 it("keeps another team's groups, bots and notifications out of the open team", () => {
   localStorage.setItem('gg.team', 't1')
   const apply = useWorkspace.getState().applyEvent

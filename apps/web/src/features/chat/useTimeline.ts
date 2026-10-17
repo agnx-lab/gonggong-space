@@ -105,7 +105,14 @@ export function useTimeline(groupId: string) {
     [groupId],
   )
 
+  /**
+   * This timeline's runs, kept outside state so a delta right after its run's first update is not dropped.
+   * Deltas carry no group: those of other groups' runs would wake every streaming subscriber for nothing.
+   */
+  const runIds = useRef(new Set<string>())
+
   const applyPage = useCallback((page: TimelineDto, older: boolean) => {
+    for (const r of page.runs) runIds.current.add(r.id)
     setState((s) => ({
       ...s,
       messages: mergeMessages(s.messages, page.messages),
@@ -119,6 +126,7 @@ export function useTimeline(groupId: string) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt re-runs the first load on retry
   useEffect(() => {
     setState(EMPTY)
+    runIds.current = new Set()
     let alive = true
     const latest = () =>
       fetchPage().then(
@@ -134,7 +142,6 @@ export function useTimeline(groupId: string) {
     }
     local.add(onLocal)
     // Streamed text is applied in batches: each update re-renders its run card and re-pins the scroll.
-    // Other groups' runs stream over the same socket too; no card of theirs is mounted to re-render.
     const pending = new Map<string, string>()
     let flushTimer: ReturnType<typeof setTimeout> | undefined
     const flushDeltas = () => {
@@ -148,9 +155,10 @@ export function useTimeline(groupId: string) {
     const offEvents = realtime.subscribe((e) => {
       if (e.t === 'message.new' && e.message.groupId === groupId) setState((s) => addLive(s, e.message))
       else if (e.t === 'message.recalled' || e.t === 'message.hidden' || e.t === 'message.edited') onLocal(e)
-      else if (e.t === 'run.updated' && e.run.groupId === groupId)
+      else if (e.t === 'run.updated' && e.run.groupId === groupId) {
+        runIds.current.add(e.run.id)
         setState((s) => ({ ...s, runs: mergeRuns(s.runs, [e.run]) }))
-      else if (e.t === 'run.delta') {
+      } else if (e.t === 'run.delta' && runIds.current.has(e.runId)) {
         pending.set(e.runId, (pending.get(e.runId) ?? '') + e.text)
         flushTimer ??= setTimeout(flushDeltas, DELTA_FLUSH_MS)
       }

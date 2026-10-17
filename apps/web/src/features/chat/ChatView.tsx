@@ -165,9 +165,10 @@ export function ChatView({
   const [unseen, setUnseen] = useState(0)
   const dropFiles = useRef<((files: File[]) => void) | null>(null)
   const drag = useFileDrag()
-  const inspector = useInspector()
   const navigate = useNavigate()
-  const infoOpen = inspector.view === 'group-info'
+  const infoOpen = useInspector((s) => s.view === 'group-info')
+  const infoView = useInspector((s) => s.payload as InfoView | null)
+  const { open: inspect, close: closeInspector } = useInspector.getState()
   const benchTabs = useWorkbench((s) => s.benches[group.id]?.tabs.length ?? 0)
   const benchOpen = useWorkbench((s) => s.open)
   const [settings, setSettings] = useState<SettingsTab | null>(null)
@@ -455,7 +456,7 @@ export function ChatView({
                 ? { avatarLabel: t('打开群设置'), onAvatarClick: () => setSettings('basic') }
                 : {
                     avatarLabel: t('打开群信息'),
-                    onAvatarClick: () => inspector.open('group-info', 'main'),
+                    onAvatarClick: () => inspect('group-info', 'main'),
                   })}
           tags={dm ? undefined : [{ label: GROUP_MODE_LABEL[group.mode], tone: 'gray' }]}
           badges={group.feishu ? <FeishuChatLink chat={group.feishu} /> : null}
@@ -480,7 +481,7 @@ export function ChatView({
                   <button
                     type="button"
                     className="pn-chathead__link"
-                    onClick={() => inspector.open('group-info', 'members')}
+                    onClick={() => inspect('group-info', 'members')}
                   >
                     {t('{n} 人', { n: group.members.length })}
                   </button>
@@ -490,7 +491,7 @@ export function ChatView({
                       <button
                         type="button"
                         className="pn-chathead__link"
-                        onClick={() => inspector.open('group-info', 'bots')}
+                        onClick={() => inspect('group-info', 'bots')}
                       >
                         {t('{n} Bot', { n: botCount })}
                       </button>
@@ -516,7 +517,7 @@ export function ChatView({
                     label: botCount
                       ? t('群成员：{n} 人，{bots} 个 Bot', { n: group.members.length, bots: botCount })
                       : t('群成员：{n} 人', { n: group.members.length }),
-                    onClick: () => inspector.open('group-info', 'members'),
+                    onClick: () => inspect('group-info', 'members'),
                   },
                 ]
               : []),
@@ -535,18 +536,18 @@ export function ChatView({
                     icon: 'cog' as const,
                     label: t('群设置'),
                     active: infoOpen,
-                    onClick: () => (infoOpen ? inspector.close() : inspector.open('group-info', 'main')),
+                    onClick: () => (infoOpen ? closeInspector() : inspect('group-info', 'main')),
                   },
                 ]),
           ]}
         />
         <InspectorPortal view="group-info">
           <GroupInfo
-            key={String(inspector.payload)}
+            key={String(infoView)}
             group={group}
-            initialView={(inspector.payload as InfoView | null) ?? 'main'}
+            initialView={infoView ?? 'main'}
             readOnly={readOnly}
-            onClose={inspector.close}
+            onClose={closeInspector}
             onSettings={setSettings}
           />
         </InspectorPortal>
@@ -684,7 +685,7 @@ export function ChatView({
         {readOnly || closed ? null : (
           <>
             <div className="chat-view__pins">
-              <ScheduleTag groupId={group.id} onManage={() => inspector.open('group-info', 'schedules')} />
+              <ScheduleTag groupId={group.id} onManage={() => inspect('group-info', 'schedules')} />
               <PreviewTags groupId={group.id} />
             </div>
             <LiveRunsBar runs={runList} onLocate={locate} />

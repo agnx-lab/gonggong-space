@@ -3,12 +3,12 @@ import { t } from '../i18n'
 import { cx } from '../lib/cx'
 import { AppFrame } from '../ui'
 import { useEscape } from '../ui/overlay'
-import { MOBILE_MAX, RAIL_MIN, useViewportWidth } from './viewport'
+import { MOBILE_MAX, RAIL_MIN, useViewportBelow, useViewportWidth } from './viewport'
 import { useWorkbench, type WorkbenchMode } from './workbench'
 
 /** Rail open state: defaults to open on wide screens and resets whenever the 1100px breakpoint is crossed. */
 export function useRailOpen() {
-  const narrow = useViewportWidth() < RAIL_MIN
+  const narrow = useViewportBelow(RAIL_MIN)
   const [open, setOpen] = useState(!narrow)
   const [wasNarrow, setWasNarrow] = useState(narrow)
   if (narrow !== wasNarrow) {
@@ -99,7 +99,7 @@ function useSplitWidth(key: string, fallback: number, min: number, max: number, 
 /** The workbench mode as laid out: 分栏 has no room for the full list under 1100px. */
 export function useBenchMode(): WorkbenchMode {
   const mode = useWorkbench((s) => s.mode)
-  const narrow = useViewportWidth() < RAIL_MIN
+  const narrow = useViewportBelow(RAIL_MIN)
   return mode === 'split' && narrow ? 'focus' : mode
 }
 

@@ -59,6 +59,9 @@ function loadGroups(setState: (s: 'ready' | 'error') => void) {
   )
 }
 
+/** Module-level so re-renders don't detach and re-attach the inspector host (a new ref callback is called twice). */
+const setInspectorHost = (host: HTMLElement | null) => useInspector.setState({ host })
+
 /** Loads my groups; reloads after a realtime reconnect to catch up. */
 function useChatData() {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -184,11 +187,7 @@ export function ChatPage() {
         workbench={benchShown ? <Workbench /> : undefined}
         strip={<ConversationStrip groups={groups} />}
         chatStrip={group ? <ChatStrip key={group.id} group={group} /> : null}
-        rail={
-          inspector ? (
-            <div ref={(host) => useInspector.setState({ host })} className="chat__inspector" />
-          ) : undefined
-        }
+        rail={inspector ? <div ref={setInspectorHost} className="chat__inspector" /> : undefined}
         railOpen={!!inspector}
         railKind={inspector === 'group-info' ? 'info' : 'run'}
         sidebar={

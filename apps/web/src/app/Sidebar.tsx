@@ -1,5 +1,13 @@
 import type { BotDto, GroupDto, MachineDto } from '@gonggong/protocol'
-import { type MouseEvent, type PointerEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import {
+  type MouseEvent,
+  memo,
+  type PointerEvent,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
 import { BotAvatar, type PersonaRole, roleCostume } from '../features/bots/avatars'
 import { botStateText, PRESENCE } from '../features/bots/model'
@@ -119,7 +127,16 @@ function useActivity(g: GroupDto) {
   return { activity, alert: alert ?? undefined }
 }
 
-function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabStop: boolean }) {
+/** Memoized: realtime events keep unchanged groups' identity, so only the changed row re-renders. */
+const GroupRow = memo(function GroupRow({
+  g,
+  current,
+  tabStop,
+}: {
+  g: GroupDto
+  current: boolean
+  tabStop: boolean
+}) {
   const dm = g.kind === 'dm'
   const navigate = useNavigate()
   const press = useLongPress()
@@ -191,7 +208,7 @@ function GroupRow({ g, current, tabStop }: { g: GroupDto; current: boolean; tabS
       </NavLink>
     </ContextMenu>
   )
-}
+})
 
 function SetupGuide({
   bound,
@@ -268,11 +285,13 @@ function useHeldOrder(list: GroupDto[], held: boolean) {
   return [...list].sort((a, b) => place(a) - place(b))
 }
 
-/** Positions the selection capsule under the current conversation so it slides between rows. */
-function useSelectionCapsule(groups: GroupDto[]) {
+/**
+ * Positions the selection capsule under the current conversation so it slides between rows.
+ * `at` is the current row's place in the list: rows reordering around it move it without resizing anything.
+ */
+function useSelectionCapsule(pathname: string, at: number) {
   const scroll = useRef<HTMLDivElement>(null)
-  const { pathname } = useLocation()
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the route or the rows change
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the route or the current row's place changes
   useLayoutEffect(() => {
     const el = scroll.current
     if (!el) return
@@ -290,8 +309,8 @@ function useSelectionCapsule(groups: GroupDto[]) {
     // The content box resizes whenever rows above the current one appear or go (setup guide, filter, 已完成 fold).
     if (el.firstElementChild) ro.observe(el.firstElementChild)
     return () => ro.disconnect()
-  }, [pathname, groups])
-  return { scroll, pathname }
+  }, [pathname, at])
+  return scroll
 }
 
 /** The conversation list folded to avatars and unread badges (workbench 专注 mode). */
@@ -386,7 +405,7 @@ export function Sidebar({
   onNewBot,
   onConfirmBot,
 }: SidebarProps) {
-  const { scroll, pathname } = useSelectionCapsule(groups)
+  const { pathname } = useLocation()
   // While the main area shows the first-run welcome, "还没有…" in every section would only repeat it.
   const empty = (text: string) => (loaded && guide ? <div className="sidebar__empty">{text}</div> : null)
   const inGroup = groups.some((g) => g.kind === 'group')
@@ -415,7 +434,9 @@ export function Sidebar({
   ]
   // One tab stop for all conversation rows (the open one, else the first); ↑↓ Home End move and open.
   const rows = [...lists.flatMap((l) => l.items), ...(showDone ? done : [])]
-  const stop = rows.find((g) => pathname === `/g/${g.id}`)?.id ?? rows[0]?.id
+  const at = rows.findIndex((g) => pathname === `/g/${g.id}`)
+  const stop = rows[at]?.id ?? rows[0]?.id
+  const scroll = useSelectionCapsule(pathname, at)
   return (
     <div className="sidebar">
       {header}

@@ -15,4 +15,7 @@ const subscribe = (cb: () => void) => {
 const viewportWidth = () => document.documentElement.clientWidth
 
 export const useViewportWidth = () => useSyncExternalStore(subscribe, viewportWidth)
-export const useIsMobile = () => useViewportWidth() < MOBILE_MAX
+
+/** Under `px` wide; unlike the width itself it re-renders only when that breakpoint is crossed. */
+export const useViewportBelow = (px: number) => useSyncExternalStore(subscribe, () => viewportWidth() < px)
+export const useIsMobile = () => useViewportBelow(MOBILE_MAX)

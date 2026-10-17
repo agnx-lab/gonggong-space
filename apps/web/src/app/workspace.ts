@@ -11,6 +11,7 @@ import {
   type WebEvent,
 } from '@gonggong/protocol'
 import { create } from 'zustand'
+import { shallow } from 'zustand/shallow'
 import { otherTeam, refreshTeamsSoon } from '../features/teams/store'
 import { t } from '../i18n'
 import { api } from '../lib/api'
@@ -62,6 +63,12 @@ export const lastText = (g: Pick<GroupDto, 'last' | 'lastI18n'>) => (g.lastI18n 
 
 const LIVE: RunDto['status'][] = ['running', 'awaiting_approval', 'awaiting_answer']
 
+/** Unchanged groups keep their identity, and the list its own when none changed, so rows don't re-render. */
+const mapGroups = (groups: GroupDto[], f: (g: GroupDto) => GroupDto) => {
+  const next = groups.map(f)
+  return next.some((g, i) => g !== groups[i]) ? next : groups
+}
+
 function withRun(g: GroupDto, run: RunDto, bots: BotDto[]): GroupDto {
   if (g.id !== run.groupId) return g
   const had = g.liveRunIds.includes(run.id)
@@ -71,15 +78,21 @@ function withRun(g: GroupDto, run: RunDto, bots: BotDto[]): GroupDto {
       : had
         ? g.liveRunIds.filter((id) => id !== run.id)
         : [...g.liveRunIds, run.id]
-  const others = g.liveRuns.filter((r) => r.id !== run.id)
+  const current = g.liveRuns.find((r) => r.id === run.id)
   const me = useSession.getState().user?.id ?? ''
   const owner = bots.find((b) => b.id === run.botId)?.ownerId ?? null
-  const liveRuns = LIVE_RUN_STATUSES.includes(run.status)
-    ? g.liveRuns.some((r) => r.id === run.id)
-      ? g.liveRuns.map((r) => (r.id === run.id ? liveRunOf(run, me, owner) : r))
-      : [...others, liveRunOf(run, me, owner)]
-    : others
-  return { ...g, liveRunIds, liveRuns }
+  const next = LIVE_RUN_STATUSES.includes(run.status) ? liveRunOf(run, me, owner) : null
+  // Most updates only move the step or usage, which the list doesn't show.
+  const liveRuns = !next
+    ? current
+      ? g.liveRuns.filter((r) => r !== current)
+      : g.liveRuns
+    : !current
+      ? [...g.liveRuns, next]
+      : shallow(current, next)
+        ? g.liveRuns
+        : g.liveRuns.map((r) => (r === current ? next : r))
+  return liveRunIds === g.liveRunIds && liveRuns === g.liveRuns ? g : { ...g, liveRunIds, liveRuns }
 }
 
 export const useWorkspace = create<WorkspaceState>()((set, get) => ({
@@ -98,14 +111,19 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       else set((s) => ({ groups: upsert(s.groups, e.group) }))
     } else if (e.t === 'group.removed') set((s) => ({ groups: s.groups.filter((g) => g.id !== e.groupId) }))
     else if (e.t === 'message.new') {
-      if (!get().groups.some((g) => g.id === e.message.groupId)) refreshTeamsSoon()
-      set((s) => ({
-        groups: s.groups.map((g) =>
+      const s = get()
+      if (!s.groups.some((g) => g.id === e.message.groupId)) refreshTeamsSoon()
+      else {
+        const groups = mapGroups(s.groups, (g) =>
           g.id === e.message.groupId ? withMessage(g, e.message, s.activeGroupId) : g,
-        ),
-      }))
-    } else if (e.t === 'run.updated') set((s) => ({ groups: s.groups.map((g) => withRun(g, e.run, s.bots)) }))
-    else if (e.t === 'bot.updated') {
+        )
+        if (groups !== s.groups) set({ groups })
+      }
+    } else if (e.t === 'run.updated') {
+      const s = get()
+      const groups = mapGroups(s.groups, (g) => withRun(g, e.run, s.bots))
+      if (groups !== s.groups) set({ groups })
+    } else if (e.t === 'bot.updated') {
       if (!otherTeam(e.bot.teamId)) set((s) => ({ bots: upsert(s.bots, e.bot) }))
     } else if (e.t === 'bot.removed') set((s) => ({ bots: s.bots.filter((b) => b.id !== e.botId) }))
     else if (e.t === 'notification.new') {
@@ -126,8 +144,11 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
           ...s.botStates,
           [e.groupId]: { ...s.botStates[e.groupId], [e.state.botId]: e.state },
         },
-        groups: s.groups.map((g) =>
-          g.id === e.groupId && g.kind === 'dm' && g.botIds[0] === e.state.botId
+        groups: mapGroups(s.groups, (g) =>
+          g.id === e.groupId &&
+          g.kind === 'dm' &&
+          g.botIds[0] === e.state.botId &&
+          g.workspacePath !== e.state.path
             ? { ...g, workspacePath: e.state.path }
             : g,
         ),

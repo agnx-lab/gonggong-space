@@ -15,8 +15,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App'
+import { useInspector } from '../src/app/inspector'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
+import { useRunDeltas } from '../src/features/chat/deltas'
 import { useToasts } from '../src/ui/toast'
 
 const me: UserDto = {
@@ -616,6 +618,32 @@ describe('chat view', () => {
     push({ t: 'message.new', message: msg({ seq: 9, authorId: 'u2', authorName: '李建国', body: '收到了' }) })
     expect(within(main).getByText('收到了').closest('.tl-item')).toBe(item)
     expect(entering()).toHaveLength(1)
+  })
+
+  it('keeps streamed text only for runs of the open timeline', async () => {
+    mockApi(baseRoutes([group()]))
+    renderAt('/g/g1')
+    await within(screen.getByRole('main')).findByTestId('run-card')
+    // Deltas carry no group: another group's run streams over the same socket.
+    push({ t: 'run.delta', runId: 'r-other', text: '别的群' })
+    push({ t: 'run.delta', runId: 'r1', text: '本群' })
+    await waitFor(() => expect(useRunDeltas.getState()).toEqual({ r1: '本群' }))
+    push({ t: 'run.updated', run: run({ id: 'r2' }) })
+    push({ t: 'run.delta', runId: 'r2', text: '新一轮' })
+    await waitFor(() => expect(useRunDeltas.getState()).toEqual({ r1: '本群', r2: '新一轮' }))
+  })
+
+  it('keeps the open inspector host as realtime events re-render the page', async () => {
+    mockApi({ ...baseRoutes([group()]), 'GET /groups/g1/bot-states': () => [] })
+    renderAt('/g/g1')
+    const main = screen.getByRole('main')
+    fireEvent.click(await within(main).findByRole('button', { name: '2 人' }))
+    await screen.findByRole('complementary', { name: '群设置' })
+    const setState = vi.spyOn(useInspector, 'setState')
+    push({ t: 'group.updated', group: group({ name: '退款 v3' }) })
+    expect(await within(main).findByRole('heading', { name: '退款 v3' })).toBeTruthy()
+    expect(setState).not.toHaveBeenCalled()
+    setState.mockRestore()
   })
 
   it('marks human fan-out and shows relay hops as triggered by the bot', async () => {
