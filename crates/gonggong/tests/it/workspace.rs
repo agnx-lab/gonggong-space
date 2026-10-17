@@ -192,6 +192,8 @@ async fn ensure_clones_once_with_autocrlf_off_and_reports_git_status() {
     assert_eq!(unstamped(s.git), clean("main", WorkspaceKind::Managed));
     assert!(dir.join("README.md").is_file());
     assert_eq!(git(&dir, &["config", "--local", "core.autocrlf"]), "false");
+    let config = || std::fs::metadata(dir.join(".git/config")).unwrap().modified().unwrap();
+    let written = config();
 
     std::fs::write(dir.join("keep.txt"), "x").unwrap();
     r.ensure("e2", Some(remote.spec("rp")));
@@ -200,6 +202,12 @@ async fn ensure_clones_once_with_autocrlf_off_and_reports_git_status() {
     assert_eq!(s.state, WorkspaceStateKind::Ready);
     assert!(s.git.unwrap().dirty);
     assert!(dir.join("keep.txt").is_file());
+    assert_eq!(config(), written, "the config is only rewritten when autocrlf is on");
+
+    git(&dir, &["config", "core.autocrlf", "true"]);
+    r.ensure("e3", Some(remote.spec("rp")));
+    r.settled("e3").await;
+    assert_eq!(git(&dir, &["config", "--local", "core.autocrlf"]), "false");
 }
 
 #[tokio::test]
@@ -371,6 +379,11 @@ async fn dir_list_shows_subdirectories_with_git_info() {
     let root = remote.root.path();
     std::fs::create_dir(root.join(".hidden")).unwrap();
     std::fs::write(root.join("file.txt"), "x").unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(root.join("seed"), root.join("linked")).unwrap();
+        std::os::unix::fs::symlink(root.join("file.txt"), root.join("linked.txt")).unwrap();
+    }
     let list = |r: &Rig, id: &str, path: Option<&Path>| {
         let msg = ServerToDaemon::DirList { request_id: id.into(), path: path.map(|p| p.to_string_lossy().into()) };
         r.engine.handle(msg, &r.out);
@@ -379,7 +392,11 @@ async fn dir_list_shows_subdirectories_with_git_info() {
     let d = dir_result(&mut r.rx).await;
     assert_eq!(d.request_id, "d1");
     let names: Vec<_> = d.entries.iter().map(|e| (e.name.as_str(), e.git)).collect();
-    assert_eq!(names, [("remote.git", false), ("seed", true)]);
+    if cfg!(unix) {
+        assert_eq!(names, [("linked", true), ("remote.git", false), ("seed", true)]);
+    } else {
+        assert_eq!(names, [("remote.git", false), ("seed", true)]);
+    }
     assert_eq!((d.git, d.unusable, d.error), (None, None, None));
     if cfg!(windows) {
         assert!(d.roots.iter().any(|r| r == "C:\\"), "{:?}", d.roots);

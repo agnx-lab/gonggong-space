@@ -354,8 +354,12 @@ async fn prepare(dir: &Path, repo: Option<&RepoSpec>, on_clone: impl FnOnce()) -
         return Ok(tokio::fs::create_dir_all(dir).await.map_err(io)?);
     };
     if is_clone_root(dir).await {
-        // Clones made before autocrlf was enforced get it too (spec §12 risk 1).
-        git(dir, &["config", "core.autocrlf", "false"]).await?;
+        // Clones made before autocrlf was enforced get it too (spec §12 risk 1). Every turn passes here: only an
+        // actual change rewrites .git/config, which the agent's own git commands may be reading or locking.
+        let current = git(dir, &["config", "--local", "--get", "core.autocrlf"]).await.unwrap_or_default();
+        if current.trim() != "false" {
+            git(dir, &["config", "core.autocrlf", "false"]).await?;
+        }
     } else {
         on_clone();
         clone(dir, repo).await?;
@@ -565,25 +569,30 @@ pub async fn browse(request_id: String, path: Option<String>) -> DirResult {
         result.error = Some(e);
         return result;
     }
-    let mut entries: Vec<DirEntry> = std::fs::read_dir(&dir)
-        .map(|rd| {
-            rd.flatten()
-                .filter(|e| e.path().is_dir())
-                .filter_map(|e| e.file_name().into_string().ok().map(|name| (name, e.path())))
-                .filter(|(name, _)| !name.starts_with('.'))
-                .map(|(name, path)| DirEntry { name, git: git::is_repo(&path) })
-                .collect()
-        })
-        .unwrap_or_default();
-    entries.sort_by_key(|e| e.name.to_lowercase());
-    entries.truncate(DIR_LIST_MAX);
-    result.entries = entries;
+    let listed = dir.clone();
+    result.entries = tokio::task::spawn_blocking(move || picker_entries(&listed)).await.unwrap_or_default();
     if let Ok(root) = git(&dir, &["rev-parse", "--show-toplevel"]).await {
         let branch = git(&dir, &["symbolic-ref", "--short", "-q", "HEAD"]).await.ok().map(|b| b.trim().to_string());
         result.git = Some(DirGit { root: root.trim().into(), remotes: remotes(&dir).await, branch });
     }
     result.unusable = unusable(&dir);
     result
+}
+
+/// The first DIR_LIST_MAX visible subdirectories by name; only those are probed for a repo. The entry type comes with
+/// the listing on most file systems, so only symlinks cost a stat to tell whether they lead to a directory.
+fn picker_entries(dir: &Path) -> Vec<DirEntry> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
+    let mut dirs: Vec<(String, PathBuf)> = rd
+        .flatten()
+        .filter_map(|e| Some((e.file_name().into_string().ok()?, e)))
+        .filter(|(name, _)| !name.starts_with('.'))
+        .filter(|(_, e)| e.file_type().is_ok_and(|t| t.is_dir() || t.is_symlink() && e.path().is_dir()))
+        .map(|(name, e)| (name, e.path()))
+        .collect();
+    dirs.sort_by_key(|(name, _)| name.to_lowercase());
+    dirs.truncate(DIR_LIST_MAX);
+    dirs.into_iter().map(|(name, path)| DirEntry { git: git::is_repo(&path), name }).collect()
 }
 
 /// A (group, bot) pair of this machine as the server knows it (`GET /api/daemon/workspaces`, DaemonWorkspaceDto).

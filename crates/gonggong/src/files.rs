@@ -1,23 +1,45 @@
 //! @ file candidates from a (group, bot) workspace (spec §8.7): git-visible files incl. uncommitted, plus folders.
+use crate::coalesce::Coalesce;
 use crate::git::{self, git};
 use crate::protocol::FileEntry;
 use crate::t;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Walk cap for workspaces without git, so a huge directory can't stall the popover.
 const WALK_MAX: usize = 20_000;
 const SKIP: [&str; 3] = [".gonggong", ".git", "node_modules"];
+/// How long one scan of a workspace answers the queries typed after it.
+const LISTING_TTL: Duration = Duration::from_secs(3);
 
-/// Entries matching `query` (case-insensitive prefix / substring / subsequence), best first; folders end with `/`.
-pub async fn list(dir: &Path, query: &str, limit: usize) -> Result<Vec<FileEntry>, String> {
-    let files = workspace_files(dir).await?;
-    let mut entries: Vec<(Rank, FileEntry)> = with_dirs(files)
-        .into_iter()
-        .filter_map(|(path, (dir, uncommitted))| Some((rank(&path, query)?, FileEntry { path, dir, uncommitted })))
-        .collect();
-    entries.sort_by(|(a, x), (b, y)| a.cmp(b).then_with(|| x.path.cmp(&y.path)));
-    Ok(entries.into_iter().take(limit).map(|(_, e)| e).collect())
+/// Files and folders of a workspace → (dir, uncommitted).
+type Listing = Arc<BTreeMap<String, (bool, bool)>>;
+
+/// Workspace listings by dir, each reused for LISTING_TTL: the popover queries on every keystroke.
+pub struct Listings(Coalesce<PathBuf, Result<Listing, String>>);
+
+impl Default for Listings {
+    fn default() -> Self {
+        Self(Coalesce::with_ttl(LISTING_TTL))
+    }
+}
+
+impl Listings {
+    /// Entries matching `query` (case-insensitive prefix / substring / subsequence), best first; folders end with `/`.
+    pub async fn list(&self, dir: &Path, query: &str, limit: usize) -> Result<Vec<FileEntry>, String> {
+        let d = dir.to_path_buf();
+        let all = self.0.run(dir.to_path_buf(), async move { Ok(Arc::new(with_dirs(workspace_files(&d).await?))) });
+        let all = all.await?;
+        let mut entries: Vec<(Rank, &String, bool, bool)> = all
+            .iter()
+            .filter_map(|(path, &(dir, uncommitted))| Some((rank(path, query)?, path, dir, uncommitted)))
+            .collect();
+        entries.sort_by(|(a, x, ..), (b, y, ..)| a.cmp(b).then_with(|| x.cmp(y)));
+        let entries = entries.into_iter().take(limit);
+        Ok(entries.map(|(_, path, dir, uncommitted)| FileEntry { path: path.clone(), dir, uncommitted }).collect())
+    }
 }
 
 /// Paths of the workspace files named `name`: the file name, or a path suffix on whole segments (`ui/Button.tsx`).
@@ -131,6 +153,10 @@ mod tests {
         entries.iter().map(|e| e.path.as_str()).collect()
     }
 
+    async fn list(dir: &Path, query: &str, limit: usize) -> Result<Vec<FileEntry>, String> {
+        Listings::default().list(dir, query, limit).await
+    }
+
     #[tokio::test]
     async fn repo_lists_committed_untracked_and_folders_with_uncommitted_flags() {
         let r = Remote::new();
@@ -240,5 +266,18 @@ mod tests {
     async fn missing_workspace_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(list(&dir.path().join("nope"), "", 10).await.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn queries_typed_in_quick_succession_share_one_listing() {
+        let r = Remote::new();
+        let w = r.clone_to("w");
+        let listings = Listings::default();
+        assert_eq!(paths(&listings.list(&w, "", 10).await.unwrap()), ["README.md"]);
+        fs::write(w.join("new.md"), "x").unwrap();
+        tokio::time::advance(LISTING_TTL - Duration::from_millis(100)).await;
+        assert_eq!(paths(&listings.list(&w, "md", 10).await.unwrap()), ["README.md"]);
+        tokio::time::advance(Duration::from_millis(100)).await;
+        assert_eq!(paths(&listings.list(&w, "md", 10).await.unwrap()), ["new.md", "README.md"]);
     }
 }
