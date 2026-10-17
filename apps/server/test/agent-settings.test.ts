@@ -57,7 +57,7 @@ async function daemon(w: World, features: string[] = []) {
   })
   expect(await box.next()).toMatchObject({ t: 'welcome' })
   await expect.poll(() => t.ctx.hub.isOnline(w.machine.id)).toBe(true)
-  return { send, next: <T = Msg>() => box.next<T>() }
+  return { send, next: <T = Msg>() => box.next<T>(), close: () => ws.close() }
 }
 
 const say = (w: World) =>
@@ -116,6 +116,8 @@ describe('bot agent settings', () => {
       [w.bot.id, { thinking: 'yes' }],
       [w.bot.id, { attribution: 'all' }],
       [w.bot.id, { language: 'x'.repeat(65) }],
+      [w.bot.id, { language: '' }],
+      [w.bot.id, { language: '   ' }],
       [w.codex.id, { language: 'english' }],
     ]
     for (const [id, agentSettings] of bad) {
@@ -142,7 +144,12 @@ describe('machine agent settings', () => {
     const offline = await w.owners.put<{ message: string }>(url, body)
     expect([offline.status, offline.body.message]).toEqual([409, '机器离线'])
     expect((await w.admins.put(url, body)).status).toBe(403)
-    const d = await daemon(w, ['providers'])
+    const old = await daemon(w, ['providers'])
+    const stale = await w.owners.put<{ message: string }>(url, body)
+    expect([stale.status, stale.body.message]).toEqual([409, '请先升级该机器的 daemon 才能使用 Agent 设置'])
+    old.close()
+    await expect.poll(() => t.ctx.hub.isOnline(w.machine.id)).toBe(false)
+    const d = await daemon(w, ['providers', 'agentSettings'])
     expect((await w.owners.put(url, { agent: 'claude', values: {} })).status).toBe(400)
 
     const pending = w.owners.put<ProviderStoreView>(url, body)

@@ -1,0 +1,1 @@
+CREATE INDEX "runs_group_live" ON "runs" USING btree ("group_id") WHERE "runs"."status" in ('queued', 'running', 'awaiting_approval', 'awaiting_answer');

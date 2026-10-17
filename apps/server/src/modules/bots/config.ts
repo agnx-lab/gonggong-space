@@ -33,7 +33,7 @@ export function assertBotAgentSettings(agent: AgentKind, values: AgentSettingVal
         ? value === 'true' || value === 'false'
         : field.type === 'enum'
           ? !!field.options?.includes(value)
-          : field.type === 'text' && value.length <= TEXT_MAX
+          : field.type === 'text' && value.trim() !== '' && value.length <= TEXT_MAX
     if (!valid) fail('invalid', 'Agent 设置「{id}」的取值无效', { id })
   }
 }

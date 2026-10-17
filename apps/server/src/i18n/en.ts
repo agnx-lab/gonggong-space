@@ -336,6 +336,7 @@ export const en = {
   '只有机器主人可以管理其 Agent 工具与供应商':
     "Only the machine's owner can manage its agent tools and providers",
   '请先升级该机器的 daemon': "Upgrade this machine's daemon first",
+  '请先升级该机器的 daemon 才能使用 Agent 设置': "Upgrade this machine's daemon to use Agent settings",
   机器离线: 'Machine offline',
   '机器未响应，请稍后重试': 'The machine is not responding, try again later',
   '绑定码尝试次数过多，请 10 分钟后再试': 'Too many binding code attempts, try again in 10 minutes',
