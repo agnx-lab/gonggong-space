@@ -276,3 +276,20 @@ it('drops chunks of a run stopped while its machine was away', async () => {
   await task('t1', back)
   expect(deltas.join('')).toBe('a ')
 })
+
+it("scopes a run's streamed text and progress to its group; card updates reach every connection", async () => {
+  const { alice, group, deltas, text, tool, task, step } = await oneRun()
+  const seen: [WebEvent['t'], string | undefined][] = []
+  t.ctx.bus.attach(alice.id, (e, _, scope) => seen.push([e.t, scope]))
+  text('hi ')
+  await expect.poll(() => deltas.join('')).toBe('hi ')
+  tool('ls')
+  await expect.poll(step).toBe('ls')
+  tool('ls')
+  await task('t1')
+  expect(seen).toContainEqual(['run.delta', group.id])
+  expect(seen).toContainEqual(['run.progress', group.id])
+  expect(seen).toContainEqual(['run.updated', undefined])
+  for (const [e, scope] of seen)
+    expect([e, scope === group.id]).toEqual([e, e === 'run.delta' || e === 'run.progress'])
+})

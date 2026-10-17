@@ -1,7 +1,10 @@
 import type { WebEvent } from '@gonggong/protocol'
 
-/** `json` serializes the event, once per publish however many connections receive it. */
-type Sink = (event: WebEvent, json: () => string) => void
+/**
+ * `json` serializes the event, once per publish however many connections receive it. `group` is set for events
+ * only wanted by a connection showing that group: the sink drops them otherwise.
+ */
+type Sink = (event: WebEvent, json: () => string, group?: string) => void
 
 /** Fan-out of realtime events to connected browser sessions, keyed by user. */
 export class Bus {
@@ -25,10 +28,10 @@ export class Bus {
     for (const sink of [...(this.sinks.get(userId) ?? [])]) this.closers.get(sink)?.()
   }
 
-  publish(userIds: Iterable<string>, event: WebEvent) {
+  publish(userIds: Iterable<string>, event: WebEvent, group?: string) {
     let text: string | undefined
     const json = () => (text ??= JSON.stringify(event))
-    for (const id of new Set(userIds)) for (const sink of this.sinks.get(id) ?? []) sink(event, json)
+    for (const id of new Set(userIds)) for (const sink of this.sinks.get(id) ?? []) sink(event, json, group)
   }
 
   isConnected(userId: string) {

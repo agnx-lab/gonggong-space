@@ -7,8 +7,12 @@ class FakeSocket {
   onclose: (() => void) | null = null
   onmessage: ((e: { data: string }) => void) | null = null
   closed = false
+  sent: unknown[] = []
   constructor(readonly url: string) {
     FakeSocket.all.push(this)
+  }
+  send(data: string) {
+    this.sent.push(JSON.parse(data))
   }
   close() {
     this.closed = true
@@ -121,6 +125,38 @@ describe('realtime client', () => {
     vi.advanceTimersByTime(500)
     last().open()
     expect(reconnect).toHaveBeenCalledTimes(1)
+    rt.stop()
+  })
+
+  it('tells the server which group is shown once open, and again after every reconnect', () => {
+    const rt = createRealtime()
+    rt.start()
+    last().open()
+    expect(last().sent).toEqual([])
+
+    rt.focus('g1')
+    rt.focus(null)
+    expect(last().sent).toEqual([
+      { t: 'focus', groupId: 'g1' },
+      { t: 'focus', groupId: null },
+    ])
+
+    rt.focus('g2')
+    last().drop()
+    vi.advanceTimersByTime(500)
+    expect(last().sent).toEqual([])
+    last().open()
+    expect(last().sent).toEqual([{ t: 'focus', groupId: 'g2' }])
+    rt.stop()
+  })
+
+  it('sends a group focused before the socket opened when it opens', () => {
+    const rt = createRealtime()
+    rt.focus('g1')
+    rt.start()
+    expect(last().sent).toEqual([])
+    last().open()
+    expect(last().sent).toEqual([{ t: 'focus', groupId: 'g1' }])
     rt.stop()
   })
 
