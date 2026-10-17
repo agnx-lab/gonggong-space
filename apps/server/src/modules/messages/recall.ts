@@ -1,5 +1,5 @@
 import { RECALL_WINDOW_MS, RECALLED_QUOTE } from '@gonggong/protocol'
-import { and, eq, inArray, isNull, notExists, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNull, notExists, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import { messageHides, messages, runs } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
@@ -45,6 +45,8 @@ export async function recallMessage(ctx: Ctx, user: { id: string; name: string }
       .where(
         and(
           eq(messages.groupId, m.groupId),
+          // A quote is always newer than what it quotes: a range of the group's index, not its whole history.
+          gt(messages.seq, m.seq),
           sql`${messages.meta}->'quote'->>'kind' = 'message'`,
           sql`${messages.meta}->'quote'->>'id' = ${m.id}`,
         ),

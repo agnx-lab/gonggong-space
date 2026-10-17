@@ -1,6 +1,6 @@
 import type { MessageDto, RunStart, ServerToDaemon } from '@gonggong/protocol'
 import { and, asc, eq } from 'drizzle-orm'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   approvals,
   auditLogs,
@@ -12,7 +12,7 @@ import {
   runs,
 } from '../src/db/schema.js'
 import { callTool } from '../src/modules/agent-tools/service.js'
-import { expireOfflineRuns, isChainStopped } from '../src/modules/runs/stop.js'
+import { expireOfflineRuns, isChainStopped, notifyChainDone } from '../src/modules/runs/stop.js'
 import { createTestApp, type TestApp } from './support/app.js'
 import { client } from './support/http.js'
 
@@ -448,6 +448,15 @@ describe('offline expiry and chain notifications', () => {
         payload: expect.objectContaining({ groupId: w.g.id, rootRunId: root!.id, hops: 2, stopped: false }),
       }),
     ])
+  })
+
+  it('a run that neither relays nor was relayed to ends without reading a chain', async () => {
+    const w = await world()
+    await w.say(w.as.li, '@小王的 Claude 开始')
+    const [run] = await w.runsOf(w.claude.id)
+    const reads = [vi.spyOn(t.ctx.db, 'execute'), vi.spyOn(t.ctx.db, 'select')]
+    await notifyChainDone(t.ctx, { ...run!, status: 'completed' })
+    for (const read of reads) expect(read).not.toHaveBeenCalled()
   })
 
   it('a hop completing after its chain was stopped relays no further', async () => {

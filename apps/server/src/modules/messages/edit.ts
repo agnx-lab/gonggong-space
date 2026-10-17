@@ -1,5 +1,5 @@
 import { parseMentions, RECALL_WINDOW_MS } from '@gonggong/protocol'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import { messages, runs } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
@@ -46,6 +46,8 @@ export async function editMessage(ctx: Ctx, user: { id: string; name: string }, 
     .where(
       and(
         eq(messages.groupId, m.groupId),
+        // A quote is always newer than what it quotes: a range of the group's index, not its whole history.
+        gt(messages.seq, m.seq),
         sql`${messages.meta}->'quote'->>'kind' = 'message'`,
         sql`${messages.meta}->'quote'->>'id' = ${m.id}`,
       ),

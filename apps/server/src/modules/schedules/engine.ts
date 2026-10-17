@@ -54,7 +54,11 @@ export async function settleSchedule(ctx: Ctx, run: RunRow) {
     .from(runs)
     .innerJoin(messages, eq(messages.id, runs.triggerMessageId))
     .where(
-      and(sql`${messages.meta}->>'scheduleOf' = ${s.id}`, inArray(runs.status, [...TERMINAL_RUN_STATUS])),
+      and(
+        eq(messages.groupId, s.groupId),
+        sql`${messages.meta}->>'scheduleOf' = ${s.id}`,
+        inArray(runs.status, [...TERMINAL_RUN_STATUS]),
+      ),
     )
     .orderBy(desc(messages.seq))
     .limit(FAIL_LIMIT)

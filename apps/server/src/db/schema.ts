@@ -439,7 +439,7 @@ export const groupBots = pgTable(
     removedAt: ts('removed_at'),
     addedAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.groupId, t.botId] })],
+  (t) => [primaryKey({ columns: [t.groupId, t.botId] }), index('group_bots_bot').on(t.botId)],
 )
 
 // ── Timeline ────────────────────────────────────────────────────────────────
@@ -474,6 +474,12 @@ export const messages = pgTable(
     index('messages_client_id')
       .on(t.groupId, t.authorUserId, sql`(${t.meta}->>'clientId')`)
       .where(sql`(${t.meta}->>'clientId') is not null`),
+    index('messages_append_to')
+      .on(sql`(${t.meta}->>'appendTo')`)
+      .where(sql`(${t.meta}->>'appendTo') is not null`),
+    index('messages_schedule_of')
+      .on(sql`(${t.meta}->>'scheduleOf')`, t.seq)
+      .where(sql`(${t.meta}->>'scheduleOf') is not null`),
   ],
 )
 
@@ -587,6 +593,8 @@ export const runs = pgTable(
     index('runs_bot_status').on(t.botId, t.status),
     index('runs_group').on(t.groupId),
     index('runs_group_bot_ended').on(t.groupId, t.botId, t.endedAt),
+    index('runs_group_bot_started').on(t.groupId, t.botId, t.startedAt),
+    index('runs_parent').on(t.parentRunId),
     index('runs_trigger').on(t.triggerMessageId),
     index('runs_started').on(t.startedAt),
     index('runs_queued').on(t.queuedAt),
@@ -1018,7 +1026,7 @@ export const syncReplicas = pgTable(
     syncedAt: ts('synced_at'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.groupId, t.botId] })],
+  (t) => [primaryKey({ columns: [t.groupId, t.botId] }), index('sync_replicas_bot').on(t.botId)],
 )
 
 /** A held change waiting for a decision (F11). */
