@@ -220,17 +220,16 @@ async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent
     }
   }
   if (!card)
-    ctx.bus.publish(await memberIds(ctx, run.groupId), {
-      t: 'run.progress',
-      runId,
-      groupId: run.groupId,
-      botId: run.botId,
-    })
+    ctx.bus.publish(
+      await memberIds(ctx, run.groupId),
+      { t: 'run.progress', runId, groupId: run.groupId, botId: run.botId },
+      run.groupId,
+    )
 }
 
 async function pushDelta(ctx: Ctx, run: { id: string; groupId: string }, text: string) {
   if (!text) return
-  ctx.bus.publish(await memberIds(ctx, run.groupId), { t: 'run.delta', runId: run.id, text })
+  ctx.bus.publish(await memberIds(ctx, run.groupId), { t: 'run.delta', runId: run.id, text }, run.groupId)
   mirrorDelta(ctx, run.id, text)
 }
 

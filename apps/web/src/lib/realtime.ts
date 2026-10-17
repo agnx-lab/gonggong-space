@@ -1,4 +1,4 @@
-import { WebEvent } from '@gonggong/protocol'
+import { type WebClientMsg, WebEvent } from '@gonggong/protocol'
 import { useSyncExternalStore } from 'react'
 
 export type RealtimeStatus = 'connecting' | 'open' | 'closed'
@@ -14,6 +14,13 @@ export function createRealtime() {
   let timer: ReturnType<typeof setTimeout> | undefined
   let attempt = 0
   let running = false
+  /** Undefined until first set: then nothing is sent and the server streams every group. */
+  let focused: string | null | undefined
+
+  const sendFocus = (ws: WebSocket) => {
+    if (focused !== undefined)
+      ws.send(JSON.stringify({ t: 'focus', groupId: focused } satisfies WebClientMsg))
+  }
 
   const setStatus = (s: RealtimeStatus) => {
     if (s === status) return
@@ -28,6 +35,7 @@ export function createRealtime() {
     setStatus('connecting')
     ws.onopen = () => {
       attempt = 0
+      sendFocus(ws)
       setStatus('open')
     }
     ws.onmessage = (msg: MessageEvent) => {
@@ -78,6 +86,11 @@ export function createRealtime() {
       }
     },
     onStatus,
+    /** The group on screen (null: none): the server streams run text and progress only for it. */
+    focus(groupId: string | null) {
+      focused = groupId
+      if (socket && status === 'open') sendFocus(socket)
+    },
     /**
      * Calls `cb` whenever the socket opens again after having been open since this call: events sent meanwhile were
      * lost. The first open after subscribing while connecting is not one, so a cold start loads once.

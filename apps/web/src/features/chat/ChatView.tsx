@@ -16,6 +16,7 @@ import { useSession } from '../../app/session'
 import { useWorkbench } from '../../app/workbench'
 import { useWorkspace } from '../../app/workspace'
 import { cx } from '../../lib/cx'
+import { realtime } from '../../lib/realtime'
 import {
   Button,
   ChatHeader,
@@ -185,9 +186,14 @@ export function ChatView({
   const [unreadAt, setUnreadAt] = useState<string | null | undefined>(undefined)
   if (unreadAt === undefined && tl.loaded) setUnreadAt(unreadStart(tl.messages, entryUnread, meId))
 
+  // The workbench (run tabs, diffs) follows the shown group too, so it is the one to stream.
   useEffect(() => {
     setActiveGroup(group.id)
-    return () => setActiveGroup(null)
+    realtime.focus(group.id)
+    return () => {
+      setActiveGroup(null)
+      realtime.focus(null)
+    }
   }, [group.id, setActiveGroup])
 
   const lastSeq = tl.messages.at(-1)?.seq ?? 0

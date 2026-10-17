@@ -1651,7 +1651,7 @@ export const ConversationStatsRowDto = z.object({
 })
 export type ConversationStatsRowDto = z.infer<typeof ConversationStatsRowDto>
 
-// ── Realtime: WS /ws/web (server → browser only) ────────────────────────────
+// ── Realtime: WS /ws/web (server → browser; the browser only sends WebClientMsg) ──
 /** Per-bot workspace state in a group: drives the partition-mode git status bar (spec §5.3, §8.4). */
 export const GroupBotStateDto = z.object({
   botId: z.string(),
@@ -1699,8 +1699,9 @@ export const WebEvent = z.discriminatedUnion('t', [
   /** Sent to the author only (their other sessions). */
   z.object({ t: z.literal('message.hidden'), groupId: z.string(), messageId: z.string() }),
   z.object({ t: z.literal('run.updated'), run: RunDto }),
+  /** Only to connections showing the run's group, or that never sent a focus. */
   z.object({ t: z.literal('run.delta'), runId: z.string(), text: z.string() }),
-  /** The run's process got an event that left its card as it was. */
+  /** The run's process got an event that left its card as it was. Scoped like run.delta. */
   z.object({ t: z.literal('run.progress'), runId: z.string(), groupId: z.string(), botId: z.string() }),
   z.object({ t: z.literal('bot.updated'), bot: BotDto }),
   z.object({ t: z.literal('bot.removed'), botId: z.string() }),
@@ -1743,3 +1744,9 @@ export const WebEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('team.member_removed'), teamId: z.string(), userId: z.string() }),
 ])
 export type WebEvent = z.infer<typeof WebEvent>
+
+export const WebClientMsg = z.discriminatedUnion('t', [
+  /** The group this connection shows (null: none), sent on every (re)open and change; scopes run.delta / run.progress. */
+  z.object({ t: z.literal('focus'), groupId: z.string().nullable() }),
+])
+export type WebClientMsg = z.infer<typeof WebClientMsg>
