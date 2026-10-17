@@ -86,6 +86,18 @@ const preview = (kind: string, author: string | null, body: string) => {
 const recallNote = (mine: boolean, author: string | null): I18nText =>
   mine ? { key: '你撤回了一条消息' } : { key: '{user} 撤回了一条消息', params: { user: author ?? '' } }
 
+/** `list` by `key`, each bucket in list order. */
+function bucket<T>(list: T[], key: (x: T) => string) {
+  const out = new Map<string, T[]>()
+  for (const x of list) {
+    const k = key(x)
+    const b = out.get(k)
+    if (b) b.push(x)
+    else out.set(k, [x])
+  }
+  return out
+}
+
 /** Group DTOs matching `where` as seen by `userId` (unread is per user). */
 export async function groupDtos(ctx: Ctx, userId: string, where?: SQL): Promise<GroupDto[]> {
   return (await groupViews(ctx, [userId], where)).map((v) => v.group)
@@ -227,29 +239,38 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
           .orderBy(asc(questionSets.createdAt)),
       ])
     : [[], []]
+  // Bucketed once: a viewer may be in many groups.
+  const byGroup = <T extends { groupId: string }>(list: T[]) => bucket(list, (x) => x.groupId)
+  const membersOf = byGroup(members)
+  const botsOf = byGroup(groupBotRows)
+  const reposOf = byGroup(repos)
+  const lastsOf = byGroup(lasts)
+  const liveOf = byGroup(live)
+  const chatsOf = byGroup(chats)
+  const approvalsOf = bucket(pendingApprovals, (a) => a.runId)
+  const questionsOf = bucket(pendingQuestions, (q) => q.runId)
   const liveRuns = (groupId: string, userId: string) =>
-    live
-      .filter((r) => r.groupId === groupId)
-      .map((r) =>
-        liveRunOf(
-          {
-            ...r,
-            status: r.status as RunStatus,
-            approvals: pendingApprovals.filter((a) => a.runId === r.id),
-            questions: pendingQuestions
-              .filter((q) => q.runId === r.id)
-              .map((q) => ({ status: q.status, questions: q.questions as Question[] })),
-          },
-          userId,
-          r.ownerId,
-        ),
-      )
+    (liveOf.get(groupId) ?? []).map((r) =>
+      liveRunOf(
+        {
+          ...r,
+          status: r.status as RunStatus,
+          approvals: approvalsOf.get(r.id) ?? [],
+          questions: (questionsOf.get(r.id) ?? []).map((q) => ({
+            status: q.status,
+            questions: q.questions as Question[],
+          })),
+        },
+        userId,
+        r.ownerId,
+      ),
+    )
 
   const views = rows.map(({ group: g, title, me, lastSeq, unread, mentioned }) => {
-    const repo = repos.find((r) => r.groupId === g.id)
-    const chat = chats.find((c) => c.groupId === g.id)
-    const gbots = groupBotRows.filter((b) => b.groupId === g.id)
-    const last = lasts.find((l) => l.groupId === g.id)
+    const repo = reposOf.get(g.id)?.[0]
+    const chat = chatsOf.get(g.id)?.[0]
+    const gbots = botsOf.get(g.id) ?? []
+    const last = lastsOf.get(g.id)?.[0]
     const lastI18n = last?.recalledAt
       ? recallNote(last.authorUserId === me.userId, last.userName)
       : last?.kind === 'event'
@@ -267,9 +288,12 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
       notice: g.notice,
       noticeHidden: !!g.noticeId && me.hiddenNoticeId === g.noticeId,
       repo: repo ? { url: repo.url, branch: repo.baseBranch } : null,
-      members: members
-        .filter((m) => m.groupId === g.id)
-        .map(({ userId, name, avatar, isAdmin }) => ({ userId, name, avatar: avatarUrl(avatar), isAdmin })),
+      members: (membersOf.get(g.id) ?? []).map(({ userId, name, avatar, isAdmin }) => ({
+        userId,
+        name,
+        avatar: avatarUrl(avatar),
+        isAdmin,
+      })),
       botIds: gbots.map((b) => b.botId),
       unread,
       mentioned,
@@ -286,7 +310,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
       flagged: me.flagged,
       muted: me.muted,
       foldRuns: me.foldRuns,
-      liveRunIds: live.filter((r) => r.groupId === g.id && LIVE.includes(r.status)).map((r) => r.id),
+      liveRunIds: (liveOf.get(g.id) ?? []).filter((r) => LIVE.includes(r.status)).map((r) => r.id),
       liveRuns: liveRuns(g.id, me.userId),
       // A DM's binding is the user's single chat with the bot app, not a Feishu group.
       ...(chat && g.kind === 'group' && { feishu: { chatId: chat.chatId, name: chat.name } }),

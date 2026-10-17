@@ -10,7 +10,7 @@ import { requireUser } from '../auth/session.js'
 import { unbindChat } from '../feishu/mirror.js'
 import { memberIds, postEvent } from '../messages/service.js'
 import { stopRuns } from '../runs/stop.js'
-import { groupParams } from './params.js'
+import { forgetGroupParams, groupParams } from './params.js'
 import { groupDto, publishGroup, removeMember, requireAdmin, requireMember } from './service.js'
 
 type P = { Params: { id: string } }
@@ -159,6 +159,7 @@ export function groupSettingsRoutes(ctx: Ctx) {
         .update(groups)
         .set({ params: { ...(group.params as object), ...body } })
         .where(eq(groups.id, group.id))
+      forgetGroupParams(ctx.db, group.id)
       await audit(ctx, {
         category: 'admin',
         actorUserId: me.id,

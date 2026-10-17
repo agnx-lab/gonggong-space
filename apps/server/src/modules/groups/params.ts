@@ -56,6 +56,36 @@ export async function groupParams(ctx: Ctx, group: Pick<typeof groups.$inferSele
   return withDefaults(group.params, await teamParams(ctx.db, group.teamId))
 }
 
+type OwnParams = Pick<typeof groups.$inferSelect, 'params' | 'teamId'>
+
+/** Each group's own overrides and team, read on every run card push; `PUT /api/groups/:id/params` is their only writer. */
+const ownParams = new WeakMap<object, Map<string, Promise<OwnParams>>>()
+
+export function forgetGroupParams(db: object, groupId: string) {
+  ownParams.get(db)?.delete(groupId)
+}
+
+/** `groupParams` of a group by id, its row cached like team overrides. */
+export async function cachedGroupParams(ctx: Ctx, groupId: string) {
+  let byGroup = ownParams.get(ctx.db)
+  if (!byGroup) {
+    byGroup = new Map()
+    ownParams.set(ctx.db, byGroup)
+  }
+  let hit = byGroup.get(groupId)
+  if (!hit) {
+    const map = byGroup
+    hit = ctx.db
+      .select({ params: groups.params, teamId: groups.teamId })
+      .from(groups)
+      .where(eq(groups.id, groupId))
+      .then(([group]) => group ?? Promise.reject(new Error(`group ${groupId} not found`)))
+    map.set(groupId, hit)
+    hit.catch(() => map.get(groupId) === hit && map.delete(groupId))
+  }
+  return groupParams(ctx, await hit)
+}
+
 /** Every param as it applies in the group: platform → team → group (plan D9). */
 export async function effectiveParams(db: Pick<Db, 'select'>, groupId: string): Promise<SystemParams> {
   const [group] = await db

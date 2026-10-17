@@ -169,40 +169,44 @@ const branchHint = (base: string) =>
   `本群开启了「禁止直推基准分支」：不要直接提交或推送到基准分支 ${base}。当前在 ${base} 上时，改代码前先新建一个分支（名字不限）；已经在其他分支上就直接在该分支开发、提交并推送，不用另建分支。需要合并时告诉触发人发起合并请求。推送到 ${base} 需要 Bot 主人审批。`
 
 async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
-  const [trigger] = await tx
-    .select({
-      seq: messages.seq,
-      body: messages.body,
-      meta: messages.meta,
-      at: messages.createdAt,
-      author: users.name,
-      bot: bots.name,
-    })
-    .from(messages)
-    .leftJoin(users, eq(users.id, messages.authorUserId))
-    .leftJoin(bots, eq(bots.id, messages.authorBotId))
-    .where(eq(messages.id, run.triggerMessageId))
-  const [group] = await tx
-    .select({ name: groups.name, kind: groups.kind, protectBase: groups.protectBase })
-    .from(groups)
-    .where(eq(groups.id, run.groupId))
-  const [gb] = await tx
-    .select()
-    .from(groupBots)
-    .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, bot.id)))
-  const [repo] = await tx
-    .select()
-    .from(groupRepos)
-    .where(eq(groupRepos.groupId, run.groupId))
-    .orderBy(asc(groupRepos.createdAt))
-    .limit(1)
+  // Reads issued together are pipelined on the transaction's connection: one round trip per batch, not per read.
+  const [[trigger], [group], [gb], [repo], [owner], params, catalog, mcpServers, skills] = await Promise.all([
+    tx
+      .select({
+        seq: messages.seq,
+        body: messages.body,
+        meta: messages.meta,
+        at: messages.createdAt,
+        author: users.name,
+        bot: bots.name,
+      })
+      .from(messages)
+      .leftJoin(users, eq(users.id, messages.authorUserId))
+      .leftJoin(bots, eq(bots.id, messages.authorBotId))
+      .where(eq(messages.id, run.triggerMessageId)),
+    tx
+      .select({ name: groups.name, kind: groups.kind, protectBase: groups.protectBase })
+      .from(groups)
+      .where(eq(groups.id, run.groupId)),
+    tx
+      .select()
+      .from(groupBots)
+      .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, bot.id))),
+    tx
+      .select()
+      .from(groupRepos)
+      .where(eq(groupRepos.groupId, run.groupId))
+      .orderBy(asc(groupRepos.createdAt))
+      .limit(1),
+    tx.select({ protocol: users.gitProtocol }).from(users).where(eq(users.id, bot.ownerId)),
+    effectiveParams(tx, run.groupId),
+    botCatalog(tx, bot),
+    enabledMcpServers(tx, run.groupId),
+    enabledSkills(tx, run.groupId),
+  ])
   if (!trigger || !gb || !group) throw new Error(`run ${run.id} lost its trigger message or group membership`)
-  const [owner] = await tx
-    .select({ protocol: users.gitProtocol })
-    .from(users)
-    .where(eq(users.id, bot.ownerId))
-  const params = await effectiveParams(tx, run.groupId)
   const meta = trigger.meta as MessageMeta
+  const at = trigger.at.toISOString()
   // An agent command carries no group context, so it leaves the context cursor where it was.
   const command = meta.agentCommand ?? null
   const since = and(
@@ -211,31 +215,32 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
     lt(messages.seq, trigger.seq),
     or(isNull(messages.authorBotId), ne(messages.authorBotId, bot.id)),
   )
-  // Older messages stay out of the prompt; the agent reads them with the gonggong tools (plan C1).
-  const context = command ? [] : (await contextMessages(tx, since, params.contextInlineMax)).reverse()
-  const omitted =
-    command || context.length < params.contextInlineMax ? 0 : (await countContext(tx, since)) - context.length
   // A /new request wins over any session id a still-running turn reported after the request.
   const resumeSessionId = gb.newSessionReason ? null : gb.sessionId
-  const fallbackContext =
+  const [recent, replay, interrupted, feishu, relay, scheduled, tier, sync] = await Promise.all([
+    // Older messages stay out of the prompt; the agent reads them with the gonggong tools (plan C1).
+    command ? [] : contextMessages(tx, since, params.contextInlineMax),
     resumeSessionId && !command
-      ? (
-          await contextMessages(
-            tx,
-            and(eq(messages.groupId, run.groupId), lt(messages.seq, trigger.seq)),
-            Math.min(params.sessionReplayCount, params.contextInlineMax),
-          )
-        ).reverse()
-      : []
-  const interrupted = await interruptNote(tx, run, trigger.at.toISOString())
-  // A DM's single chat with the bot app is synced whole: nothing to read from Feishu.
-  const feishu = group.kind === 'group' && (await boundChat(tx, run.groupId))
-  const config = resolveConfig(await botCatalog(tx, bot), meta.runOptions?.[bot.id], gb, bot)
-  const note = [
-    ...(interrupted ? [interrupted.note] : []),
-    ...(run.parentRunId ? await relayNote(tx, run.parentRunId, trigger.at.toISOString()) : []),
-    ...(meta.scheduleOf ? [await scheduleNote(tx, meta.scheduleOf, trigger.at.toISOString())] : []),
-  ]
+      ? contextMessages(
+          tx,
+          and(eq(messages.groupId, run.groupId), lt(messages.seq, trigger.seq)),
+          Math.min(params.sessionReplayCount, params.contextInlineMax),
+        )
+      : [],
+    interruptNote(tx, run, at),
+    // A DM's single chat with the bot app is synced whole: nothing to read from Feishu.
+    group.kind === 'group' && boundChat(tx, run.groupId),
+    run.parentRunId ? relayNote(tx, run.parentRunId, at) : [],
+    meta.scheduleOf ? scheduleNote(tx, meta.scheduleOf, at) : null,
+    runTier(tx, (gb.tier ?? bot.tier) as Tier),
+    synced ? runSyncStart(tx, run.groupId, bot.id, meta.syncResolve?.decisions ?? null) : null,
+  ])
+  const context = recent.reverse()
+  const fallbackContext = replay.reverse()
+  const omitted =
+    command || context.length < params.contextInlineMax ? 0 : (await countContext(tx, since)) - context.length
+  const config = resolveConfig(catalog, meta.runOptions?.[bot.id], gb, bot)
+  const note = [...(interrupted ? [interrupted.note] : []), ...relay, ...(scheduled ? [scheduled] : [])]
   const protectBase = group.protectBase && !!repo
   const msg: RunStart = {
     t: 'run.start',
@@ -253,7 +258,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
       ]
         .filter((s) => s.trim())
         .join('\n\n'),
-      tier: await runTier(tx, (gb.tier ?? bot.tier) as Tier),
+      tier,
       approval: bot.approval as Approval,
       allowlist: bot.allowlist,
       alwaysAllow: bot.alwaysAllow,
@@ -285,14 +290,10 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
       attachments: meta.attachments ?? [],
       quote: quoteOf(meta),
     },
-    mcpServers: await enabledMcpServers(tx, run.groupId),
-    skills: (await enabledSkills(tx, run.groupId)).map(({ name, versionId, digest }) => ({
-      name,
-      versionId,
-      digest,
-    })),
+    mcpServers,
+    skills: skills.map(({ name, versionId, digest }) => ({ name, versionId, digest })),
     command,
-    sync: synced ? await runSyncStart(tx, run.groupId, bot.id, meta.syncResolve?.decisions ?? null) : null,
+    sync,
   }
   return { msg, config, triggerSeq: command ? 0 : trigger.seq, settled: interrupted?.settled }
 }

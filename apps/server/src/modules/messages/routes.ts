@@ -73,9 +73,13 @@ export function messageRoutes(ctx: Ctx) {
       const { group } = await requireMember(ctx, req.params.id, me.id)
       const { body, clientId, attachmentIds, quote, appendTo, runOptions } = SendMessageReq.parse(req.body)
       if (!body.trim() && !attachmentIds.length) return fail('invalid', '消息不能为空')
-      const target = appendTo ? await appendTarget(ctx, group.id, me.id, appendTo) : null
-      const inGroup = await activeBots(ctx, group.id)
-      const quoted = quote ? await resolveQuote(ctx, group.id, quote) : null
+      const bots = activeBots(ctx, group.id).execute()
+      const [target, inGroup, quoted, userMentions] = await Promise.all([
+        appendTo ? appendTarget(ctx, group.id, me.id, appendTo) : null,
+        bots,
+        quote ? resolveQuote(ctx, group.id, quote) : null,
+        memberMentions(ctx, group.id, body, { bots }),
+      ])
       const explicit = parseMentions(body, inGroup)
       // A dm with a single bot needs no @: plain messages and commands are addressed to it.
       const soleDmBot = group.kind === 'dm' && inGroup.length === 1 && !target ? inGroup[0] : undefined
@@ -88,7 +92,6 @@ export function messageRoutes(ctx: Ctx) {
           ? await agentCommand(ctx, group.id, parsed, addressed, inGroup)
           : null
       const mentions = agent?.botIds ?? (!explicit.length && soleDmBot ? [soleDmBot.id] : explicit)
-      const userMentions = await memberMentions(ctx, group.id, body)
       const picks = await checkPicks(ctx, me, group.id, runOptions, target || command ? [] : mentions)
 
       // The advisory lock serializes retries/double-clicks carrying the same clientId.

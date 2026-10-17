@@ -6,22 +6,25 @@ import { activeBots } from '../groups/service.js'
 import { notify } from '../notifications/notify.js'
 import type { MessageMeta, MessageRow } from './service.js'
 
-/** Members a message body @s; a bot reply's code is quoted text, not an address. */
+/**
+ * Members a message body @s; a bot reply's code is quoted text, not an address. `bots`: the group's active bots,
+ * when the caller loads them anyway.
+ */
 export async function memberMentions(
   ctx: Ctx,
   groupId: string,
   body: string,
-  o: { skipCode?: boolean } = {},
+  { bots, ...o }: { skipCode?: boolean; bots?: Promise<{ id: string; name: string }[]> } = {},
 ) {
-  const [members, bots] = await Promise.all([
+  const [members, inGroup] = await Promise.all([
     ctx.db
       .select({ id: users.id, name: users.name })
       .from(groupMembers)
       .innerJoin(users, eq(users.id, groupMembers.userId))
       .where(eq(groupMembers.groupId, groupId)),
-    activeBots(ctx, groupId),
+    bots ?? activeBots(ctx, groupId),
   ])
-  return mentionedMembers(body, members, bots, o)
+  return mentionedMembers(body, members, inGroup, o)
 }
 
 /** 被 @: a notification per mentioned member other than the author. */

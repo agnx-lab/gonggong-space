@@ -1,10 +1,10 @@
 import type { ApprovalDto, GroupParams, QuestionSetDto, RunDto, RunStatus, Usage } from '@gonggong/protocol'
 import { and, asc, eq, inArray, type SQL } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
-import { approvals, attachments, groups, questionSets, runs, statusIn, users } from '../../db/schema.js'
+import { approvals, attachments, questionSets, runs, statusIn, users } from '../../db/schema.js'
 import { PARAM_DEFAULTS } from '../admin/params.js'
 import { mirrorRun } from '../feishu/mirror.js'
-import { groupParams } from '../groups/params.js'
+import { cachedGroupParams } from '../groups/params.js'
 import { memberIds } from '../messages/service.js'
 import { attachmentDto, questionSetDto } from '../questions/dto.js'
 import { stepI18nOf } from './step.js'
@@ -13,7 +13,7 @@ export type RunRow = typeof runs.$inferSelect
 type ApprovalRow = typeof approvals.$inferSelect
 
 /** The columns a run card is built from: never the patch, which may be large. */
-const cardColumns = {
+export const cardColumns = {
   id: runs.id,
   groupId: runs.groupId,
   botId: runs.botId,
@@ -111,7 +111,8 @@ export const approvalDto = (a: ApprovalRow, decidedByName: string | null): Appro
 export async function runDtoLoader(ctx: Ctx, rows: CardRow[]): Promise<(r: CardRow) => RunDto> {
   if (!rows.length) return (r) => runDto(r)
   const ids = rows.map((r) => r.id)
-  const [aps, qs, groupRows] = await Promise.all([
+  const groupIds = [...new Set(rows.map((r) => r.groupId))]
+  const [aps, qs, paramsByGroup] = await Promise.all([
     ctx.db
       .select({ a: approvals, name: users.name })
       .from(approvals)
@@ -124,18 +125,13 @@ export async function runDtoLoader(ctx: Ctx, rows: CardRow[]): Promise<(r: CardR
       .leftJoin(users, eq(users.id, questionSets.answeredBy))
       .where(inArray(questionSets.runId, ids))
       .orderBy(asc(questionSets.createdAt)),
-    ctx.db
-      .select({ id: groups.id, params: groups.params, teamId: groups.teamId })
-      .from(groups)
-      .where(inArray(groups.id, [...new Set(rows.map((r) => r.groupId))])),
+    Promise.all(groupIds.map((id) => cachedGroupParams(ctx, id))),
   ])
   const fileIds = qs.flatMap((x) => x.q.attachmentIds)
   const files = fileIds.length
     ? (await ctx.db.select().from(attachments).where(inArray(attachments.id, fileIds))).map(attachmentDto)
     : []
-  const params = new Map(
-    await Promise.all(groupRows.map(async (g) => [g.id, await groupParams(ctx, g)] as const)),
-  )
+  const params = new Map(groupIds.map((id, i) => [id, paramsByGroup[i]]))
   return (r) => {
     const p = params.get(r.groupId) as GroupParams
     return runDto(r, {
@@ -179,10 +175,10 @@ export async function listRuns(
   return rows.map(await runDtoLoader(ctx, rows))
 }
 
-export const publishRun = (ctx: Ctx, run: RunRow) => publishRuns(ctx, [run])
+export const publishRun = (ctx: Ctx, run: CardRow) => publishRuns(ctx, [run])
 
 /** Pushes several run cards with one load. */
-export async function publishRuns(ctx: Ctx, rows: RunRow[]) {
+export async function publishRuns(ctx: Ctx, rows: CardRow[]) {
   const toDto = await runDtoLoader(ctx, rows)
   for (const run of rows) {
     ctx.bus.publish(await memberIds(ctx, run.groupId), { t: 'run.updated', run: toDto(run) })

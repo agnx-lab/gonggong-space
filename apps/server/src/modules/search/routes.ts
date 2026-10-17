@@ -21,15 +21,12 @@ const PATCH_SCAN = 100
 const PATHS_CACHED = 5000
 
 export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
-  // A run's patch is fixed once it ended: its sealed patch is opened for paths once, not on every search.
+  // A run's patch is fixed once it ended: its sealed patch is read and opened for paths once, not on every search.
   const paths = new Map<string, string[]>()
-  const pathsOf = (runId: string, patch: string) => {
-    let hit = paths.get(runId)
-    if (!hit) {
-      hit = patchPaths(open(patch))
-      if (paths.size >= PATHS_CACHED) paths.delete(paths.keys().next().value as string)
-      paths.set(runId, hit)
-    }
+  const keepPaths = (runId: string, patch: string) => {
+    const hit = patchPaths(open(patch))
+    if (paths.size >= PATHS_CACHED) paths.delete(paths.keys().next().value as string)
+    paths.set(runId, hit)
     return hit
   }
 
@@ -79,7 +76,6 @@ export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
       .select({
         id: runs.id,
         groupId: runs.groupId,
-        patch: runs.patch,
         queuedAt: runs.queuedAt,
         bot: bots.name,
         group: groupTitle,
@@ -90,9 +86,17 @@ export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
       .where(and(inArray(runs.groupId, myGroups(userId, teamId)), isNotNull(runs.patch)))
       .orderBy(desc(runs.queuedAt))
       .limit(PATCH_SCAN)
+    const unread = changed.filter((r) => !paths.has(r.id)).map((r) => r.id)
+    const read = new Map(
+      unread.length
+        ? (
+            await ctx.db.select({ id: runs.id, patch: runs.patch }).from(runs).where(inArray(runs.id, unread))
+          ).map((r) => [r.id, keepPaths(r.id, r.patch ?? '')])
+        : [],
+    )
     const needle = q.toLowerCase()
     for (const r of changed)
-      for (const path of pathsOf(r.id, r.patch ?? ''))
+      for (const path of read.get(r.id) ?? paths.get(r.id) ?? [])
         if (path.toLowerCase().includes(needle))
           add({
             kind: 'file',
@@ -140,7 +144,19 @@ export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
     const trigger = alias(messages, 'trigger')
     const reply = alias(messages, 'reply')
     const rows = await ctx.db
-      .select({ r: runs, bot: bots.name, group: groupTitle, task: trigger.body })
+      .select({
+        r: {
+          id: runs.id,
+          groupId: runs.groupId,
+          step: runs.step,
+          filesChanged: runs.filesChanged,
+          purgedAt: runs.purgedAt,
+          queuedAt: runs.queuedAt,
+        },
+        bot: bots.name,
+        group: groupTitle,
+        task: trigger.body,
+      })
       .from(runs)
       .innerJoin(bots, eq(bots.id, runs.botId))
       .innerJoin(groups, eq(groups.id, runs.groupId))
@@ -167,6 +183,8 @@ export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
                   .where(
                     and(
                       eq(runEvents.runId, runs.id),
+                      // Only these carry a title or step; the rest (streamed output above all) is never detoasted.
+                      inArray(runEvents.kind, ['tool', 'status']),
                       or(
                         sql`${runEvents.payload}->>'title' ilike ${p}`,
                         sql`${runEvents.payload}->>'step' ilike ${p}`,

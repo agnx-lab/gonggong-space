@@ -122,6 +122,27 @@ describe('⌘K search', () => {
     ])
   })
 
+  it('reads a run’s patch once, not on every search', async () => {
+    const w = await world()
+    const a = await w.run(w.mine.id, { patch: seal(PATCH) })
+    expect((await w.search('handler', 'file')).map((h) => h.runId)).toEqual([a.id])
+    const b = await w.run(w.mine.id, { patch: PATCH.replaceAll('server/refund/v2', 'web/refund') })
+    const sent: [string, unknown[]][] = []
+    t.db.$client.options.debug = (_conn, query, params) => sent.push([query, params])
+    // Parameters of the queries that load patches.
+    const patchReads = () =>
+      sent
+        .filter(([q]) => /^select\b/.test(q) && q.slice(0, q.indexOf(' from ')).includes('"patch"'))
+        .map(([, params]) => params)
+    expect((await w.search('handler', 'file')).map((h) => [h.title, h.runId])).toEqual([
+      ['web/refund/handler.go', b.id],
+      ['server/refund/v2/handler.go', a.id],
+    ])
+    expect(patchReads()).toEqual([[b.id]])
+    expect((await w.search('handler', 'file')).map((h) => h.runId)).toEqual([b.id, a.id])
+    expect(patchReads()).toEqual([[b.id]])
+  })
+
   it('also finds base-branch files from the mirror of my groups, after workspace changes', async () => {
     const w = await world()
     const remote = bareRepo()

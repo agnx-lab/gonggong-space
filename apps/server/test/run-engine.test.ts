@@ -56,6 +56,12 @@ async function oneRun() {
   await triggerRuns(t.ctx, m!)
   const runId = (await d.box.next<RunStart>()).runId
   const text = (delta: string) => d.send({ t: 'run.event', runId, event: { kind: 'text', delta } })
+  const tool = (title: string, to = d) =>
+    to.send({
+      t: 'run.event',
+      runId,
+      event: { kind: 'tool', toolCallId: 'c1', title, toolKind: 'execute', status: 'pending' },
+    })
   // A background task is accepted after the turn ended too: once it is stored, earlier reports were handled.
   const task = async (taskId: string, to = d) => {
     to.send({
@@ -78,7 +84,23 @@ async function oneRun() {
         .from(runEvents)
         .where(and(eq(runEvents.runId, runId), eq(runEvents.kind, 'text')))
     ).map((e) => e.payload)
-  return { alice, machine, token, group, d, runId, deltas, text, task, stored }
+  const step = async () =>
+    (await t.db.select({ step: runs.step }).from(runs).where(eq(runs.id, runId)))[0]?.step
+  const tools = async () =>
+    (
+      await t.db
+        .select()
+        .from(runEvents)
+        .where(and(eq(runEvents.runId, runId), eq(runEvents.kind, 'tool')))
+    ).map((e) => (e.payload as { title: string }).title)
+  return { alice, machine, token, group, d, runId, deltas, text, tool, task, stored, step, tools }
+}
+
+/** SQL the app sends from now on. */
+function recordQueries() {
+  const sent: string[] = []
+  t.db.$client.options.debug = (_conn, query) => sent.push(query)
+  return sent
 }
 
 it('handles one machine’s reports while another machine’s are stuck', async () => {
@@ -157,6 +179,64 @@ it('streams later chunks of a checked run without waiting on its row', async () 
     release()
     await lock
   }
+})
+
+it('checks a run against its row once, not on every tool report or stream after it', async () => {
+  const { deltas, text, tool, step, tools } = await oneRun()
+  text('a ')
+  await expect.poll(() => deltas.join('')).toBe('a ')
+  const sent = recordQueries()
+  tool('ls')
+  tool('ls')
+  text('b ')
+  await expect.poll(() => deltas.join('')).toBe('a b ')
+  tool('cat')
+  await expect.poll(step).toBe('cat')
+  const engine = [...sent]
+  expect(await tools()).toEqual(['ls', 'ls', 'cat'])
+  expect(engine.filter((q) => /for share/i.test(q))).toEqual([])
+  // The stream after a tool starts a new row; the tool row is not read back for it.
+  expect(engine.filter((q) => /^select/i.test(q) && q.includes('"run_events"'))).toEqual([])
+})
+
+it('drops reports that arrive after the run ended', async () => {
+  const { d, runId, tool, task, step, tools } = await oneRun()
+  tool('ls')
+  await expect.poll(step).toBe('ls')
+  d.send({
+    t: 'run.done',
+    runId,
+    outcome: 'completed',
+    reply: '',
+    filesChanged: 0,
+    usage: null,
+    sessionId: null,
+    newSessionReason: null,
+    error: null,
+    git: null,
+    patch: null,
+    appendsApplied: 0,
+  })
+  tool('late')
+  await task('t1')
+  expect(await tools()).toEqual(['ls'])
+  expect(await step()).toBe('')
+})
+
+it('drops reports of a run stopped while its machine was away', async () => {
+  const { alice, token, group, runId, tool, task, d, machine, step, tools } = await oneRun()
+  tool('ls')
+  await expect.poll(step).toBe('ls')
+  d.ws.close()
+  await expect.poll(() => t.ctx.hub.isOnline(machine.id)).toBe(false)
+  const [stopped] = await stopRuns(t.ctx, { groupId: group.id }, alice)
+  expect(stopped).toMatchObject({ status: 'interrupted' })
+
+  const back = await daemon(token, [runId])
+  tool('late', back)
+  await task('t1', back)
+  expect(await tools()).toEqual(['ls'])
+  expect(await step()).toBe(stopped?.step)
 })
 
 it('drops chunks that arrive after the run ended', async () => {
