@@ -21,7 +21,7 @@ import {
 import { BotAvatar } from '../bots/avatars'
 import { AGENT_LABEL, PRESENCE } from '../bots/model'
 import { AgentSettingsPanel } from './AgentSettingsPanel'
-import { OS_LABEL } from './BindMachineDialog'
+import { OS_LABEL } from './model'
 import { ProvidersPanel } from './ProvidersPanel'
 import { RevokeMachineDialog } from './RevokeMachineDialog'
 import { ToolsPanel } from './ToolsPanel'

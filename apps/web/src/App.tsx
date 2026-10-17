@@ -1,14 +1,12 @@
-import { type ComponentType, lazy, type ReactNode, Suspense } from 'react'
+import { lazy, type ReactNode, Suspense } from 'react'
 import { Route, Routes } from 'react-router'
 import { AppShell } from './app/AppShell'
 import { ChatPage } from './app/ChatPage'
 import { NotFound } from './app/NotFound'
 import { RequireSession } from './app/RequireSession'
+import { named } from './lib/lazy'
 import { Mascot } from './ui'
 import './app/shell.css'
-
-const named = <K extends string, M extends Record<K, ComponentType>>(load: () => Promise<M>, name: K) =>
-  lazy(() => load().then((m) => ({ default: m[name] })))
 
 const LoginPage = named(() => import('./features/auth/LoginPage'), 'LoginPage')
 const RegisterPage = named(() => import('./features/auth/RegisterPage'), 'RegisterPage')

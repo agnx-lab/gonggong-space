@@ -23,7 +23,7 @@ import {
   ToolbarGroup,
   toast,
 } from '../../ui'
-import { TeamAvatar } from '../teams/TeamSettingsDialog'
+import { TeamAvatar } from '../teams/TeamAvatar'
 import { AdminPage } from './AdminPage'
 
 const day = (iso: string) => new Date(iso).toLocaleDateString()

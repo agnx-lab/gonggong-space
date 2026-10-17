@@ -6,14 +6,9 @@ import { Alert, Dialog, Form, FormRow, Spinner, StepIndicator, type StepStatus }
 import { AGENT_LABEL } from '../bots/model'
 import { BindCodePanel, useBindCode } from './BindCodePanel'
 import { ClientDownload } from './ClientDownload'
+import { OS_LABEL } from './model'
 import './machines.css'
 import { t } from '../../i18n'
-
-export const OS_LABEL: Record<MachineDto['os'], string> = {
-  macos: 'macOS',
-  linux: 'Linux',
-  windows: 'Windows',
-}
 
 /** 绑定新机器 (Web 对话.dc.html ovBind): 接入链接 → desktop app binds → machine/agents reported. */
 export function BindMachineDialog({ open, onClose }: { open: boolean; onClose: () => void }) {

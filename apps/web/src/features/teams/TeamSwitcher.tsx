@@ -1,12 +1,13 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, Suspense, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useSession } from '../../app/session'
 import { t } from '../../i18n'
 import { errorText } from '../../lib/api'
 import { storedTeam } from '../../lib/team'
 import { Alert, Badge, Dialog, Icon, MenuButton, type MenuItem, Presence, TextField } from '../../ui'
+import { TeamSettingsDialog } from './lazy'
 import { switchTeam, teamsApi, tokenOf } from './store'
-import { TeamAvatar, TeamSettingsDialog } from './TeamSettingsDialog'
+import { TeamAvatar } from './TeamAvatar'
 import './teams.css'
 
 /** The switcher replaces the app title unless the deployment runs in single-team mode (plan D11). */
@@ -59,11 +60,13 @@ export function TeamSwitcher() {
       </MenuButton>
       <Presence>
         {open === 'settings' || open === 'invite' ? (
-          <TeamSettingsDialog
-            team={current}
-            tab={open === 'invite' ? 'invites' : 'overview'}
-            onClose={() => setOpen(null)}
-          />
+          <Suspense fallback={null}>
+            <TeamSettingsDialog
+              team={current}
+              tab={open === 'invite' ? 'invites' : 'overview'}
+              onClose={() => setOpen(null)}
+            />
+          </Suspense>
         ) : open === 'new' ? (
           <NewTeamSheet onClose={() => setOpen(null)} />
         ) : open === 'join' ? (

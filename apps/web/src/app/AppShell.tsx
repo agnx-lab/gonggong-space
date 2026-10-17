@@ -1,15 +1,20 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { Outlet } from 'react-router'
 import { create } from 'zustand'
-import { NotificationPanel } from '../features/notifications/NotificationPanel'
 import { syncPush } from '../features/notifications/push'
-import { SearchOverlay } from '../features/search/SearchOverlay'
-import { SettingsHost } from '../features/settings/SettingsDialog'
+import { SettingsHost } from '../features/settings/SettingsHost'
 import { TeamSwitcher, useMultiTeam } from '../features/teams/TeamSwitcher'
 import { t } from '../i18n'
+import { named } from '../lib/lazy'
 import { useRealtimeStatus } from '../lib/realtime'
 import { Icon, Logo, Toaster, Toolbar, ToolbarButton, ToolbarGroup } from '../ui'
 import { useIsMobile } from './viewport'
+
+const NotificationPanel = named(
+  () => import('../features/notifications/NotificationPanel'),
+  'NotificationPanel',
+)
+const SearchOverlay = named(() => import('../features/search/SearchOverlay'), 'SearchOverlay')
 
 type Overlay = 'search' | 'notif' | null
 
@@ -69,6 +74,9 @@ export function AppShell() {
   const mobile = useIsMobile()
   const { overlay, set } = useShellOverlay()
   const lost = useConnectionLost()
+  // Loaded on the first open, then kept mounted so closing still plays its exit animation.
+  const [notifUsed, setNotifUsed] = useState(false)
+  if (overlay === 'notif' && !notifUsed) setNotifUsed(true)
   usePushSync()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -94,8 +102,16 @@ export function AppShell() {
       <div className="app__body">
         <Outlet />
       </div>
-      <NotificationPanel open={overlay === 'notif'} onClose={close} />
-      {overlay === 'search' ? <SearchOverlay onClose={close} /> : null}
+      {notifUsed ? (
+        <Suspense fallback={null}>
+          <NotificationPanel open={overlay === 'notif'} onClose={close} />
+        </Suspense>
+      ) : null}
+      {overlay === 'search' ? (
+        <Suspense fallback={null}>
+          <SearchOverlay onClose={close} />
+        </Suspense>
+      ) : null}
       <SettingsHost />
       <Toaster />
     </div>

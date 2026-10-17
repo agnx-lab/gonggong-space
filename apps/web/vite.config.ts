@@ -9,6 +9,14 @@ const server = process.env.GONGGONG_SERVER ?? `${https ? 'https' : 'http'}://127
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rolldownOptions: {
+      output: {
+        // One chunk for the first load; otherwise each module it shares with a lazy chunk gets its own.
+        codeSplitting: { groups: [{ name: 'app', tags: ['$initial'] }] },
+      },
+    },
+  },
   server: {
     host: process.env.WEB_HOST ?? '127.0.0.1',
     port: Number(process.env.WEB_PORT ?? 5173),

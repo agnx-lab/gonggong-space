@@ -11,7 +11,7 @@ import { api, errorText } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { Alert, AlertDialog, type DropFile, DropZone, Spinner, Table, Tag, toast } from '../../ui'
 import { fmtSize, postForm } from '../attachments/api'
-import { OS_LABEL } from '../machines/BindMachineDialog'
+import { OS_LABEL } from '../machines/model'
 import { AdminPage } from './AdminPage'
 
 type Build = DaemonRelease['builds'][string]

@@ -28,7 +28,7 @@ import {
   toast,
 } from '../../ui'
 import { BindCodePanel, useBindCode } from '../machines/BindCodePanel'
-import { OS_LABEL } from '../machines/BindMachineDialog'
+import { OS_LABEL } from '../machines/model'
 import { providerBlocked } from '../machines/providers'
 import { DirPicker } from '../workspaces/DirPicker'
 import type { AgentConfig } from './AgentConfig'

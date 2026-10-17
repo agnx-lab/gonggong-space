@@ -1,5 +1,4 @@
 import type { SkillFile } from '@gonggong/protocol'
-import { unzipSync } from 'fflate'
 
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 const JUNK = /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db)(\/|$)/
@@ -31,7 +30,10 @@ export function skillFiles(entries: [string, Uint8Array][]): SkillFile[] {
 
 const bytesOf = async (f: Blob) => new Uint8Array(await f.arrayBuffer())
 
-export const zipSkillFiles = async (zip: Blob) => skillFiles(Object.entries(unzipSync(await bytesOf(zip))))
+export const zipSkillFiles = async (zip: Blob) => {
+  const { unzipSync } = await import('fflate')
+  return skillFiles(Object.entries(unzipSync(await bytesOf(zip))))
+}
 
 /** Files of a folder picked with `webkitdirectory` (paths start with the folder's name). */
 export const folderSkillFiles = async (files: File[]) =>

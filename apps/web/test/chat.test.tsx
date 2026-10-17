@@ -1080,7 +1080,7 @@ describe('new group dialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建群' }))
     fireEvent.click(await screen.findByRole('button', { name: '从飞书群创建…' }))
     const dialog = await screen.findByRole('dialog', { name: '从飞书群创建' })
-    fireEvent.click(within(dialog).getByRole('button', { name: '飞书群' }))
+    fireEvent.click(await within(dialog).findByRole('button', { name: '飞书群' }))
     fireEvent.click(await screen.findByText('研发群'))
     const name = within(dialog).getByLabelText('名称') as HTMLInputElement
     expect(name.value).toBe('研发群')
