@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.3 — 2026-10-17
+
+- Agent 设置：供应商常用配置改为控件（上下文窗口按模型带出、自动压缩、输出上限、思考、beta、工具搜索、API 超时）；机器级「Agent 设置」（语言、思考、署名、git 指令、自动记忆、自动压缩、Bash 超时、非必要流量、继承本机 CLI 配置），Bot 可覆盖语言/思考/署名；每项标来源，下一轮生效；圆环标压缩点、运行详情显示设置来源、`gg agents settings`、环境变量密钥打码 / Agent settings: provider controls (context window from the model, auto-compact, output limit, thinking, betas, tool search, API timeout); per-machine Agent settings with per-Bot overrides; sources shown, applied from the next turn; compaction point on the context ring, settings in run details, `gg agents settings`, masked secrets
+- 撤回 5 分钟内可重新编辑；Bot 回复里的文件路径可点击；分支到新聊天；引用 Bot 消息不再触发它 / Edit after recall, clickable file paths, branch into a new chat, quoting a Bot no longer triggers it
+- 会话列表按最新消息排序并显示运行状态；⌘K 搜会话名；「执行位置」面板 / Conversations sorted by latest message with run status; ⌘K finds conversations; execution location panel
+- 飞书：单聊 Bot 的飞书应用即可对话；审批与提问合进运行卡片；可关闭网页消息同步 / Feishu: direct chats with a Bot's app, approvals in the run card, optional web sync
+- `hand_off` 跨群；成员只读查看群 MCP / Skill；自装 Codex、Claude Code 一键升级；更少的只读命令审批 / Cross-group `hand_off`, read-only MCP / Skill view, upgrades for self-installed CLIs, fewer approvals
+
 ## v0.3.2 — 2026-10-15
 
 - 桌面端私服优先更新：先向已绑定的服务器检查更新（`GET /api/desktop-update/:target/:arch/:current`），服务器发布了本平台的更新包与签名就从服务器下载，否则照旧检查 GitHub；「客户端发布」接受 `Gonggong_*.app.tar.gz(.sig)` 与 `*-setup.exe.sig`，新增「桌面端自动更新」列 / Server-first desktop updates: the app asks its server first and downloads from it once the platform's update package and signature are published, else GitHub as before; Client releases take `Gonggong_*.app.tar.gz(.sig)` and `*-setup.exe.sig`, with a new "Desktop auto update" column
