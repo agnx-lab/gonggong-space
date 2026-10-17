@@ -184,6 +184,28 @@
 
 CLI 用法：`gg provider presets [claude|codex]` 列出预设；`gg provider add claude --preset kimi-coding --key-stdin [--model …]`。
 
+### 4.2.2 Agent 设置与常用配置控件（2026-10-17 姜维川拍板）
+
+**问题**：上下文窗口等常用项要用户手写环境变量；Claude Code 自身的 settings（语言、思考、署名、超时…）没有入口；本机 `~/.claude/settings.json` 会悄悄生效、看不到。
+
+**三层，按「跟什么相关」划分**（字段定义唯一来源 `packages/protocol/src/agent-settings.ts`，`fixtures/data.agent-setting-fields.json` 与 daemon `agent_settings.rs` 测试对齐）
+
+| 层 | 存放 | 内容 |
+|---|---|---|
+| 供应商层 | 供应商 / 官方登录的 `env`（存储不变） | 上下文窗口、自动压缩窗口、输出上限、关闭思考参数、关闭实验性 beta、工具搜索、API 超时 |
+| Agent 层·本机默认 | daemon `providers.json` 的 `agentSettings[agent]` | 语言、扩展思考、提交署名、内置 git 指令、自动记忆、自动压缩、Bash 超时、MCP 空闲超时、非必要流量；「继承本机 CLI 配置」开关（默认开） |
+| Agent 层·Bot 覆盖 | 服务端 `bots.agent_settings`，随 `RunStart.bot.agentSettings` 下发 | 仅 `botOverride` 字段：语言、扩展思考、提交署名 |
+
+- **合成**：本机默认 → Bot 覆盖 → 供应商 env → 连接信息，写入现有 flag settings 文件（顶层键 + `env`）。`permissions`、`model`、MCP、plugins、`apiKeyHelper` 由共工管理，永不写。
+- **按模型取窗口**：供应商未显式设上下文窗口时，按 Bot 实际模型取预设 `modelContext`（手工维护的 `scripts/provider-model-context.json`，同步脚本并入）。
+- **继承开关**：关闭时 `_meta.claudeCode.options.settingSources = ["project","local"]`，个人 CLAUDE.md、记忆、hooks、用户 Skill 一并不加载。
+- **来源标注**：daemon 只读取 `~/.claude/settings.json` 中的已知字段、冲突变量（`CLAUDE_CODE_EFFORT_LEVEL` 等会盖过 Bot effort）、hooks 与权限规则条数、Claude Code 版本，随 view 上报；界面标「默认 / 本机 CLI / Agent 设置 / 供应商 / 按模型 / Bot」。
+- **生效**：改动在下一轮生效（重启 adapter 并 resume），不打断正在跑的轮次。
+- **可观测**：`session.config.settings` 记录每轮生效摘要，运行详情可见；`usage.context.compactAt` 让圆环标出压缩点。
+- **密钥**：env 中名字含 KEY/TOKEN/SECRET/PASSWORD 的值打码上报，传回打码值视为不变。
+- **兼容**：存储不迁移；`ANTHROPIC_SMALL_FAST_MODEL` 已废弃，保留在「其他环境变量」并提供改用 Haiku 映射。
+- **二期**：团队供应商模板（服务端维护不含 Key 的模板，成员套用后拷贝）；Codex 对应 config.toml 字段。
+
 ### 4.3 会话锁定与提醒
 
 - **锁定在 daemon 本地**：开新会话时，把当时生效的供应商写入 `sessions[sessionId]`。之后续接会话**始终使用锁定的供应商**，不受机器或 Bot 设置变更的影响。
