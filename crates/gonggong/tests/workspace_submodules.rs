@@ -42,6 +42,7 @@ async fn managed_clones_check_out_submodules() {
         user_home: home.path().to_path_buf(),
         adapter_cmd: None,
         idle: Duration::from_secs(60),
+        reap: Duration::from_secs(600),
         api: None,
     });
     let (out, mut rx) = Outbox::channel();

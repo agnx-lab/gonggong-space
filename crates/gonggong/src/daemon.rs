@@ -18,6 +18,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 const IDLE_REAP: Duration = Duration::from_secs(10 * 60);
+const CONVERSATION_REAP: Duration = Duration::from_secs(30 * 60);
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// Picks up agents installed or paths changed by the CLI while running.
 const REDETECT: Duration = Duration::from_secs(60);
@@ -64,6 +65,7 @@ impl Daemon {
             user_home: crate::config::user_home(),
             adapter_cmd: opts.adapter_cmd,
             idle: IDLE_REAP,
+            reap: CONVERSATION_REAP,
             api: Some(opts.config.clone()),
         });
         engine.watch_agents(agents.clone());

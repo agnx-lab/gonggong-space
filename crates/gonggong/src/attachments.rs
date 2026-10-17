@@ -8,6 +8,7 @@ use agent_client_protocol::schema::v1::{ContentBlock, ImageContent, TextContent}
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 use tokio::io::AsyncWriteExt;
 
 const DIR: &str = ".gonggong/attachments";
@@ -16,9 +17,16 @@ const EXCLUDE: &str = ".gonggong/";
 const IMAGE_INLINE_MAX: u64 = 5 * 1024 * 1024;
 const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
+/// Message folders none of whose files was fetched or reused for this long are removed when attachments are next
+/// fetched into the workspace; the agent can fetch them again.
+const UNUSED: Duration = Duration::from_secs(7 * 24 * 3600);
+
+fn last(s: &str) -> String {
+    Path::new(s).file_name().map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned())
+}
+
 /// Workspace-relative path. Names come sanitized from the server; only their last component is used regardless.
 pub fn rel_path(a: &Attachment) -> String {
-    let last = |s: &str| Path::new(s).file_name().map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
     format!("{DIR}/{}/{}", last(&a.message_id), last(&a.name))
 }
 
@@ -27,22 +35,53 @@ pub fn inline_image(a: &Attachment, supported: bool) -> bool {
     supported && a.size <= IMAGE_INLINE_MAX && IMAGE_TYPES.contains(&a.mime.as_str())
 }
 
-/// Downloads the attachments missing from `cwd`; in a repo workspace `.gonggong/` goes into `.git/info/exclude`.
+/// Downloads the attachments missing from `cwd`, then removes those unused for long; in a repo workspace `.gonggong/`
+/// goes into `.git/info/exclude`.
 pub async fn fetch<'a>(api: &Config, cwd: &Path, list: impl IntoIterator<Item = &'a Attachment>) -> Result<(), String> {
-    let mut seen = HashSet::new();
-    let mut any = false;
+    let (mut seen, mut folders, mut reused) = (HashSet::new(), HashSet::new(), vec![]);
     for a in list.into_iter().filter(|a| seen.insert(&a.id)) {
-        any = true;
+        folders.insert(last(&a.message_id));
         let path = cwd.join(rel_path(a));
         if tokio::fs::metadata(&path).await.is_ok_and(|m| m.len() == a.size) {
+            reused.push(path);
             continue;
         }
         download(api, a, &path).await.map_err(|e| t!("附件下载失败：{name}：{e}", name = a.name, e = e))?;
     }
-    if any && git::is_repo(cwd) {
+    if folders.is_empty() {
+        return Ok(());
+    }
+    let root = cwd.join(DIR);
+    if let Err(e) = tokio::task::spawn_blocking(move || prune(&root, &folders, &reused)).await {
+        tracing::warn!("pruning attachments failed: {e}");
+    }
+    if git::is_repo(cwd) {
         git::exclude(cwd, EXCLUDE).await.map_err(|e| t!("无法写入 .git/info/exclude：{e}", e = e))?;
     }
     Ok(())
+}
+
+/// Marks the `reused` files used now, then removes the message folders under `root` but `keep` unused for `UNUSED`.
+fn prune(root: &Path, keep: &HashSet<String>, reused: &[std::path::PathBuf]) {
+    let now = SystemTime::now();
+    for path in reused {
+        if let Err(e) = std::fs::File::options().write(true).open(path).and_then(|f| f.set_modified(now)) {
+            tracing::debug!("touching {} failed: {e}", path.display());
+        }
+    }
+    let Ok(folders) = std::fs::read_dir(root) else { return };
+    let cutoff = now - UNUSED;
+    let modified = |m: std::io::Result<std::fs::Metadata>| m.and_then(|m| m.modified()).ok();
+    for folder in folders.flatten().filter(|f| !keep.contains(&*f.file_name().to_string_lossy())) {
+        let files = std::fs::read_dir(folder.path()).into_iter().flatten().flatten();
+        // An empty folder may be one a download is about to fill.
+        let newest = files.filter_map(|f| modified(f.metadata())).max().or_else(|| modified(folder.metadata()));
+        if newest.is_some_and(|t| t < cutoff)
+            && let Err(e) = std::fs::remove_dir_all(folder.path())
+        {
+            tracing::warn!("removing {} failed: {e}", folder.path().display());
+        }
+    }
 }
 
 async fn download(api: &Config, a: &Attachment, path: &Path) -> anyhow::Result<()> {

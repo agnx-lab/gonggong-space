@@ -118,6 +118,7 @@ fn engine(home: &Path, api: &Config) -> Engine {
         user_home: home.to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle: Duration::from_secs(60),
+        reap: Duration::from_secs(600),
         api: Some(api.clone()),
     })
 }
