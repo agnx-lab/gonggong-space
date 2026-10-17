@@ -44,6 +44,13 @@ const REFRESH_MS = 2000
 
 const fail = (e: unknown) => toast({ type: 'error', message: String(e) })
 
+/** Overlapping refreshes may both bring a line: only those after the last one shown count. */
+function appendLines(prev: LogLine[], next: LogLine[]): LogLine[] {
+  const last = prev.at(-1)?.seq ?? 0
+  const fresh = next.filter((l) => l.seq > last)
+  return fresh.length ? [...prev, ...fresh].slice(-LOG_LIMIT) : prev
+}
+
 export function LogsPage(_: PageProps) {
   const [checks, setChecks] = useState<Check[] | null>(null)
   const [net, setNet] = useState<NetResult | 'measuring' | null>(null)
@@ -59,15 +66,25 @@ export function LogsPage(_: PageProps) {
   }, [])
 
   useEffect(() => {
-    // Unchanged logs keep the old list, so a quiet log doesn't re-render every refresh.
+    let alive = true
+    // A level's first load replaces the list; later ones fetch only newer lines, so a quiet log costs nothing.
+    let after: number | null = null
     const load = () =>
-      ipc.recentLogs(level, LOG_LIMIT).then(
-        (next) => setLines((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next)),
+      ipc.recentLogs(level, LOG_LIMIT, after).then(
+        (next) => {
+          if (!alive) return
+          const first = after === null
+          after = next.at(-1)?.seq ?? after ?? 0
+          setLines((prev) => (first ? next : appendLines(prev, next)))
+        },
         () => {},
       )
     load()
     const timer = setInterval(load, REFRESH_MS)
-    return () => clearInterval(timer)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
   }, [level])
 
   const measure = async () => {
@@ -156,10 +173,8 @@ export function LogsPage(_: PageProps) {
       >
         <div className="dk-logpane" data-testid="log-pane">
           {lines.length === 0 ? <EmptyState compact icon="doc-text" title={t('暂无日志')} /> : null}
-          {lines.map((l, i) => (
-            // Lines have no identity; the list is replaced wholesale on every refresh.
-            // biome-ignore lint/suspicious/noArrayIndexKey: see above
-            <div key={i} className={`dk-log dk-log--${l.level}`}>
+          {lines.map((l) => (
+            <div key={l.seq} className={`dk-log dk-log--${l.level}`}>
               {l.text}
             </div>
           ))}

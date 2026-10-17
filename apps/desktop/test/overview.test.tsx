@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import './ipc-mock'
 import { type DaemonStatus, ipc } from '../src/ipc'
 import { OverviewPage } from '../src/pages/Overview'
+import { mergeProcess } from '../src/pages/RunDetail'
 import { useDaemon } from '../src/store'
 import { bot, INFO, run, status } from './ipc-mock'
 
@@ -111,10 +112,13 @@ describe('overview', () => {
   })
 
   it('drills into a running run and shows its process, subagents included', async () => {
-    m.runProcess.mockResolvedValue({
-      run: run({ runId: 'r1', status: 'running', step: 'Read' }),
+    const r1 = run({ runId: 'r1', status: 'running', step: 'Read' })
+    m.runProcess.mockResolvedValueOnce({
+      run: r1,
       endedMs: null,
       outcome: null,
+      rev: 5,
+      firstId: 1,
       events: [
         {
           id: 1,
@@ -125,16 +129,60 @@ describe('overview', () => {
         { id: 3, atMs: 3000, event: { kind: 'text', delta: '主进度' } },
       ],
     })
-    show(status({ runs: [run({ runId: 'r1', status: 'running', step: 'Read' })] }))
+    m.runProcess.mockResolvedValue({
+      run: r1,
+      endedMs: null,
+      outcome: null,
+      rev: 7,
+      firstId: 1,
+      events: [
+        { id: 3, atMs: 3000, event: { kind: 'text', delta: '主进度，继续' } },
+        { id: 4, atMs: 4000, event: { kind: 'text', delta: '子报告二', agentId: 'a1' } },
+      ],
+    })
+    show(status({ runs: [r1] }))
     fireEvent.click(within(screen.getByTestId('running')).getByRole('button', { name: /小王的 Claude/ }))
     expect(await screen.findByText('Explore')).toBeTruthy()
-    expect(m.runProcess).toHaveBeenCalledWith('r1')
+    expect(m.runProcess).toHaveBeenCalledWith('r1', null, null)
     expect(within(screen.getByTestId('activity-dock')).getByText('子 agent 1 个运行中')).toBeTruthy()
     expect(screen.getByText('找调用方')).toBeTruthy()
     expect(screen.getByText('子报告')).toBeTruthy()
     expect(screen.getByText('主进度')).toBeTruthy()
+
+    expect(await screen.findByText('主进度，继续')).toBeTruthy()
+    expect(m.runProcess).toHaveBeenNthCalledWith(2, 'r1', 3, 5)
+    expect(screen.queryByText('主进度')).toBeNull()
+    expect(screen.getByText('子报告')).toBeTruthy()
+    expect(screen.getByText('子报告二')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
     expect(screen.getByTestId('stats')).toBeTruthy()
+  })
+
+  it('merges each poll into the process shown so far', () => {
+    const ev = (id: number, delta: string) => ({
+      id,
+      atMs: id * 1000,
+      event: { kind: 'text' as const, delta },
+    })
+    const base = { run: run({ runId: 'r1' }), endedMs: null, outcome: null }
+    const shown = { ...base, rev: 2, events: [ev(1, 'a'), ev(2, 'b'), ev(3, 'c')] }
+    expect(mergeProcess(shown, { ...base, rev: 2, firstId: 1, events: [] })).toBe(shown)
+    expect(
+      mergeProcess(shown, { ...base, rev: 3, firstId: 2, events: [ev(3, 'cd'), ev(4, 'e')] })?.events,
+    ).toEqual([ev(2, 'b'), ev(3, 'cd'), ev(4, 'e')])
+    const ended = mergeProcess(shown, {
+      ...base,
+      endedMs: 9000,
+      outcome: 'completed',
+      rev: 4,
+      firstId: 1,
+      events: [],
+    })
+    expect(ended).toMatchObject({ endedMs: 9000, outcome: 'completed', rev: 4, events: shown.events })
+    expect(mergeProcess(undefined, { ...base, rev: 1, firstId: 5, events: [ev(5, 'x')] })?.events).toEqual([
+      ev(5, 'x'),
+    ])
+    expect(mergeProcess(shown, null)).toBeNull()
   })
 
   it('warns while offline with the next retry', () => {

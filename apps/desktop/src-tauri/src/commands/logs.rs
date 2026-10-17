@@ -3,7 +3,7 @@ use crate::host::Host;
 use crate::i18n::tr;
 use gonggong::config::Config;
 use gonggong::diag::{self, Check};
-use gonggong::logs::{LogLevel, LogLine, Logs};
+use gonggong::logs::{LogLevel, Logs, RingLine};
 use gonggong::net::NetResult;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -43,8 +43,9 @@ pub async fn export_diagnostics(app: AppHandle, host: State<'_, Host>) -> Result
     Ok(Some(dest.to_string_lossy().into_owned()))
 }
 
-/// Recent lines of this app's own log (the ring `gonggong::logs::init` set up in `main`).
-#[tauri::command]
-pub fn recent_logs(level: LogLevel, limit: usize, logs: State<'_, Logs>) -> Vec<LogLine> {
-    logs.recent(level, limit)
+/// Recent lines of this app's own log (the ring `gonggong::logs::init` set up in `main`) after line `after`. Async so
+/// it runs off the main thread.
+#[tauri::command(async)]
+pub fn recent_logs(level: LogLevel, limit: usize, after: Option<u64>, logs: State<'_, Logs>) -> Vec<RingLine> {
+    logs.recent(level, limit, after)
 }

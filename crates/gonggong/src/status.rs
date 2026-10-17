@@ -83,13 +83,27 @@ pub struct TimedEvent {
 }
 
 /// One run's process as executed here: its events in order, streamed deltas merged.
+struct Process {
+    run: RunInfo,
+    events: VecDeque<TimedEvent>,
+    ended_ms: Option<u64>,
+    outcome: Option<RunOutcome>,
+    /// Bumped on every change: a merged delta grows the last event without a new id.
+    rev: u64,
+}
+
+/// A run's process as a reader that already has part of it needs it (`Monitor::process_since`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Process {
+pub struct ProcessPatch {
     pub run: RunInfo,
-    pub events: VecDeque<TimedEvent>,
     pub ended_ms: Option<u64>,
     pub outcome: Option<RunOutcome>,
+    pub rev: u64,
+    /// The oldest event still kept; anything before it was evicted.
+    pub first_id: Option<u64>,
+    /// From the reader's last event on, that one included as it may have grown; none while `rev` is unchanged.
+    pub events: Vec<TimedEvent>,
 }
 
 #[derive(Default)]
@@ -101,6 +115,7 @@ struct Journal {
 impl Journal {
     fn record(&mut self, run_id: &str, event: &RunEvent) {
         let Some(p) = self.runs.iter_mut().find(|p| p.run.run_id == run_id) else { return };
+        p.rev += 1;
         progress(&mut p.run, event);
         if let Some(last) = p.events.back_mut() {
             match (&mut last.event, event) {
@@ -124,6 +139,7 @@ impl Journal {
         if let Some(p) = self.runs.iter_mut().find(|p| p.run.run_id == run_id) {
             p.ended_ms = Some(now_ms());
             p.outcome = Some(outcome);
+            p.rev += 1;
         }
         let ended = self.runs.iter().filter(|p| p.ended_ms.is_some()).count();
         if ended > KEEP_ENDED
@@ -178,9 +194,25 @@ impl Monitor {
         self.status.subscribe()
     }
 
-    /// The process of a run started here, while running and for the last few finished ones.
-    pub fn process(&self, run_id: &str) -> Option<Process> {
-        self.journal.lock().unwrap().runs.iter().find(|p| p.run.run_id == run_id).cloned()
+    /// The process of a run started here (while running and for the last few finished ones) from event id `after` on,
+    /// or without events while `rev` is current. Only that tail is cloned: the websocket sender waits on this lock.
+    pub fn process_since(&self, run_id: &str, after: Option<u64>, rev: Option<u64>) -> Option<ProcessPatch> {
+        let journal = self.journal.lock().unwrap();
+        let p = journal.runs.iter().find(|p| p.run.run_id == run_id)?;
+        let events = if rev == Some(p.rev) {
+            vec![]
+        } else {
+            let from = after.map_or(0, |after| p.events.partition_point(|e| e.id < after));
+            p.events.range(from..).cloned().collect()
+        };
+        Some(ProcessPatch {
+            run: p.run.clone(),
+            ended_ms: p.ended_ms,
+            outcome: p.outcome,
+            rev: p.rev,
+            first_id: p.events.front().map(|e| e.id),
+            events,
+        })
     }
 
     /// `f` reports whether it changed anything: watchers are notified only then, so streamed text deltas do not
@@ -249,7 +281,13 @@ impl Monitor {
             queued: false,
             started_ms: now_ms(),
         };
-        journal.runs.push_back(Process { run: run.clone(), events: VecDeque::new(), ended_ms: None, outcome: None });
+        journal.runs.push_back(Process {
+            run: run.clone(),
+            events: VecDeque::new(),
+            ended_ms: None,
+            outcome: None,
+            rev: 0,
+        });
         drop(journal);
         self.update(|s| {
             s.runs.push(run);
@@ -301,6 +339,75 @@ mod tests {
 
     fn event(run_id: &str, event: RunEvent) -> DaemonToServer {
         DaemonToServer::RunEvent { run_id: run_id.into(), event }
+    }
+
+    fn text(delta: &str) -> RunEvent {
+        RunEvent::Text { delta: delta.into(), agent_id: None }
+    }
+
+    fn step(step: &str) -> RunEvent {
+        RunEvent::Status { status: RunStatus::Running, step: step.into() }
+    }
+
+    fn texts(p: &ProcessPatch) -> Vec<(u64, String)> {
+        p.events
+            .iter()
+            .map(|e| match &e.event {
+                RunEvent::Text { delta, .. } => (e.id, delta.clone()),
+                RunEvent::Status { step, .. } => (e.id, step.clone()),
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn serves_a_process_from_the_last_event_a_reader_has() {
+        let m = Monitor::default();
+        m.inbound(&start("r1", "g1"));
+        m.outbound(&event("r1", text("a")));
+        let full = m.process_since("r1", None, None).unwrap();
+        let a = full.events[0].id;
+        assert_eq!(texts(&full), [(a, "a".into())]);
+        assert_eq!(full.first_id, Some(a));
+
+        let same = m.process_since("r1", Some(a), Some(full.rev)).unwrap();
+        assert_eq!((same.rev, same.events.len()), (full.rev, 0), "nothing changed, nothing is sent");
+
+        m.outbound(&event("r1", text("b")));
+        let grown = m.process_since("r1", Some(a), Some(full.rev)).unwrap();
+        assert!(grown.rev > full.rev, "a merged delta changes the process without a new event");
+        assert_eq!(texts(&grown), [(a, "ab".into())], "the reader's last event is sent again as it grew");
+
+        m.outbound(&event("r1", step("Read")));
+        m.outbound(&event("r1", text("c")));
+        let tail = m.process_since("r1", Some(a), Some(grown.rev)).unwrap();
+        let ids: Vec<_> = tail.events.iter().map(|e| e.id).collect();
+        assert_eq!(texts(&tail), [(a, "ab".into()), (ids[1], "Read".into()), (ids[2], "c".into())]);
+        assert!(ids.is_sorted() && ids[1] > a);
+        assert_eq!(tail.run.step, "Read");
+        assert_eq!(texts(&m.process_since("r1", Some(ids[2]), Some(grown.rev)).unwrap()), [(ids[2], "c".into())]);
+
+        m.outbound(&failed("r1", "x".into()));
+        let ended = m.process_since("r1", Some(ids[2]), Some(tail.rev)).unwrap();
+        assert!(ended.rev > tail.rev && ended.ended_ms.is_some());
+        assert_eq!(ended.outcome, Some(RunOutcome::Failed));
+        assert!(m.process_since("r9", None, None).is_none());
+    }
+
+    #[test]
+    fn a_reader_behind_evicted_events_gets_what_is_kept() {
+        let m = Monitor::default();
+        m.inbound(&start("r1", "g1"));
+        m.outbound(&event("r1", step("0")));
+        let old = m.process_since("r1", None, None).unwrap();
+        for i in 1..=MAX_EVENTS {
+            m.outbound(&event("r1", step(&i.to_string())));
+        }
+        let p = m.process_since("r1", Some(old.events[0].id), Some(old.rev)).unwrap();
+        assert_eq!(p.events.len(), MAX_EVENTS);
+        assert_eq!(p.first_id, Some(p.events[0].id));
+        assert!(p.events[0].id > old.events[0].id, "the oldest moved on");
+        assert!(matches!(&p.events[0].event, RunEvent::Status { step, .. } if step == "1"));
     }
 
     #[test]
@@ -358,7 +465,7 @@ mod tests {
         };
         m.outbound(&event("r1", task.clone()));
 
-        let p = m.process("r1").unwrap();
+        let p = m.process_since("r1", None, None).unwrap();
         assert_eq!(p.outcome, Some(RunOutcome::Failed));
         assert!(p.ended_ms.is_some());
         let events: Vec<_> = p.events.iter().map(|e| e.event.clone()).collect();
@@ -371,15 +478,15 @@ mod tests {
                 task
             ]
         );
-        assert!(m.process("r9").is_none());
+        assert!(m.process_since("r9", None, None).is_none());
 
         for i in 0..KEEP_ENDED {
             let id = format!("x{i}");
             m.inbound(&start(&id, "g9"));
             m.outbound(&failed(&id, "x".into()));
         }
-        assert!(m.process("r1").is_none(), "only the last {KEEP_ENDED} finished runs are kept");
-        assert!(m.process("x0").is_some());
+        assert!(m.process_since("r1", None, None).is_none(), "only the last {KEEP_ENDED} finished runs are kept");
+        assert!(m.process_since("x0", None, None).is_some());
     }
 
     #[test]
@@ -424,7 +531,7 @@ mod tests {
             m.outbound(&event("r1", RunEvent::Text { delta: piece.clone(), agent_id: None }));
         }
         let deltas: Vec<_> = m
-            .process("r1")
+            .process_since("r1", None, None)
             .unwrap()
             .events
             .iter()
@@ -439,7 +546,7 @@ mod tests {
         for i in 0..MAX_EVENTS + 1 {
             m.outbound(&event("r1", RunEvent::Status { status: RunStatus::Running, step: i.to_string() }));
         }
-        let events = m.process("r1").unwrap().events;
+        let events = m.process_since("r1", None, None).unwrap().events;
         assert_eq!(events.len(), MAX_EVENTS);
         assert!(matches!(&events[0].event, RunEvent::Status { step, .. } if step == "1"), "the oldest go first");
     }

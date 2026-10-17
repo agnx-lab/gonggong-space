@@ -4,7 +4,7 @@ import { processSteps } from '@web/features/runs/steps'
 import { Badge, Button, EmptyState, GroupBox, Icon, Spinner } from '@web/ui'
 import { useEffect, useMemo, useState } from 'react'
 import { t } from '../i18n'
-import { ipc, type RunProcess } from '../ipc'
+import { ipc, type ProcessPatch, type RunProcess } from '../ipc'
 import { runBadge } from '../lib/labels'
 import { Section } from '../lib/ui'
 import { useHeading } from '../store'
@@ -19,24 +19,36 @@ const OUTCOME = {
   failed: { text: t('失败'), variant: 'destructive' },
 } as const
 
+/** Applies a `runProcess` poll to the process shown so far: the same object back when nothing changed. */
+export function mergeProcess(
+  shown: RunProcess | null | undefined,
+  patch: ProcessPatch | null,
+): RunProcess | null {
+  if (!patch) return null
+  if (shown?.rev === patch.rev) return shown
+  const { firstId, events, ...rest } = patch
+  if (!shown) return { ...rest, events }
+  // The patch starts at the last event shown, which may have grown; the daemon evicted those before `firstId`.
+  const from = events[0]?.id ?? Number.POSITIVE_INFINITY
+  const kept = firstId === null ? [] : shown.events.filter((e) => e.id >= firstId && e.id < from)
+  return { ...rest, events: [...kept, ...events] }
+}
+
 /** 概览 → one run: its process as this machine executed it, rendered like the web run rail. */
 export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
   const [process, setProcess] = useState<RunProcess | null | undefined>(undefined)
   useEffect(() => {
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
-    // An unchanged poll keeps the old object, so the process is not rebuilt every second.
-    let last = ''
+    // Each poll asks only for what changed since the process shown, so it is not rebuilt every second.
+    let shown: RunProcess | null | undefined
     const load = () =>
-      ipc.runProcess(runId).then(
-        (p) => {
+      ipc.runProcess(runId, shown?.events.at(-1)?.id ?? null, shown?.rev ?? null).then(
+        (patch) => {
           if (!alive) return
-          const json = JSON.stringify(p)
-          if (json !== last) {
-            last = json
-            setProcess(p)
-          }
-          timer = setTimeout(load, p && p.endedMs === null ? POLL_MS : ENDED_POLL_MS)
+          shown = mergeProcess(shown, patch)
+          setProcess(shown)
+          timer = setTimeout(load, shown && shown.endedMs === null ? POLL_MS : ENDED_POLL_MS)
         },
         () => {
           if (alive) timer = setTimeout(load, POLL_MS)

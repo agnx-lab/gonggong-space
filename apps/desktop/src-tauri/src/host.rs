@@ -79,9 +79,14 @@ impl Host {
         Ok(())
     }
 
-    pub fn process(&self, run_id: &str) -> Option<gonggong::status::Process> {
+    pub fn process_since(
+        &self,
+        run_id: &str,
+        after: Option<u64>,
+        rev: Option<u64>,
+    ) -> Option<gonggong::status::ProcessPatch> {
         match &*self.state.lock().unwrap() {
-            State::Running(daemon) => daemon.process(run_id),
+            State::Running(daemon) => daemon.process_since(run_id, after, rev),
             _ => None,
         }
     }

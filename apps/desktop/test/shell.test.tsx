@@ -39,6 +39,8 @@ it('titles a run detail after the run instead of the overview', async () => {
     events: [],
     endedMs: null,
     outcome: null,
+    rev: 0,
+    firstId: null,
   })
   render(<Shell />)
   fireEvent.click(within(screen.getByTestId('running')).getByRole('button', { name: /小王的 Claude/ }))
