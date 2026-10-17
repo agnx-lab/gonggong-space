@@ -25,7 +25,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List agent CLIs and Node.js on this machine; install, upgrade or pick their download mirror.
+    /// List agent CLIs and Node.js on this machine; install, upgrade, pick their download mirror or change their
+    /// settings.
+    #[command(visible_alias = "agent")]
     Agents {
         #[command(subcommand)]
         cmd: Option<gonggong::tools::AgentsCmd>,

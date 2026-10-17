@@ -1,10 +1,9 @@
 //! Read-only import from this machine's CC Switch (`~/.cc-switch`, design §4.5) and its
 //! `ccswitch://v1/import?resource=provider…` links. Only claude and codex providers that talk to their endpoint
 //! directly are taken; CC Switch itself is never written to.
+use crate::agent_settings::{self, Layer};
 use crate::protocol::AgentKind;
-use crate::providers::{
-    API_KEY, AUTH_TOKEN, EXTRA_ENV, ModelMap, Provider, Source, SourceKind, Store, WIRE_RESPONSES, mask_key,
-};
+use crate::providers::{API_KEY, AUTH_TOKEN, ModelMap, Provider, Source, SourceKind, Store, WIRE_RESPONSES, mask_key};
 use crate::t;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -184,7 +183,8 @@ fn text(v: Option<&Value>) -> Option<String> {
     v.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(Into::into)
 }
 
-/// From Claude Code `settings.json`-style env: only the connection keys and [`EXTRA_ENV`].
+/// From Claude Code `settings.json`-style env: only the connection keys and the provider-layer setting fields
+/// holding a valid value.
 fn claude(name: &str, env: &Map<String, Value>, key_field: Option<&str>) -> Option<Provider> {
     let get = |k: &str| text(env.get(k));
     let base_url = get("ANTHROPIC_BASE_URL")?;
@@ -201,7 +201,10 @@ fn claude(name: &str, env: &Map<String, Value>, key_field: Option<&str>) -> Opti
         api_key_field: Some(field.into()),
         model: get("ANTHROPIC_MODEL"),
         models: (models != ModelMap::default()).then_some(models),
-        env: EXTRA_ENV.iter().filter_map(|k| Some((k.to_string(), get(k)?))).collect(),
+        env: agent_settings::fields(AgentKind::Claude, Some(Layer::Provider))
+            .filter_map(|f| Some((f.key.to_string(), get(f.key)?)))
+            .filter(|(k, v)| agent_settings::validate_env(AgentKind::Claude, &[(k.clone(), v.clone())].into()).is_ok())
+            .collect(),
         ..Provider::custom(AgentKind::Claude, name.into(), base_url, get(field)?)
     })
 }

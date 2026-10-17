@@ -1,5 +1,6 @@
 //! `gg provider …` (design §4.7): this machine's providers from the terminal. Reads and writes
 //! `<home>/providers.json` directly; nothing goes through the server except looking up bot and group names.
+use crate::agent_settings::{self, Layer};
 use crate::bots::agent_label;
 use crate::ccswitch;
 use crate::config::{self, Config};
@@ -217,6 +218,50 @@ pub async fn run(home: &Path, cmd: ProviderCmd) -> Result<()> {
     Ok(())
 }
 
+/// `gg agents settings`: applies the changes (all or none), then prints every field with its value and the CLI's own.
+pub fn agent_settings(
+    home: &Path,
+    user_home: &Path,
+    agent: AgentKind,
+    set: Vec<String>,
+    unset: Vec<String>,
+    inherit_cli: Option<bool>,
+) -> Result<()> {
+    let settings = Store::update(home, |s| {
+        let mut settings = s.agent_settings(agent);
+        for pair in &set {
+            let (id, value) = pair.split_once('=').with_context(|| t!("--set 应为 字段=值：{pair}", pair = pair))?;
+            settings.values.insert(id.trim().into(), value.trim().into());
+        }
+        for id in &unset {
+            settings.values.remove(id.trim());
+        }
+        settings.inherit_cli = inherit_cli.unwrap_or(settings.inherit_cli);
+        s.set_agent_settings(agent, settings.clone())?;
+        Ok(settings)
+    })?;
+    let cli = agent_settings::read_cli(user_home, agent_settings::claude_version(home))
+        .filter(|_| agent == AgentKind::Claude);
+    println!("{}", t!("{agent} · 本机 Agent 设置", agent = agent_label(agent)));
+    for f in agent_settings::fields(agent, Some(Layer::Agent)) {
+        let value = settings.values.get(f.id).map_or("-", String::as_str);
+        let from_cli = cli.as_ref().and_then(|c| c.values.get(f.id)).filter(|_| settings.inherit_cli);
+        match from_cli {
+            Some(v) => println!("  {}\t{}\t{value}\t{}", f.id, f.key, t!("CLI 配置：{v}", v = v)),
+            None => println!("  {}\t{}\t{value}", f.id, f.key),
+        }
+    }
+    let inherit = if settings.inherit_cli { t!("是") } else { t!("否") };
+    println!("{}", t!("加载 CLI 自身配置（~/.claude）：{inherit}", inherit = inherit));
+    if let Some(c) = cli.filter(|c| settings.inherit_cli && !c.conflicts.is_empty()) {
+        println!("{}", t!("CLI 配置里这些变量会覆盖共工的设置：{names}", names = c.conflicts.join(", ")));
+    }
+    if !set.is_empty() || !unset.is_empty() || inherit_cli.is_some() {
+        println!("{}", t!("已保存；进行中的会话下一轮生效"));
+    }
+    Ok(())
+}
+
 fn read_key(key_stdin: bool) -> Result<Option<String>> {
     if !key_stdin {
         return Ok(None);
@@ -306,4 +351,26 @@ async fn print_stale(home: &Path, agent: AgentKind) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_settings_change_all_or_nothing() {
+        let home = tempfile::tempdir().unwrap();
+        let run = |set: &[&str], unset: &[&str], inherit: Option<bool>| {
+            let list = |l: &[&str]| l.iter().map(|s| s.to_string()).collect();
+            agent_settings(home.path(), home.path(), AgentKind::Claude, list(set), list(unset), inherit)
+        };
+        run(&["language=chinese", "bashTimeout=300000"], &[], Some(false)).unwrap();
+        let stored = Store::load(home.path()).unwrap().agent_settings(AgentKind::Claude);
+        assert_eq!((stored.values.len(), stored.inherit_cli), (2, false));
+        assert!(run(&["language=english", "thinking=maybe"], &[], None).is_err());
+        assert!(run(&["language"], &[], None).is_err());
+        assert_eq!(Store::load(home.path()).unwrap().agent_settings(AgentKind::Claude), stored, "unchanged");
+        run(&[], &["language", "bashTimeout"], Some(true)).unwrap();
+        assert!(Store::load(home.path()).unwrap().agent_settings.is_empty());
+    }
 }

@@ -32,6 +32,12 @@ fn every_shared_fixture_round_trips() {
             ["http", "sync-changes"] => round_trip::<SyncChangesRes>(&raw, &name),
             ["http", "sync-missing"] => round_trip::<SyncMissingRes>(&raw, &name),
             ["http", "daemon-skill"] => round_trip::<DaemonSkillRes>(&raw, &name),
+            ["data", "agent-setting-fields"] => {
+                // The daemon's field table is its only source: it must match the contract's exactly.
+                assert_eq!(serde_json::to_value(gonggong::agent_settings::FIELDS).unwrap(), raw, "{name}");
+                n += 1;
+                continue;
+            }
             ["http", "daemon-bots"] => {
                 // `Bot` keeps the subset the CLI and desktop app use: every field it keeps must survive.
                 let back = round_trip::<Vec<Bot>>(&raw, &name);

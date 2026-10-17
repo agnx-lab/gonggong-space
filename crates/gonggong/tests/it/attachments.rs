@@ -59,6 +59,7 @@ fn rig(server: &str) -> Rig {
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
     let engine = Engine::new(EngineConfig {
         home: home.path().to_path_buf(),
+        user_home: home.path().to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle: Duration::from_secs(60),
         api: Some(Config {
@@ -106,6 +107,7 @@ fn start(run_id: &str, cwd: &Path, attachments: Vec<Attachment>, context: Vec<At
             allowlist: vec![],
             always_allow: vec![],
             git: None,
+            agent_settings: Default::default(),
         },
         workspace: WorkspaceSpec {
             repo: None,

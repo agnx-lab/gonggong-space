@@ -2,13 +2,16 @@
 // Regenerates crates/gonggong/presets/providers.json from a CC Switch checkout (MIT, see THIRD_PARTY_NOTICES.md).
 // Usage: node scripts/sync-provider-presets.mjs <path-to-cc-switch>
 import { execFileSync } from 'node:child_process'
-import { readdirSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const out = join(root, 'crates/gonggong/presets/providers.json')
+// Hand-kept: model id → context window (tokens), only values confirmed by the vendor's docs or its own preset env
+// (kimi-for-coding: CC Switch's Kimi For Coding sets CLAUDE_CODE_MAX_CONTEXT_TOKENS=262144).
+const MODEL_CONTEXT = JSON.parse(readFileSync(join(root, 'scripts/provider-model-context.json'), 'utf8'))
 
 // Keyed by the CC Switch preset name: [stable id, display name, group]. Order = display order.
 const WHITELIST = {
@@ -268,6 +271,10 @@ function claudePreset(p, [id, name, group], known) {
     opus: env.ANTHROPIC_DEFAULT_OPUS_MODEL,
   }
   const extra = Object.fromEntries(EXTRA_ENV.filter((k) => env[k]).map((k) => [k, env[k]]))
+  const modelOptions = unique([env.ANTHROPIC_MODEL, models.sonnet, models.opus, models.haiku, ...known])
+  const modelContext = Object.fromEntries(
+    modelOptions.filter((m) => MODEL_CONTEXT[m]).map((m) => [m, MODEL_CONTEXT[m]]),
+  )
   return {
     id,
     agent: 'claude',
@@ -279,8 +286,9 @@ function claudePreset(p, [id, name, group], known) {
     apiKeyField: p.apiKeyField ?? 'ANTHROPIC_AUTH_TOKEN',
     model: env.ANTHROPIC_MODEL,
     models: Object.values(models).some(Boolean) ? models : undefined,
-    modelOptions: unique([env.ANTHROPIC_MODEL, models.sonnet, models.opus, models.haiku, ...known]),
+    modelOptions,
     env: Object.keys(extra).length ? extra : undefined,
+    modelContext: Object.keys(modelContext).length ? modelContext : undefined,
   }
 }
 

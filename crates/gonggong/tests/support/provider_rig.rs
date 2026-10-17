@@ -16,6 +16,7 @@ pub struct Rig {
     rx: OutboxRx,
     home: tempfile::TempDir,
     pub configs: Vec<(String, Option<String>)>,
+    pub settings: Vec<(String, Option<RunSettingsSnapshot>)>,
 }
 
 pub fn rig(idle: Duration) -> Rig {
@@ -23,12 +24,13 @@ pub fn rig(idle: Duration) -> Rig {
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
     let engine = Engine::new(EngineConfig {
         home: home.path().to_path_buf(),
+        user_home: home.path().to_path_buf(),
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle,
         api: None,
     });
     let (out, rx) = Outbox::channel();
-    Rig { engine, out, rx, home, configs: vec![] }
+    Rig { engine, out, rx, home, configs: vec![], settings: vec![] }
 }
 
 pub fn start(run_id: &str, kind: AgentKind) -> RunStart {
@@ -48,6 +50,7 @@ pub fn start(run_id: &str, kind: AgentKind) -> RunStart {
             allowlist: vec![],
             always_allow: vec![],
             git: None,
+            agent_settings: Default::default(),
         },
         workspace: WorkspaceSpec { repo: None, cd_path: None, protect_base: false, extra_dirs: vec![] },
         resume_session_id: None,
@@ -91,7 +94,10 @@ impl Rig {
                 .expect("engine went quiet")
                 .unwrap();
             match msg {
-                DaemonToServer::SessionConfig { run_id, model, .. } => self.configs.push((run_id, model)),
+                DaemonToServer::SessionConfig { run_id, model, settings, .. } => {
+                    self.configs.push((run_id.clone(), model));
+                    self.settings.push((run_id, settings));
+                }
                 DaemonToServer::RunDone(d) if d.run_id == run_id => return d,
                 _ => {}
             }
