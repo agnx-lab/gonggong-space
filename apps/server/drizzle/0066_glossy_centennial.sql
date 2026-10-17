@@ -1,0 +1,2 @@
+CREATE INDEX "messages_user_mentions" ON "messages" USING btree ("group_id","seq") WHERE ("messages"."meta"->'userMentions') is not null;--> statement-breakpoint
+CREATE INDEX "notifications_unread" ON "notifications" USING btree ("user_id","team_id") WHERE "notifications"."read_at" is null;

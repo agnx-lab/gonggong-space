@@ -467,6 +467,8 @@ export const messages = pgTable(
   },
   (t) => [
     index('messages_group_seq').on(t.groupId, t.seq),
+    // Unread @ of the viewer in the conversation list (groups/service.ts `mentioned`).
+    index('messages_user_mentions').on(t.groupId, t.seq).where(sql`(${t.meta}->'userMentions') is not null`),
     index('messages_run').on(t.runId).where(sql`${t.runId} is not null`),
     // 会话统计 windows.
     index('messages_created').on(t.createdAt),
@@ -1086,6 +1088,7 @@ export const notifications = pgTable(
   },
   (t) => [
     index('notifications_user').on(t.userId, t.createdAt),
+    index('notifications_unread').on(t.userId, t.teamId).where(sql`${t.readAt} is null`),
     // resolveNotifications binds the payload key as a parameter, so an expression index on it would never match.
     index('notifications_unresolved').on(t.type).where(sql`${t.resolvedAt} is null`),
   ],

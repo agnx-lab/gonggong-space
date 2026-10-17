@@ -1,8 +1,20 @@
 import { randomUUID } from 'node:crypto'
-import { TERMINAL_RUN_STATUS } from '@gonggong/protocol'
-import { and, asc, desc, eq, inArray, isNotNull, ne, type SQLWrapper, sql } from 'drizzle-orm'
+import { RunStatus, TERMINAL_RUN_STATUS } from '@gonggong/protocol'
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, type SQLWrapper, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { groupBots, messages, runs, syncReplicas } from '../src/db/schema.js'
+import {
+  groupBots,
+  groupMembers,
+  groups,
+  messages,
+  notifications,
+  runs,
+  syncReplicas,
+  teams,
+  users,
+} from '../src/db/schema.js'
+import { mentioned, unread } from '../src/modules/groups/service.js'
+import { knownNotification } from '../src/modules/notifications/notify.js'
 import { createTestDb } from './support/db.js'
 
 let t: Awaited<ReturnType<typeof createTestDb>>
@@ -11,13 +23,15 @@ beforeAll(async () => {
 })
 afterAll(() => t.close())
 
-/** Indexes the planner scans for `query` once sequential scans are priced out, as they are on large tables. */
-const indexesFor = (query: SQLWrapper) =>
+const planOf = (query: SQLWrapper, { seqscan = false } = {}) =>
   t.db.transaction(async (tx) => {
-    await tx.execute(sql`set local enable_seqscan = off`)
-    const plan = JSON.stringify(await tx.execute(sql`explain (format json) ${query.getSQL()}`))
-    return [...plan.matchAll(/"Index Name":"([^"]+)"/g)].map((m) => m[1])
+    if (!seqscan) await tx.execute(sql`set local enable_seqscan = off`)
+    return JSON.stringify(await tx.execute(sql`explain (format json) ${query.getSQL()}`))
   })
+
+/** Indexes the planner scans for `query` once sequential scans are priced out, as they are on large tables. */
+const indexesFor = async (query: SQLWrapper) =>
+  [...(await planOf(query)).matchAll(/"Index Name":"([^"]+)"/g)].map((m) => m[1])
 
 it('requeueing appends finds them by the run they were appended to, not through the group history', async () => {
   const query = t.db
@@ -75,4 +89,89 @@ it('a bot’s group memberships and sync replicas are found by bot', async () =>
   expect(await indexesFor(t.db.select().from(syncReplicas).where(eq(syncReplicas.botId, bot)))).toContain(
     'sync_replicas_bot',
   )
+})
+
+const conversationList = (userId: string) =>
+  t.db
+    .select({ unread, mentioned })
+    .from(groups)
+    .innerJoin(groupMembers, and(eq(groupMembers.groupId, groups.id), eq(groupMembers.userId, userId)))
+
+it('the conversation list counts unread and finds @ of each group through its messages index', async () => {
+  const indexes = await indexesFor(conversationList(randomUUID()))
+  expect(indexes).toContain('messages_group_seq')
+  expect(indexes).toContain('messages_user_mentions')
+})
+
+// Forcing index scans can't show the planner preferring a sequential scan it hopes to stop early: real statistics can.
+it('the conversation list never scans all messages, however long a group has been left unread', async () => {
+  const id = (kind: number, n: string) =>
+    `('00000000-0000-4000-800${kind}-' || lpad((${n})::text, 12, '0'))::uuid`
+  await t.db.execute(
+    sql.raw(`
+    insert into users (id, account, name) select ${id(0, 'n')}, 'u' || n, 'u' || n from generate_series(1, 10) n;
+    insert into teams (id, name, created_by) values (${id(1, '1')}, 't', ${id(0, '1')});
+    insert into groups (id, team_id, name, kind, created_by)
+      select ${id(2, 'n')}, ${id(1, '1')}, 'g' || n, 'group', ${id(0, '1')} from generate_series(1, 2) n;
+    insert into group_members (group_id, user_id) select g.id, u.id from groups g cross join users u;
+    insert into messages (group_id, kind, author_user_id, meta)
+      select ${id(2, '1 + i % 2')}, 'user', ${id(0, '1 + i % 10')},
+        case when i % 500 = 0 then jsonb_build_object('userMentions', jsonb_build_array(${id(0, '2')})) else '{}' end
+      from generate_series(1, 5000) i;
+    analyze`),
+  )
+  const plan = await planOf(conversationList('00000000-0000-4000-8000-000000000001'), { seqscan: true })
+  const seqScans = [...plan.matchAll(/"Node Type":"Seq Scan"[^{}]*?"Relation Name":"([^"]+)"/g)].map(
+    (m) => m[1],
+  )
+  expect(seqScans).not.toContain('messages')
+})
+
+it('a bot’s activity reads its last run per group and its live runs by status', async () => {
+  const bot = randomUUID()
+  const lastRuns = t.db
+    .select({
+      lastRunAt: sql`(select max(r.started_at) from runs r where r.group_id = ${groupBots.groupId}
+        and r.bot_id = ${groupBots.botId})`,
+    })
+    .from(groupBots)
+    .innerJoin(groups, eq(groups.id, groupBots.groupId))
+    .where(eq(groupBots.botId, bot))
+  expect(await indexesFor(lastRuns)).toContain('runs_group_bot_started')
+  const live = t.db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.botId, bot),
+        inArray(
+          runs.status,
+          RunStatus.options.filter((s) => !TERMINAL_RUN_STATUS.includes(s)),
+        ),
+      ),
+    )
+  expect(await planOf(live)).toMatch(/"Index Name":"runs_bot_status"[^{}]*"Index Cond":"[^"]*status = ANY/)
+})
+
+// Only statistics show the planner that most of a user's notifications are long read.
+it('a team’s unread notifications are counted from the unread ones alone', async () => {
+  const [user] = await t.db.insert(users).values({ account: 'reader', name: 'reader' }).returning()
+  const [team] = await t.db.insert(teams).values({ name: 't', createdBy: user!.id }).returning()
+  await t.db.execute(sql`insert into notifications (user_id, team_id, type, payload, read_at)
+    select ${user!.id}, ${team!.id}, 'mention', '{}', case when i % 20 = 0 then null else now() end
+    from generate_series(1, 2000) i`)
+  await t.db.execute(sql`analyze notifications`)
+  const query = t.db
+    .select({ teamId: notifications.teamId, n: count() })
+    .from(notifications)
+    .where(
+      and(
+        eq(notifications.userId, user!.id),
+        isNull(notifications.readAt),
+        isNotNull(notifications.teamId),
+        knownNotification,
+      ),
+    )
+    .groupBy(notifications.teamId)
+  expect(await indexesFor(query)).toContain('notifications_unread')
 })

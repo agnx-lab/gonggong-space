@@ -12,11 +12,12 @@ import {
   GroupBotTierReq,
   INHERIT_PROVIDER,
   modelName,
+  RunStatus,
   TERMINAL_RUN_STATUS,
   type Tier,
   UpdateBotReq,
 } from '@gonggong/protocol'
-import { and, asc, desc, eq, inArray, isNull, max, ne, notInArray } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import type { Ctx } from '../../context.js'
 import { requireMachine } from '../../daemon/auth.js'
@@ -61,6 +62,9 @@ import { applyTier, assertTierAllowed, TIER_LABEL } from './tier.js'
 
 type BotRow = typeof bots.$inferSelect
 type IdParams = { Params: { id: string } }
+
+// Listed rather than NOT IN the terminal ones, so runs_bot_status narrows by status too.
+const UNENDED = RunStatus.options.filter((s) => !TERMINAL_RUN_STATUS.includes(s))
 
 export async function loadBot(ctx: Ctx, rawId: string) {
   const id = idParam(rawId, 'Bot 不存在')
@@ -182,13 +186,15 @@ export function botRoutes(ctx: Ctx) {
           groupName: groups.name,
           groupKind: groups.kind,
           workspacePath: groupBots.workspacePath,
-          lastRunAt: max(runs.startedAt),
+          // Per group, so runs_group_bot_started reads one row instead of every run of the bot.
+          lastRunAt: sql`(select max(r.started_at) from runs r
+            where r.group_id = ${groupBots.groupId} and r.bot_id = ${groupBots.botId})`.mapWith(
+            runs.startedAt,
+          ),
         })
         .from(groupBots)
         .innerJoin(groups, eq(groups.id, groupBots.groupId))
-        .leftJoin(runs, and(eq(runs.groupId, groupBots.groupId), eq(runs.botId, bot.id)))
         .where(and(eq(groupBots.botId, bot.id), isNull(groupBots.removedAt), isNull(groups.archivedAt)))
-        .groupBy(groups.id, groupBots.workspacePath)
       const live = await ctx.db
         .select({
           id: runs.id,
@@ -199,7 +205,7 @@ export function botRoutes(ctx: Ctx) {
           startedAt: runs.startedAt,
         })
         .from(runs)
-        .where(and(eq(runs.botId, bot.id), notInArray(runs.status, [...TERMINAL_RUN_STATUS])))
+        .where(and(eq(runs.botId, bot.id), inArray(runs.status, UNENDED)))
         .orderBy(desc(runs.queuedAt))
       const dtos = places.map((p): BotPlaceDto => {
         const run = live.find((r) => r.groupId === p.groupId)

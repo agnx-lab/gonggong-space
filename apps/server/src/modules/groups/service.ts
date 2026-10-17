@@ -116,16 +116,18 @@ const latest = (col: string) =>
 const lastSeq = sql<number | null>`${latest('seq')}`
 const lastId = sql<string | null>`${latest('id')}`
 // System events and the viewer's own messages never count as unread. Counting stops at 100 (shown as 99+),
-// so a long-unread group costs no more than a busy one.
-const unread =
+// so a long-unread group costs no more than a busy one. A bare LIMIT (or EXISTS) tempts the planner into a
+// sequential scan it hopes to stop early, reading every group's messages per row; ordering by the index rules that out.
+export const unread =
   sql<number>`${sql.raw(`(select count(*) from (select 1 from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
-  and m.kind <> 'event' and m.author_user_id is distinct from "group_members"."user_id" limit 100) u)`)}`.mapWith(
-    Number,
-  )
+  and m.kind <> 'event' and m.author_user_id is distinct from "group_members"."user_id"
+  order by m.group_id, m.seq limit 100) u)`)}`.mapWith(Number)
 
-const mentioned = sql<boolean>`${sql.raw(`exists(select 1 from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
+// Not EXISTS: the planner drops ORDER BY inside it. Served by the messages_user_mentions partial index.
+export const mentioned = sql<boolean>`${sql.raw(`coalesce((select true from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
   and m.meta->'userMentions' @> jsonb_build_array("group_members"."user_id")
-  and m.author_user_id is distinct from "group_members"."user_id" and m.recalled_at is null)`)}`
+  and m.author_user_id is distinct from "group_members"."user_id" and m.recalled_at is null
+  order by m.group_id, m.seq limit 1), false)`)}`
 
 /** `userId`'s unread messages per team, over the live groups they are in. */
 export async function unreadByTeam(ctx: Ctx, userId: string) {
