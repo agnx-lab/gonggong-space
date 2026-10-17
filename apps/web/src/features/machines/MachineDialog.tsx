@@ -80,7 +80,10 @@ export function MachineDetails({
   const [name, setName] = useState(machine.name === machine.hostname ? '' : machine.name)
   const [saving, setSaving] = useState(false)
   const [params] = useSearchParams()
-  const [tab, setTab] = useState<Tab>(params.get('tab') === 'providers' ? 'providers' : 'overview')
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = params.get('tab')
+    return t === 'providers' || t === 'agent' ? t : 'overview'
+  })
   const owner = useSession((st) => st.user?.id === machine.ownerId)
   const formId = useId()
   const save = async () => {

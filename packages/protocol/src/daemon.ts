@@ -752,7 +752,7 @@ export const ProviderView = z.object({
   apiKeyField: z.string().nullable(),
   model: z.string().nullable(),
   models: ModelMap.nullable(),
-  /** Values of SECRET_ENV_NAME variables masked like the API key. */
+  /** Values of `isSecretEnv` variables masked like the API key. */
   env: z.record(z.string(), z.string()),
   /** Password masked; null = direct. */
   proxy: z.string().nullable(),

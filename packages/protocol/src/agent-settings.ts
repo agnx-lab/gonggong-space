@@ -182,8 +182,13 @@ export const CLAUDE_CONFLICT_ENV = [
   'MAX_THINKING_TOKENS',
 ] as const
 
-/** Env names whose values leave the machine masked (like the API key); a masked value sent back = unchanged. */
-export const SECRET_ENV_NAME = /KEY|TOKEN|SECRET|PASSWORD/i
+/**
+ * Env names whose values leave the machine masked (like the API key); a masked value sent back = unchanged. Known
+ * env fields (`*_MAX_*_TOKENS`) are sizes, not secrets.
+ */
+export const isSecretEnv = (name: string): boolean =>
+  /KEY|TOKEN|SECRET|PASSWORD/i.test(name) &&
+  !AGENT_SETTING_FIELDS.some((f) => f.target === 'env' && f.key === name)
 
 /** Field id → raw value as the field's type describes; absent = Claude Code's default. */
 export const AgentSettingValues = z.record(z.string(), z.string())
