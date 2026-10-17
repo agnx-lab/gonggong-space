@@ -193,7 +193,7 @@ CLI 用法：`gg provider presets [claude|codex]` 列出预设；`gg provider ad
 | 层 | 存放 | 内容 |
 |---|---|---|
 | 供应商层 | 供应商 / 官方登录的 `env`（存储不变） | 上下文窗口、自动压缩窗口、输出上限、关闭思考参数、关闭实验性 beta、工具搜索、API 超时 |
-| Agent 层·本机默认 | daemon `providers.json` 的 `agentSettings[agent]` | 语言、扩展思考、提交署名、内置 git 指令、自动记忆、自动压缩、Bash 超时、MCP 空闲超时、非必要流量；「继承本机 CLI 配置」开关（默认开） |
+| Agent 层·本机默认 | daemon `providers.json` 的 `agentSettings[agent]` | 语言、扩展思考、提交署名、内置 git 指令、自动记忆、自动压缩、Bash 超时、非必要流量（MCP 空闲超时不开放：会提前中断 ask 等待）；「继承本机 CLI 配置」开关（默认开） |
 | Agent 层·Bot 覆盖 | 服务端 `bots.agent_settings`，随 `RunStart.bot.agentSettings` 下发 | 仅 `botOverride` 字段：语言、扩展思考、提交署名 |
 
 - **合成**：本机默认 → Bot 覆盖 → 供应商 env → 连接信息，写入现有 flag settings 文件（顶层键 + `env`）。`permissions`、`model`、MCP、plugins、`apiKeyHelper` 由共工管理，永不写。

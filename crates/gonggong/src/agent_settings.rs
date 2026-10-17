@@ -106,7 +106,6 @@ pub const FIELDS: &[Field] = &[
     field("autoCompact", Agent, Settings, "autoCompactEnabled", Bool),
     field("bashTimeout", Agent, Env, "BASH_DEFAULT_TIMEOUT_MS", Ms),
     field("bashMaxTimeout", Agent, Env, "BASH_MAX_TIMEOUT_MS", Ms),
-    field("mcpIdleTimeout", Agent, Env, "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", Ms),
     field("nonessentialTraffic", Agent, Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", Flag),
 ];
 

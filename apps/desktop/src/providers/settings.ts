@@ -17,7 +17,6 @@ export const FIELD_LABEL: Record<AgentSettingId, string> = {
   autoCompact: t('自动压缩'),
   bashTimeout: t('Bash 超时'),
   bashMaxTimeout: t('Bash 最长超时'),
-  mcpIdleTimeout: t('MCP 空闲超时'),
   nonessentialTraffic: t('关闭非必要流量'),
 }
 

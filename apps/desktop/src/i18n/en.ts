@@ -368,7 +368,6 @@ export const en = {
   自动记忆: 'Auto memory',
   'Bash 超时': 'Bash timeout',
   'Bash 最长超时': 'Bash max timeout',
-  'MCP 空闲超时': 'MCP idle timeout',
   关闭非必要流量: 'No nonessential traffic',
   不署名: 'None',
   '{n} 分钟': '{n} min',

@@ -213,7 +213,6 @@ export default {
   自动压缩: 'Auto-compact',
   'Bash 默认超时': 'Bash default timeout',
   'Bash 最长超时': 'Bash max timeout',
-  'MCP 空闲超时': 'MCP idle timeout',
   关闭非必要流量: 'Disable nonessential traffic',
   开: 'On',
   关: 'Off',

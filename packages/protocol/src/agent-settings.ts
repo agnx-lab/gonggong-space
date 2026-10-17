@@ -146,14 +146,6 @@ export const AGENT_SETTING_FIELDS = [
     type: 'ms',
   },
   {
-    id: 'mcpIdleTimeout',
-    agent: 'claude',
-    layer: 'agent',
-    target: 'env',
-    key: 'CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT',
-    type: 'ms',
-  },
-  {
     id: 'nonessentialTraffic',
     agent: 'claude',
     layer: 'agent',
