@@ -171,7 +171,7 @@ describe('timeline rows stay memoized', () => {
       'GET /groups': [group],
       'GET /bots': bots,
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
       'GET /groups/g1/timeline?limit=50': {
         messages: [
           msg({ seq: 1, body: '@小王的 Claude @老李的 Codex 看下', mentions: ['b1', 'b2'] }),

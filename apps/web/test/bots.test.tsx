@@ -107,7 +107,7 @@ beforeEach(() => {
   routes = {
     'GET /api/bots': () => [],
     'GET /api/machines': () => [],
-    'GET /api/notifications': () => [],
+    'GET /api/notifications/unread': () => ({ n: 0 }),
     'GET /api/bots/b1/activity': () => [],
     'GET /api/users': () => [
       { id: 'u1', name: '王磊', account: 'wanglei' },
@@ -167,13 +167,13 @@ describe('workspace store', () => {
   it('loads bots, machines and unread notifications, then follows realtime events', async () => {
     routes['GET /api/bots'] = () => [bot({})]
     routes['GET /api/machines'] = () => [mbp]
-    routes['GET /api/notifications'] = () => [
-      { id: 'n1', type: 'bot_confirm', payload: {}, readAt: null, createdAt: '' },
-      { id: 'n2', type: 'bot_confirm', payload: {}, readAt: '2026-01-01', createdAt: '' },
-    ]
+    routes['GET /api/notifications/unread'] = () => ({ n: 1 })
     await loadWorkspace()
     const s = useWorkspace.getState()
     expect([s.bots.length, s.machines.length, s.notifCount]).toEqual([1, 1, 1])
+    // The badge is counted server-side, not by downloading the list.
+    expect(calls.map((c) => c.key)).not.toContain('GET /api/notifications')
+    expect(calls.map((c) => c.key)).toContain('GET /api/notifications/unread')
     s.applyEvent({ t: 'bot.removed', botId: 'b1' })
     s.applyEvent({
       t: 'notification.new',
@@ -188,6 +188,26 @@ describe('workspace store', () => {
       },
     })
     expect(useWorkspace.getState()).toMatchObject({ bots: [], notifCount: 2 })
+  })
+
+  it('re-counts the open team’s badge when notifications resolve and I am in several teams', async () => {
+    const team = (id: string) =>
+      ({ id, name: id, avatar: null, role: 'member', archivedAt: null, createdAt: '', unread: 0 }) as const
+    useSession.setState({
+      tenancy: {
+        teams: [team('t1'), team('t2')],
+        singleTeamMode: false,
+        canCreateTeam: false,
+        demoMode: false,
+      },
+    })
+    useWorkspace.setState({ notifCount: 3 })
+    routes['GET /api/notifications/unread'] = () => ({ n: 2 })
+    // `unread` of the event counts every team.
+    useWorkspace.getState().applyEvent({ t: 'notification.resolved', notifications: [], unread: 5 })
+    await waitFor(() => expect(useWorkspace.getState().notifCount).toBe(2))
+    expect(calls.map((c) => c.key)).not.toContain('GET /api/notifications')
+    useSession.setState({ tenancy: null })
   })
 })
 
@@ -207,12 +227,10 @@ describe('sidebar 我的 BOT', () => {
       bot({ id: 'b2', name: '小王的 Codex', binding: 'pending_confirm', presence: 'pending_confirm' }),
       bot({ id: 'b3', name: '别人的', ownerId: 'u2' }),
     ]
-    let readAt: string | null = null
-    routes['GET /api/notifications'] = () => [
-      { id: 'n1', type: 'bot_confirm', payload: {}, readAt, createdAt: '' },
-    ]
+    let unread = 1
+    routes['GET /api/notifications/unread'] = () => ({ n: unread })
     routes['POST /api/bots/b2/confirm'] = () => {
-      readAt = '2026-09-23'
+      unread = 0
       return bot({ id: 'b2', name: '小王的 Codex', presence: 'agent_missing' })
     }
     renderAt('/', wang)

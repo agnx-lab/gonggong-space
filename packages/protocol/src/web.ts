@@ -568,6 +568,9 @@ export const NotificationDto = z.object({
   createdAt: z.string(),
 })
 export type NotificationDto = z.infer<typeof NotificationDto>
+/** GET /api/notifications/unread: the badge, over the list's scope; counting stops at 100 (shown as 99+). */
+export const NotificationUnreadDto = z.object({ n: z.number().int() })
+export type NotificationUnreadDto = z.infer<typeof NotificationUnreadDto>
 
 /** Also sent as browser push, only to the people who can act (spec §8.11); others stay in the in-app center. */
 export const PUSHED_NOTIFICATION_TYPES: readonly NotificationDto['type'][] = [

@@ -94,7 +94,7 @@ describe('empty state illustrations', () => {
       'GET /admin/params': {},
       'GET /bots': [],
       'GET /machines': [],
-      'GET /notifications': [],
+      'GET /notifications/unread': { n: 0 },
     })
     for (const [path, title] of [
       ['/admin/groups', '还没有群'],
@@ -113,7 +113,7 @@ describe('empty state illustrations', () => {
   })
 
   it('invite creating the first bot', async () => {
-    mockApi({ 'GET /bots': [], 'GET /machines': [], 'GET /notifications': [], 'GET /users': [] })
+    mockApi({ 'GET /bots': [], 'GET /machines': [], 'GET /notifications/unread': { n: 0 }, 'GET /users': [] })
     renderAt('/admin/bots')
     await screen.findByText('还没有 Bot')
     expect(emptyArt('还没有 Bot')).toBeTruthy()

@@ -104,7 +104,12 @@ const chatGroup = (o: Partial<GroupDto> = {}): GroupDto => ({
   ...o,
 })
 
-const chatRoutes = { 'GET /groups': [], 'GET /bots': [], 'GET /machines': [], 'GET /notifications': [] }
+const chatRoutes = {
+  'GET /groups': [],
+  'GET /bots': [],
+  'GET /machines': [],
+  'GET /notifications/unread': { n: 0 },
+}
 
 const signIn = (tenancy: Omit<Tenancy, 'demoMode'> | null) =>
   useSession.setState({ user: me, tenancy: tenancy && { ...tenancy, demoMode: false }, status: 'ready' })

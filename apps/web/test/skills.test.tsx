@@ -75,7 +75,7 @@ const base = {
   'GET /admin/mcp': [],
   'GET /bots': [],
   'GET /machines': [],
-  'GET /notifications': [],
+  'GET /notifications/unread': { n: 0 },
 }
 
 async function openSkills() {

@@ -6,7 +6,7 @@ import {
   liveRunOf,
   type MachineDto,
   type MessageDto,
-  type NotificationDto,
+  type NotificationUnreadDto,
   type RunDto,
   type WebEvent,
 } from '@gonggong/protocol'
@@ -163,8 +163,7 @@ export async function loadBotStates(groupId: string) {
   }))
 }
 
-const unread = async () =>
-  (await api.get<NotificationDto[]>('/notifications')).filter((n) => !n.readAt).length
+const unread = async () => (await api.get<NotificationUnreadDto>('/notifications/unread')).n
 
 /** Initial snapshot after login; realtime events keep it fresh afterwards. */
 export async function loadWorkspace() {
