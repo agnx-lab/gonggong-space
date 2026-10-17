@@ -65,6 +65,7 @@ export function runRoutes(ctx: Ctx) {
         patchRepos: row.run.patchRepos,
         purged: row.run.purgedAt !== null,
         sessionId: gb?.sessionId ?? null,
+        settings: row.run.settings,
         retentionDays: await runRetentionDays(ctx),
         events: joinStreams(
           events.map((e) => ({

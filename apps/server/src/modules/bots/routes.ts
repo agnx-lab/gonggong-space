@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  type AgentKind,
   type BotOwnerDto,
   type BotPlaceDto,
   BotSharesReq,
@@ -46,7 +47,14 @@ import { currentTeam, requireTeam } from '../teams/service.js'
 import { updateBotState } from '../workspaces/state.js'
 import { normalizeAllowlist } from './allowlist.js'
 import { confirmBot } from './binding.js'
-import { assertCanConfigure, assertPick, choiceCatalog, pickCatalog, providersCmd } from './config.js'
+import {
+  assertBotAgentSettings,
+  assertCanConfigure,
+  assertPick,
+  choiceCatalog,
+  pickCatalog,
+  providersCmd,
+} from './config.js'
 import { botDto, listBotDtos, machineDto, publishBot, publishBotRemoved, publishBots } from './dto.js'
 import { setShares } from './shares.js'
 import { applyTier, assertTierAllowed, TIER_LABEL } from './tier.js'
@@ -303,6 +311,10 @@ export function botRoutes(ctx: Ctx) {
         fail('forbidden', '命令审批只有 Bot 主人能修改')
       if ((body.gitName !== undefined || body.gitEmail !== undefined) && user.id !== bot.ownerId)
         fail('forbidden', 'Git 提交身份只有 Bot 主人能修改')
+      if (body.agentSettings !== undefined) {
+        if (user.id !== bot.ownerId) fail('forbidden', 'Agent 设置只有 Bot 主人能修改')
+        assertBotAgentSettings(bot.agentKind as AgentKind, body.agentSettings)
+      }
       if (body.allowlist) body.allowlist = normalizeAllowlist(body.allowlist)
       if (body.alwaysAllow) body.alwaysAllow = normalizeAllowlist(body.alwaysAllow)
       await assertTierAllowed(ctx, body.tier)

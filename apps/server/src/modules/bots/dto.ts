@@ -113,6 +113,7 @@ export async function listBotDtos(ctx: Ctx, where?: SQL): Promise<BotDto[]> {
       gitName: bot.gitName,
       gitEmail: bot.gitEmail,
       gitDefaultEmail: defaultGitEmail(bot.id),
+      agentSettings: bot.agentSettings,
       sharedWith: shares.filter((s) => s.botId === bot.id).map((s) => s.userId),
     }
   })

@@ -96,6 +96,8 @@ const view = (o: Partial<ProviderStoreView> = {}): ProviderStoreView => ({
   official: {},
   bots: {},
   providers: [],
+  agentSettings: {},
+  cli: {},
   sessions: [],
   ...o,
 })
