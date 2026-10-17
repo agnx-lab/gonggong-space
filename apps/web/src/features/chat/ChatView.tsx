@@ -303,17 +303,16 @@ export function ChatView({
     return { runsByTrigger, replies, byId }
   }, [tl.messages, tl.runs])
 
-  /** Bot names per fan-out message (two or more runs); a stable prop keeps other rows memoized. */
-  const fanOuts = useMemo(() => {
-    const out = new Map<string, string[]>()
-    for (const [id, rs] of runsByTrigger)
-      if (rs.length > 1)
-        out.set(
-          id,
-          rs.map((r) => botsById.get(r.botId)?.name ?? 'Bot'),
-        )
-    return out
-  }, [runsByTrigger, botsById])
+  /**
+   * Bot names per fan-out message (two or more runs). Keyed by content: runs and bots are replaced on every update,
+   * and a new array would re-render the row.
+   */
+  const fanOutsKey = JSON.stringify(
+    [...runsByTrigger]
+      .filter(([, rs]) => rs.length > 1)
+      .map(([id, rs]) => [id, rs.map((r) => botsById.get(r.botId)?.name ?? 'Bot')]),
+  )
+  const fanOuts = useMemo(() => new Map<string, string[]>(JSON.parse(fanOutsKey)), [fanOutsKey])
 
   /** Read-only view (no live runs bar): executing runs whose card is not in the timeline end it as a typing row. */
   const offscreen = useMemo(
@@ -357,17 +356,18 @@ export function ChatView({
     [runList, botsById, me?.id],
   )
 
-  const names = useMemo(
-    () => [...bots.map((b) => b.name), ...group.members.map((m) => m.name)],
-    [bots, group.members],
-  )
+  // Keyed by content: `group` is replaced after every /read and `bots` on every run start/end, and new names would
+  // re-render every message and re-parse every Markdown reply.
+  const namesKey = JSON.stringify([...bots.map((b) => b.name), ...group.members.map((m) => m.name)])
+  const names = useMemo(() => JSON.parse(namesKey) as string[], [namesKey])
+  const mentionNamesKey = JSON.stringify({
+    members: group.members.map((m) => m.name),
+    bots: bots.filter((b) => group.botIds.includes(b.id)).map((b) => b.name),
+    me: me?.name,
+  })
   const mentionNames = useMemo(
-    () => ({
-      members: group.members.map((m) => m.name),
-      bots: bots.filter((b) => group.botIds.includes(b.id)).map((b) => b.name),
-      me: me?.name,
-    }),
-    [bots, group.members, group.botIds, me?.name],
+    () => JSON.parse(mentionNamesKey) as { members: string[]; bots: string[]; me?: string },
+    [mentionNamesKey],
   )
   const userName = (id: string | null) => group.members.find((m) => m.userId === id)?.name ?? '—'
 

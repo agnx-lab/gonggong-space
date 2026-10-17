@@ -489,8 +489,45 @@ describe('copying a selection (mobile partial copy)', () => {
     const copy = within(row).getByRole('button', { name: '复制' })
     fireEvent.pointerDown(copy)
     getSelection()?.removeAllRanges()
-    fireEvent.click(copy)
+    fireEvent.click(copy, { detail: 1 })
     expect(writeText).toHaveBeenCalledWith('第一句要复制。')
+  })
+
+  it('reads the selection afresh when 复制 is pressed from the keyboard, not one left by a closed menu', async () => {
+    renderChat({ messages: [msg({ seq: 1, body: BODY })], runs: [] })
+    const text = await screen.findByText(BODY)
+    const row = text.closest('.pn-msg') as HTMLElement
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    select(text.firstChild as Node, 7, 13)
+    fireEvent.contextMenu(text)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    getSelection()?.removeAllRanges()
+    fireEvent.click(within(row).getByRole('button', { name: '复制' }), { detail: 0 })
+    expect(writeText).toHaveBeenLastCalledWith(BODY)
+  })
+
+  it('drops its selection listener when a touch ends without opening the bar', async () => {
+    renderChat({ messages: [msg({ seq: 1, body: BODY })], runs: [] })
+    const text = await screen.findByText(BODY)
+    const host = await waitFor(() => {
+      const el = text.closest<HTMLElement>('[data-actions]')
+      if (!el) throw new Error('long-press not attached yet')
+      return el
+    })
+    const add = vi.spyOn(document, 'addEventListener')
+    const remove = vi.spyOn(document, 'removeEventListener')
+    const net = () =>
+      add.mock.calls.filter(([t]) => t === 'selectionchange').length -
+      remove.mock.calls.filter(([t]) => t === 'selectionchange').length
+    for (const end of ['pointerUp', 'pointerCancel', 'pointerMove'] as const) {
+      fireEvent.pointerDown(host, { pointerType: 'touch' })
+      fireEvent[end](host, { pointerType: 'touch' })
+    }
+    expect(net()).toBeLessThanOrEqual(0)
+    add.mockRestore()
+    remove.mockRestore()
   })
 
   it('copies the selection from the right-click menu, the whole message without one', async () => {

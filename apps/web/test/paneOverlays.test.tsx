@@ -116,6 +116,20 @@ describe('ContextMenu nativeTouch', () => {
     expect(fireEvent.contextMenu(p)).toBe(false)
     expect(screen.getByRole('menu')).toBeTruthy()
   })
+
+  it('forgets the touch once the keyboard is used: the menu key opens ours, not the platform menu', () => {
+    render(
+      <ContextMenu items={SHARE} nativeTouch>
+        <button type="button">消息</button>
+      </ContextMenu>,
+    )
+    const b = screen.getByRole('button', { name: '消息' })
+    fireEvent.pointerDown(b, { pointerType: 'touch' })
+    fireEvent.keyDown(b, { key: 'F10', shiftKey: true })
+    // The browser follows the key with a contextmenu event of its own.
+    expect(fireEvent.contextMenu(b)).toBe(false)
+    expect(screen.getByRole('menu')).toBeTruthy()
+  })
 })
 
 describe('ContextMenu', () => {

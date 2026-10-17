@@ -54,8 +54,8 @@ export default {
   '{n} 核': '{n} {n:core|cores}',
   'Agent 工具': 'Agent tools',
   '供应商#nav': 'Providers',
-  '机器离线，上线后才能管理 Agent 工具与供应商':
-    'The machine is offline; manage agent tools and providers once it is online',
+  '机器离线，上线后才能管理 Agent 工具、供应商与 Agent 设置':
+    'The machine is offline; manage agent tools, providers and agent settings once it is online',
   '请先升级该机器的 daemon，才能管理{what}': "Upgrade this machine's daemon first to manage {what}",
   与: ' and ',
   '已重命名为 {name}': 'Renamed to {name}',
@@ -67,8 +67,8 @@ export default {
   概览: 'Overview',
   机器离线: 'Machine offline',
   '请先升级该机器的 daemon': "Upgrade this machine's daemon first",
-  '供应商与 Agent 工具只保存在机器上，机器上线后才能查看和修改。':
-    'Providers and agent tools live only on the machine; view and edit them once it is online.',
+  '供应商、Agent 工具与 Agent 设置只保存在机器上，机器上线后才能查看和修改。':
+    'Providers, agent tools and agent settings live only on the machine; view and edit them once it is online.',
   '当前 daemon 版本不支持在 Web 上管理，升级后即可使用。':
     "This daemon version can't be managed from the web; upgrade to use this.",
   在线: 'Online',

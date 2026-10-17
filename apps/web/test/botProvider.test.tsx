@@ -27,7 +27,7 @@ const mbp: MachineDto = {
   online: true,
   agents: [],
   daemonVersion: '0.9.0',
-  features: ['tools', 'providers'],
+  features: ['tools', 'providers', 'agentSettings'],
   lastSeenAt: null,
   hostname: 'wanglei-mbp',
   system: null,
@@ -263,6 +263,22 @@ describe('bot agent settings', () => {
     fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: /跟随本机/ }))
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ agentSettings: {} }))
+  })
+
+  it('caps the language override and warns when the daemon cannot apply overrides', async () => {
+    mockApi({ 'GET /machines/m1/providers': view, 'GET /bots/b1/catalog': { catalog: KIMI } })
+    useWorkspace.setState({ machines: [{ ...mbp, features: ['tools', 'providers'] }] })
+    renderDetail()
+    const language = await screen.findByRole('textbox', { name: '语言' })
+    expect(language.getAttribute('maxlength')).toBe('64')
+    expect(screen.getByText('该机器的 daemon 版本过旧，覆盖不会生效')).toBeTruthy()
+  })
+
+  it('does not warn on a daemon that applies the overrides', async () => {
+    mockApi({ 'GET /machines/m1/providers': view, 'GET /bots/b1/catalog': { catalog: KIMI } })
+    renderDetail()
+    await screen.findByRole('textbox', { name: '语言' })
+    expect(screen.queryByText('该机器的 daemon 版本过旧，覆盖不会生效')).toBeNull()
   })
 
   it("shows the overrides read-only to anyone but the bot's owner", () => {

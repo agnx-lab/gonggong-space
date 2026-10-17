@@ -464,6 +464,21 @@ describe('run tab', () => {
     await waitFor(() => expect(urls('/runs/r1')).toHaveLength(4))
   }, 15_000)
 
+  it('keeps refreshing the process while progress keeps arriving (throttled, not postponed)', async () => {
+    mockApi(() => detail())
+    renderChat()
+    const rail = await openProcess()
+    expect(await within(rail).findByText('本轮上下文')).toBeTruthy()
+    const fetches = () =>
+      vi.mocked(fetch).mock.calls.filter(([u]) => String(u).split('?')[0] === '/api/runs/r1').length
+    const before = fetches()
+    for (let i = 0; i < 5; i++) {
+      push({ t: 'run.progress', runId: 'r1', groupId: 'g1', botId: 'b1' })
+      await act(() => new Promise((r) => setTimeout(r, 150)))
+    }
+    expect(fetches()).toBeGreaterThan(before)
+  })
+
   it('titles the tab by bot and round, with the run state as its mark', async () => {
     let current = detail()
     mockApi(() => current, {

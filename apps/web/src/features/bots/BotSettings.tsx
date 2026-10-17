@@ -352,6 +352,7 @@ export function BotDetail({
         agent={bot.agentKind}
         value={overrides}
         machine={view && !reason ? (view.agentSettings[bot.agentKind]?.values ?? {}) : undefined}
+        outdated={!!machine && !machine.features.includes('agentSettings')}
         editable={owner}
         onChange={setOverrides}
       />

@@ -115,6 +115,8 @@ export function ContextMenu({
         show(e.clientX, e.clientY, false)
       }}
       onKeyDown={(e) => {
+        // A touch laptop: after a finger tap the keyboard's contextmenu must not be left to the platform.
+        touch.current = false
         if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return
         e.preventDefault()
         const r = (e.target as HTMLElement).getBoundingClientRect()
