@@ -78,7 +78,7 @@ fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Planned> {
     let s = &req.start;
     let resolved = Store::load(home).and_then(|store| {
         // A live adapter's file is rewritten (touched) each turn below, and adapters idle out after `idle`.
-        inject::prune(home, &store, Some(engine.config.idle * 2));
+        inject::prune(home, &store, Some(inject::STALE_SETTINGS));
         let (selection, removed) =
             match store.resolve_run(s.bot.agent_kind, &s.bot.id, s.resume_session_id.as_deref())? {
                 RunPlan::Resume(selection) => (selection, false),

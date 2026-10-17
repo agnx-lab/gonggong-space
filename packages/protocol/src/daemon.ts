@@ -679,7 +679,14 @@ export const CastState = z.object({
  * Provider settings live on the machine only: the server relays them in memory and never stores or logs them.
  */
 /** `sync`: takes part in force sync; a replica on a daemon without it sits out (runs go unsynced). */
-export const DaemonFeature = z.enum(['tools', 'providers', 'ccSwitch', 'sync', 'sessionFork', 'agentSettings'])
+export const DaemonFeature = z.enum([
+  'tools',
+  'providers',
+  'ccSwitch',
+  'sync',
+  'sessionFork',
+  'agentSettings',
+])
 export type DaemonFeature = z.infer<typeof DaemonFeature>
 
 export const ToolKind = z.enum(['node', 'claude', 'codex'])

@@ -220,6 +220,10 @@ fn write_settings(path: &Path, settings: &Value) -> Result<()> {
     written
 }
 
+/// How long an overlay file may go unused before [`prune`] deletes it: every turn rewrites (or touches) its file, and
+/// a single turn may run for hours, so this is far beyond any turn while still bounding stale keys on disk.
+pub const STALE_SETTINGS: Duration = Duration::from_secs(7 * 24 * 3600);
+
 /// Deletes the settings files (and keys) of providers no longer stored and, given `stale`, the overlay files (one
 /// per settings combination, official login included) not written for that long.
 pub fn prune(home: &Path, store: &Store, stale: Option<Duration>) {
