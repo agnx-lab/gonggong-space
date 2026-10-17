@@ -15,10 +15,10 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
@@ -63,21 +63,22 @@ pub trait Asker: Send + Sync {
     fn scope(&self) -> Option<Scope>;
 }
 
-fn server_tools() -> Vec<Value> {
-    serde_json::from_str(SERVER_TOOLS).expect("gonggong-tools.json is a JSON array")
+/// A tool list and its names, parsed once: every tool call and permission request looks them up.
+struct Tools {
+    list: Vec<Value>,
+    names: HashSet<String>,
 }
 
-fn daemon_tools() -> Vec<Value> {
-    serde_json::from_str(DAEMON_TOOLS).expect("gonggong-daemon-tools.json is a JSON array")
+impl Tools {
+    fn parse(json: &str) -> Tools {
+        let list: Vec<Value> = serde_json::from_str(json).expect("a JSON array of tools");
+        let names = list.iter().filter_map(|t| t["name"].as_str().map(String::from)).collect();
+        Tools { list, names }
+    }
 }
 
-fn is_server_tool(name: &str) -> bool {
-    server_tools().iter().any(|t| t["name"] == name)
-}
-
-fn is_daemon_tool(name: &str) -> bool {
-    daemon_tools().iter().any(|t| t["name"] == name)
-}
+static SERVER: LazyLock<Tools> = LazyLock::new(|| Tools::parse(SERVER_TOOLS));
+static DAEMON: LazyLock<Tools> = LazyLock::new(|| Tools::parse(DAEMON_TOOLS));
 
 /// Whether a permission request is for one of these tools that needs no owner call: all of them read the group, ask
 /// it or manage what `service_start` (which does need one) already started.
@@ -85,11 +86,7 @@ pub fn is_builtin(title: &str) -> bool {
     title.contains(TOOL)
         || title.contains(SERVER_NAME)
             && !NEEDS_APPROVAL.iter().any(|t| title.contains(t))
-            && [server_tools(), daemon_tools()]
-                .concat()
-                .iter()
-                .filter_map(|t| t["name"].as_str())
-                .any(|n| title.contains(n))
+            && SERVER.names.iter().chain(&DAEMON.names).any(|n| title.contains(n.as_str()))
 }
 
 type Routes = Arc<Mutex<HashMap<String, Weak<dyn Asker>>>>;
@@ -198,20 +195,20 @@ async fn handle(
         }
         "ping" => result(id, json!({})),
         "tools/list" => {
-            let tools: Vec<Value> = [vec![tool()], server_tools(), daemon_tools()].concat();
+            let tools: Vec<Value> = [vec![tool()], SERVER.list.clone(), DAEMON.list.clone()].concat();
             result(id, json!({ "tools": tools }))
         }
         "tools/call" => {
             let (name, args) = (params["name"].as_str().unwrap_or_default(), &params["arguments"]);
             let out = if name == TOOL {
                 Some(call(asker.as_ref(), args).await)
-            } else if is_server_tool(name) {
+            } else if SERVER.names.contains(name) {
                 Some(forward(backends.api.as_ref().as_ref(), asker.as_ref(), name, args).await)
             } else if name == "client_release_publish" {
                 Some(publish_release(backends.api.as_ref().as_ref(), asker.as_ref(), args).await)
             } else if name == "feishu_send_card" {
                 Some(send_feishu_card(backends.api.as_ref().as_ref(), asker.as_ref(), args).await)
-            } else if is_daemon_tool(name) {
+            } else if DAEMON.names.contains(name) {
                 Some(hosted(&backends, asker.as_ref(), name, args).await)
             } else {
                 None

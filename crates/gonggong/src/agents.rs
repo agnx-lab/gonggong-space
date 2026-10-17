@@ -2,7 +2,13 @@ use crate::engine::ADAPTERS;
 use crate::local::{LocalSettings, load_catalogs};
 use crate::protocol::{AgentInfo, AgentKind};
 use crate::t;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, SystemTime};
+
+/// Longer than any CLI needs to print its version, short enough that a hung one does not stall detection.
+pub const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn binary(kind: AgentKind) -> &'static str {
     match kind {
@@ -177,14 +183,26 @@ fn marked_path(out: &str) -> Option<String> {
 }
 
 /// First semver-looking token of `<bin> --version`, e.g. "codex-cli 0.156.1" → "0.156.1". npm installs the CLIs as
-/// node scripts, so the managed Node goes first on PATH.
+/// node scripts, so the managed Node goes first on PATH. Detection runs every minute: the answer is reused until the
+/// file (behind any symlink) changes.
 fn version(home: &Path, path: &Path) -> Option<String> {
+    type Key = (PathBuf, u64, Option<SystemTime>);
+    static KNOWN: LazyLock<Mutex<HashMap<PathBuf, (Key, String)>>> = LazyLock::new(Mutex::default);
+    let real = std::fs::canonicalize(path).ok()?;
+    let meta = std::fs::metadata(&real).ok()?;
+    let key = (real, meta.len(), meta.modified().ok());
+    if let Some((known, v)) = KNOWN.lock().unwrap().get(path)
+        && *known == key
+    {
+        return Some(v.clone());
+    }
     let mut cmd = crate::proc::command(path);
     if let Some(bin) = crate::tools::runtime_bin(home) {
         cmd.env("PATH", crate::tools::prepend_path(&bin));
     }
-    let out = cmd.arg("--version").output().ok()?;
-    parse_version(&String::from_utf8_lossy(&out.stdout))
+    let v = parse_version(&crate::proc::stdout_within(cmd.arg("--version"), VERSION_TIMEOUT)?)?;
+    KNOWN.lock().unwrap().insert(path.to_path_buf(), (key, v.clone()));
+    Some(v)
 }
 
 /// 登录 state as the agent CLI reports it (`claude auth status`, `codex login status`); `None` if it cannot tell.
@@ -331,6 +349,32 @@ mod tests {
         let fresh = CachedCatalog { key: catalog_key(AgentKind::Claude, Some("2.1.4")), catalog: catalog.clone() };
         save_catalog(home.path(), AgentKind::Claude, fresh).unwrap();
         assert_eq!(claude(home.path()).catalog, Some(catalog));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cli_version_is_asked_again_only_when_its_file_changes() {
+        use super::detect;
+        use crate::local::{AgentSettings, LocalSettings};
+        use crate::protocol::AgentKind;
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let (cli, calls) = (home.path().join("claude"), home.path().join("calls"));
+        std::fs::write(&cli, format!("#!/bin/sh\necho x >> '{}'\necho '2.1.4 (Claude Code)'\n", calls.display()))
+            .unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut local = LocalSettings::default();
+        local.agents.insert(AgentKind::Claude, AgentSettings { path: Some(cli.to_string_lossy().into()) });
+        let version = || detect(home.path(), &local).into_iter().find(|a| a.kind == AgentKind::Claude).unwrap().version;
+        let count = || std::fs::read_to_string(&calls).unwrap().lines().count();
+
+        assert_eq!(version().as_deref(), Some("2.1.4"));
+        assert_eq!(version().as_deref(), Some("2.1.4"));
+        assert_eq!(count(), 1);
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        std::fs::File::options().write(true).open(&cli).unwrap().set_modified(later).unwrap();
+        assert_eq!(version().as_deref(), Some("2.1.4"));
+        assert_eq!(count(), 2, "an upgrade changes the file");
     }
 
     #[test]

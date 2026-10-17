@@ -105,15 +105,17 @@ pub fn mode_for(kind: AgentKind, tier: Tier) -> &'static str {
 /// A Codex auto review (codex-acp's `guardian_assessment:` tool call) that denied, aborted or timed out: its summary.
 /// Codex treats a failed review as a denial, so the bot would otherwise stall without a word.
 pub fn auto_review_failure(update: &SessionUpdate) -> Option<String> {
-    let u: ToolCallUpdate = match update {
-        SessionUpdate::ToolCall(c) => c.clone().into(),
-        SessionUpdate::ToolCallUpdate(u) => u.clone(),
+    let (id, status, content, title) = match update {
+        SessionUpdate::ToolCall(c) => (&c.tool_call_id, Some(c.status), Some(c.content.as_slice()), Some(&c.title)),
+        SessionUpdate::ToolCallUpdate(u) => {
+            (&u.tool_call_id, u.fields.status, u.fields.content.as_deref(), u.fields.title.as_ref())
+        }
         _ => return None,
     };
-    if !u.tool_call_id.0.starts_with("guardian_assessment:") || u.fields.status != Some(ToolCallStatus::Failed) {
+    if !id.0.starts_with("guardian_assessment:") || status != Some(ToolCallStatus::Failed) {
         return None;
     }
-    u.fields.content.as_deref().and_then(output_tail).or(u.fields.title)
+    content.and_then(output_tail).or_else(|| title.cloned())
 }
 
 /// Plan D15: `full` allows on its own; other tiers ask the bot owner. `None` → answer `cancelled`.

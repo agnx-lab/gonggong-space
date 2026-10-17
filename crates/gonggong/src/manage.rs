@@ -63,9 +63,15 @@ impl Manage {
         self.0.reported.lock().unwrap().clear();
     }
 
+    /// [`Manage::report_now`] on a blocking thread: the connection loop calls it after every run.
+    pub fn report(&self, out: &Outbox) {
+        let (this, out) = (self.clone(), out.clone());
+        tokio::task::spawn_blocking(move || this.report_now(&out));
+    }
+
     /// `bots.providerState`, when it changed: sessions whose provider differs from what a new one would use (the
     /// server keeps it in memory only, replacing this machine's list).
-    pub fn report(&self, out: &Outbox) {
+    fn report_now(&self, out: &Outbox) {
         let mut reported = self.0.reported.lock().unwrap();
         let items: Vec<_> = match Store::load(&self.0.home).and_then(|s| s.stale()) {
             Ok(stale) => stale
@@ -133,7 +139,7 @@ impl Manage {
             let ok = result.ok;
             out.send(DaemonToServer::ProvidersResult(result));
             if ok && changes {
-                this.report(&out);
+                this.report_now(&out);
             }
         });
     }
@@ -165,7 +171,7 @@ impl Manage {
             match apply() {
                 Ok((imported, view)) => {
                     out.send(ccswitch_result(request_id, None, vec![], imported, Some(view)));
-                    this.report(&out);
+                    this.report_now(&out);
                 }
                 Err(e) => out.send(ccswitch_result(request_id, Some(format!("{e:#}")), vec![], vec![], None)),
             }
@@ -658,7 +664,7 @@ mod tests {
 
         let (out, mut rx) = Outbox::channel();
         let manage = Manage::new(home.path().into(), home.path().join("none"));
-        manage.report(&out);
+        manage.report_now(&out);
         let DaemonToServer::BotsProviderState { items } = rx.try_recv().unwrap() else { panic!() };
         assert_eq!(
             items,
@@ -669,10 +675,10 @@ mod tests {
                 effective: "Kimi".into()
             }]
         );
-        manage.report(&out);
+        manage.report_now(&out);
         assert!(rx.try_recv().is_err(), "unchanged state is not sent again");
         manage.connected();
-        manage.report(&out);
+        manage.report_now(&out);
         assert!(rx.try_recv().is_ok(), "a new connection gets it again");
 
         let mut inherit = cmd(ProvidersAction::Use);
