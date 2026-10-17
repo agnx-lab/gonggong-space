@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import './ipc-mock'
 import { ipc, type Providers } from '../src/ipc'
 import { AgentsPage } from '../src/pages/Agents'
-import { formatTokens, providerSummary } from '../src/providers/settings'
+import { agentSettingRows, formatTokens, providerSummary } from '../src/providers/settings'
 import { useDaemon } from '../src/store'
 import { CLAUDE, CODEX, INFO, provider } from './ipc-mock'
 
@@ -32,6 +32,14 @@ describe('providerSummary', () => {
         HTTP_PROXY: 'x',
       }),
     ).toBe('上下文 256K · 输出 128K · 关闭思考参数 · 工具搜索 关 · API 超时 10 分钟')
+  })
+
+  it('shows tool search auto values as stored', () => {
+    expect(providerSummary('claude', { ENABLE_TOOL_SEARCH: 'auto:5' })).toBe('工具搜索 auto:5')
+  })
+
+  it('shows a flag of true as on', () => {
+    expect(agentSettingRows('claude', { nonessentialTraffic: 'true' })[0]?.value).toBe('是')
   })
 
   it('is empty without known settings or for agents without fields', () => {

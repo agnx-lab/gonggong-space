@@ -78,10 +78,26 @@ export function msLabel(n: number) {
   return `${n}ms`
 }
 
-export type BoolState = 'default' | 'on' | 'off'
+/** `auto` / `auto:N`: tool search only. */
+export type BoolState = 'default' | 'on' | 'off' | 'auto'
 export const boolState = (raw: string): BoolState =>
-  raw === 'true' || raw === '1' ? 'on' : raw === 'false' || raw === '0' ? 'off' : 'default'
-export const BOOL_RAW: Record<BoolState, string> = { default: '', on: 'true', off: 'false' }
+  raw === 'true' || raw === '1'
+    ? 'on'
+    : raw === 'false' || raw === '0'
+      ? 'off'
+      : raw === 'auto' || raw.startsWith('auto:')
+        ? 'auto'
+        : 'default'
+export const BOOL_RAW: Record<BoolState, string> = { default: '', on: 'true', off: 'false', auto: 'auto' }
+
+/** Whether the daemon accepts `raw` for a flag / bool / enum field (agent_settings.rs `valid`); others pass. */
+export function validValue(field: AgentSettingField, raw: string) {
+  if (field.type === 'flag') return raw === '1' || raw === 'true'
+  if (field.type === 'bool')
+    return raw === 'true' || raw === 'false' || (field.id === 'toolSearch' && /^auto(:\d+)?$/.test(raw))
+  if (field.type === 'enum') return !!field.options?.includes(raw)
+  return true
+}
 
 const NUMERIC = /^\d+$/
 
@@ -95,7 +111,11 @@ export function textOf(field: AgentSettingField, raw: string) {
 
 /** A stored value for display: 开 / 关, units, 不署名. */
 export function valueLabel(field: AgentSettingField, raw: string) {
-  if (field.type === 'bool') return { on: t('开'), off: t('关'), default: raw }[boolState(raw)]
+  if (field.type === 'bool') {
+    const n = /^auto:(\d+)$/.exec(raw)?.[1]
+    if (n) return t('自动（{n}%）', { n })
+    return { on: t('开'), off: t('关'), auto: t('自动'), default: raw }[boolState(raw)]
+  }
   if (field.type === 'flag') return t('开')
   if (field.type === 'enum' && raw === 'none') return t('不署名')
   return textOf(field, raw)
@@ -109,10 +129,14 @@ function rawOf(field: AgentSettingField, text: string, initial = '') {
   if (text === textOf(field, initial)) return initial
   const s = text.trim()
   if (!s) return ''
-  if (field.type !== 'tokens' && field.type !== 'ms') return s
+  const invalid = () =>
+    new Error(t('「{label}」不是有效的值：{text}', { label: fieldLabel(field.id), text: s }))
+  if (field.type !== 'tokens' && field.type !== 'ms') {
+    if (!validValue(field, s)) throw invalid()
+    return s
+  }
   const n = field.type === 'tokens' ? parseTokens(s, field) : parseMs(s)
-  if (n === null)
-    throw new Error(t('「{label}」不是有效的值：{text}', { label: fieldLabel(field.id), text: s }))
+  if (n === null) throw invalid()
   return String(n)
 }
 

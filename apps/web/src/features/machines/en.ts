@@ -216,6 +216,7 @@ export default {
   关闭非必要流量: 'Disable nonessential traffic',
   开: 'On',
   关: 'Off',
+  '自动（{n}%）': 'Auto ({n}%)',
   不署名: 'No attribution',
   '「{label}」不是有效的值：{text}': '"{label}" is not a valid value: {text}',
   '请在上方「{label}」设置': 'Set this with "{label}" above',

@@ -11,6 +11,8 @@ import {
   splitEnv,
   tokensLabel,
   toValues,
+  validValue,
+  valueLabel,
 } from '../src/features/machines/agentSettings'
 
 const PROVIDER = fieldsFor('claude', 'provider')
@@ -64,6 +66,41 @@ describe('units', () => {
     expect(boolState('1')).toBe('on')
     expect(boolState('false')).toBe('off')
     expect(boolState('0')).toBe('off')
+  })
+})
+
+describe('values the daemon accepts', () => {
+  it('reads tool search auto and auto:N as auto, labelled 自动', () => {
+    expect(boolState('auto')).toBe('auto')
+    expect(boolState('auto:5')).toBe('auto')
+    expect(valueLabel(field('toolSearch'), 'auto')).toBe('自动')
+    expect(valueLabel(field('toolSearch'), 'auto:5')).toBe('自动（5%）')
+    expect(valueLabel(field('disableThinking'), 'true')).toBe('开')
+  })
+
+  it('checks a value as the daemon does', () => {
+    const ok = (id: string, v: string) => validValue(field(id), v)
+    expect(['true', 'false', 'auto', 'auto:5', 'auto:0'].map((v) => ok('toolSearch', v))).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ])
+    expect(['auto:', 'auto:x', 'yes', '1'].some((v) => ok('toolSearch', v))).toBe(false)
+    expect(ok('autoMemory', 'true') && ok('autoMemory', 'false')).toBe(true)
+    expect(ok('autoMemory', 'auto')).toBe(false)
+    expect(ok('disableThinking', '1') && ok('disableThinking', 'true')).toBe(true)
+    expect(ok('disableThinking', 'yes')).toBe(false)
+    expect(ok('attribution', 'none')).toBe(true)
+    expect(ok('attribution', 'all')).toBe(false)
+  })
+
+  it('keeps untouched values and refuses a changed one the daemon would reject', () => {
+    const initial = { toolSearch: 'auto:5', disableThinking: 'true' }
+    expect(toValues(PROVIDER, fieldTexts(PROVIDER, initial), initial)).toEqual(initial)
+    const texts = { ...fieldTexts(PROVIDER, {}), toolSearch: 'yes' }
+    expect(() => toValues(PROVIDER, texts, {})).toThrow('「工具搜索」不是有效的值：yes')
   })
 })
 

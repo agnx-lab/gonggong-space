@@ -13,7 +13,10 @@ export interface AgentSettingField {
   layer: 'provider' | 'agent'
   target: 'settings' | 'env'
   key: string
-  /** tokens / ms: a positive integer; flag: '1' or absent; bool: 'true' | 'false' | absent; text: any string. */
+  /**
+   * tokens / ms: a positive integer; flag: '1' | 'true' or absent; bool: 'true' | 'false' | absent (toolSearch also
+   * 'auto' | 'auto:<N>'); text: any string.
+   */
   type: 'tokens' | 'ms' | 'flag' | 'bool' | 'text' | 'enum'
   options?: readonly string[]
   min?: number

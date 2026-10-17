@@ -711,6 +711,22 @@ describe('供应商 · 高级设置', () => {
     })
   })
 
+  it('keeps a tool search of auto:N and a flag of true when saved untouched', async () => {
+    const env = { ENABLE_TOOL_SEARCH: 'auto:5', CLAUDE_CODE_DISABLE_THINKING: 'true' }
+    const { calls, form } = await openEditor({ ...kimi, env })
+    expect(radio(form, '工具搜索', '自动').getAttribute('aria-checked')).toBe('true')
+    expect((within(form).getByRole('checkbox', { name: '关闭思考参数' }) as HTMLInputElement).checked).toBe(
+      true,
+    )
+    expect((await saved(calls)).env).toEqual(env)
+  })
+
+  it('writes auto for tool search set to 自动', async () => {
+    const { calls, form } = await openEditor(kimi)
+    fireEvent.click(radio(form, '工具搜索', '自动'))
+    expect((await saved(calls)).env).toEqual({ ENABLE_TOOL_SEARCH: 'auto' })
+  })
+
   it('marks a value changed from the preset and restores it alone', async () => {
     const { calls, form } = await openEditor({
       ...kimi,

@@ -14,6 +14,7 @@ export const BOOL_ITEMS: { value: BoolState; label: string }[] = [
   { value: 'on', label: t('开') },
   { value: 'off', label: t('关') },
 ]
+const TOOL_SEARCH_ITEMS = [...BOOL_ITEMS, { value: 'auto' as const, label: t('自动') }]
 
 const PLACEHOLDER: Record<AgentSettingField['type'], string> = {
   tokens: t('默认，如 128k'),
@@ -101,7 +102,7 @@ export function ProviderSettingRows({
                 size="small"
                 value={boolState(text)}
                 onChange={(v) => set(BOOL_RAW[v])}
-                items={BOOL_ITEMS}
+                items={f.id === 'toolSearch' ? TOOL_SEARCH_ITEMS : BOOL_ITEMS}
               />
             ) : (
               <TextField

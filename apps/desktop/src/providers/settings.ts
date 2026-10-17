@@ -51,9 +51,9 @@ export function formatSetting(field: AgentSettingField, v: string): string {
     case 'ms':
       return formatMs(v)
     case 'flag':
-      return v === '1' ? t('是') : t('否')
+      return v === '1' || v === 'true' ? t('是') : t('否')
     case 'bool':
-      return v === 'true' ? t('开') : t('关')
+      return v === 'true' ? t('开') : v === 'false' ? t('关') : v
     case 'enum':
       return ENUM_LABEL[v] ?? v
     default:
