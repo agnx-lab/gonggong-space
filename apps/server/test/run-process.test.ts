@@ -2,6 +2,7 @@ import {
   PROTOCOL_VERSION,
   type RunDetailDto,
   type RunEvent,
+  type RunEventsDto,
   type RunSessionDto,
   type RunStart,
   type TimelineDto,
@@ -340,6 +341,49 @@ describe('run process', () => {
     ])
   })
 
+  it('serves only the process on /events: since a known event, streams joined and flushed, no patch', async () => {
+    const w = await world()
+    const runId = await w.mention()
+    const events = async (query = '', userId = w.bob.id) =>
+      t.app.inject({
+        url: `/api/runs/${runId}/events${query}`,
+        headers: { cookie: await t.seed.cookie(userId) },
+      })
+    // Past 8KB the stream rolls over into a second row; the reader gets one event, the unsaved tail included.
+    const long = `${`${'x'.repeat(99)}\n`.repeat(100)}abc`
+    w.send(runId, { kind: 'status', status: 'running', step: '读取' })
+    w.send(runId, { kind: 'text', delta: long })
+    await expect
+      .poll(async () => (await events()).json<RunEventsDto>().events.at(-1)?.event)
+      .toEqual({ kind: 'text', delta: long })
+    expect(
+      (await t.db.select().from(runEvents).where(eq(runEvents.runId, runId))).filter(
+        (r) => r.kind === 'text',
+      ),
+    ).toHaveLength(2)
+    const [, text] = (await events()).json<RunEventsDto>().events
+    const tool = { kind: 'tool', toolCallId: 'c1', title: 'ls', toolKind: 'execute', status: 'completed' }
+    w.send(runId, { kind: 'text', delta: '尾' })
+    w.send(runId, tool)
+    w.done(runId, { patch: 'diff --git a/x b/x\n+y\n' })
+    await w.ended(runId)
+
+    const res = await events(`?since=${text!.id}`)
+    expect(Object.keys(res.json()).sort()).toEqual(['events', 'purged'])
+    expect(res.json<RunEventsDto>()).toEqual({
+      events: [
+        { id: text!.id, at: expect.any(String), event: { kind: 'text', delta: `${long}尾` } },
+        { id: expect.any(Number), at: expect.any(String), event: tool },
+      ],
+      purged: false,
+    })
+    await t.db.update(runs).set({ purgedAt: new Date() }).where(eq(runs.id, runId))
+    expect((await events()).json<RunEventsDto>().purged).toBe(true)
+
+    const outsider = await t.seed.user({ name: '外人' })
+    expect((await events('', outsider.id)).statusCode).toBe(404)
+  })
+
   it('redacts and seals MCP call arguments and results; server and tool stay plain', async () => {
     const w = await world()
     const runId = await w.mention()
@@ -441,21 +485,29 @@ describe('run process', () => {
     expect((await stop(outsider.id)).statusCode).toBe(404)
   })
 
-  it('pushes the card only when it changed; other process events only say the process moved', async () => {
+  it('pushes a changed step or usage alone; other process events only say the process moved', async () => {
     const w = await world()
     const runId = await w.mention()
     const tool = { kind: 'tool', toolCallId: 'c1', title: 'ls', toolKind: 'execute' }
     const before = w.seen.length
     w.send(runId, { ...tool, status: 'pending' })
     w.send(runId, { ...tool, status: 'in_progress' })
+    w.send(runId, { kind: 'usage', usage: { totalTokens: 900 } })
     w.send(runId, { ...tool, status: 'completed' })
-    const seen = () => w.seen.slice(before).filter((e) => e.t === 'run.updated' || e.t === 'run.progress')
-    await expect.poll(() => seen().length).toBe(3)
+    w.send(runId, { kind: 'usage', usage: { totalTokens: 900 } })
+    const seen = () => w.seen.slice(before).filter((e) => e.t.startsWith('run.'))
+    const ids = { runId, groupId: w.group.id, botId: w.bot.id }
+    await expect.poll(() => seen().length).toBe(5)
     expect(seen()).toEqual([
-      expect.objectContaining({ t: 'run.updated', run: expect.objectContaining({ id: runId, step: 'ls' }) }),
-      { t: 'run.progress', runId, groupId: w.group.id, botId: w.bot.id },
-      { t: 'run.progress', runId, groupId: w.group.id, botId: w.bot.id },
+      { t: 'run.step', ...ids, step: 'ls', usage: null },
+      { t: 'run.progress', ...ids },
+      { t: 'run.step', ...ids, step: 'ls', usage: { totalTokens: 900 } },
+      { t: 'run.progress', ...ids },
+      { t: 'run.progress', ...ids },
     ])
+    // A status change still pushes the whole card.
+    w.done(runId)
+    await w.ended(runId)
   })
 
   it('serves approvals and the group hop limit on detail, timeline and realtime cards', async () => {
@@ -493,9 +545,9 @@ describe('run process', () => {
         createdAt: new Date(at.getTime() + 1000),
       },
     ])
-    w.send(runId, { kind: 'tool', toolCallId: 'c1', title: 'Read a', toolKind: 'read', status: 'completed' })
+    w.send(runId, { kind: 'subagent', agentId: 'a1', name: 'Explore', task: '找', state: 'running' })
     await expect
-      .poll(() => w.seen.find((e) => e.t === 'run.updated' && e.run.step === 'Read a'))
+      .poll(() => w.seen.find((e) => e.t === 'run.updated' && e.run.delegation.subagents === 1))
       .toMatchObject({
         run: { hopMax: 5, approvals: [{ detail: 'echo hello-approval' }, { status: 'pending' }] },
       })

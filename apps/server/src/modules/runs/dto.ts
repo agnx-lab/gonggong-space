@@ -175,6 +175,19 @@ export async function listRuns(
   return rows.map(await runDtoLoader(ctx, rows))
 }
 
+/** Pushes a change of the card's step or usage alone, without loading what the rest of the card needs. */
+export async function publishStep(ctx: Ctx, r: CardRow) {
+  ctx.bus.publish(await memberIds(ctx, r.groupId), {
+    t: 'run.step',
+    runId: r.id,
+    groupId: r.groupId,
+    botId: r.botId,
+    step: r.step,
+    ...stepI18nOf(r),
+    usage: (r.usage as Usage | null) ?? null,
+  })
+}
+
 export const publishRun = (ctx: Ctx, run: CardRow) => publishRuns(ctx, [run])
 
 /** Pushes several run cards with one load. */

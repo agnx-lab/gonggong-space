@@ -3,8 +3,11 @@ import {
   type DiffScope,
   type RunDetailDto,
   type RunDto,
+  type RunEventsDto,
   type RunSessionDto,
   type TaskStopRes,
+  TERMINAL_RUN_STATUS,
+  withRunStep,
 } from '@gonggong/protocol'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
@@ -56,7 +59,7 @@ const VIEWS: { value: RunView; label: string }[] = [
 const LIVE = ['running', 'awaiting_approval', 'awaiting_answer']
 const FAILED = ['forbidden', 'interrupted', 'expired']
 const PURGED = t('运行过程已过期，仅保留摘要')
-/** Coalesces bursts of run.updated / run.progress into one refetch. */
+/** Coalesces bursts of run.updated / run.progress / run.step into one refetch. */
 const REFETCH_MS = 300
 /** How long streamed text is gathered before it is shown. */
 const DELTA_FLUSH_MS = 100
@@ -71,8 +74,10 @@ const useRunInfo = create<{ runs: Record<string, RunDto>; rounds: Record<string,
 }))
 
 /**
- * GET /api/runs/:id, kept live while shown: card updates refetch the process from its last stored event on, streamed
- * text is kept as a tail after it. A hidden tab only keeps the card current and catches up once shown again.
+ * GET /api/runs/:id, kept live while shown: realtime events refetch the process from its last stored event on,
+ * streamed text is kept as a tail after it. The card itself comes with the events, so a refetch reads the whole
+ * detail again only while the run has not ended (its patch is stored at the end), else just the process. A hidden
+ * tab only keeps the card current and catches up once shown again.
  */
 function useRunDetail(runId: string, active: boolean) {
   const [detail, setDetail] = useState<RunDetailDto | null>(null)
@@ -90,6 +95,14 @@ function useRunDetail(runId: string, active: boolean) {
     let seq = 0
     let pending = ''
     let flushTimer: ReturnType<typeof setTimeout> | undefined
+    // Loads read the whole detail from request `wholeFrom` on until one of those was applied (`wholeGot`).
+    let wholeFrom = 1
+    let wholeGot = 0
+    /** Seen ended: beyond the card (realtime) only the process changes any more. */
+    let ended = false
+    const wantWhole = () => {
+      if (!ended) wholeFrom = seq + 1
+    }
     current.current = null
     setTail(null)
     const flush = () => {
@@ -101,17 +114,28 @@ function useRunDetail(runId: string, active: boolean) {
     const load = () => {
       const mine = ++seq
       const since = current.current?.events.at(-1)?.id
-      api.get<RunDetailDto>(`/runs/${runId}${since ? `?since=${since}` : ''}`).then(
+      const query = since ? `?since=${since}` : ''
+      const request: Promise<RunDetailDto | RunEventsDto> =
+        wholeGot < wholeFrom
+          ? api.get<RunDetailDto>(`/runs/${runId}${query}`)
+          : api.get<RunEventsDto>(`/runs/${runId}/events${query}`)
+      request.then(
         (d) => {
           if (!alive || mine !== seq) return
+          if ('run' in d) {
+            wholeGot = mine
+            ended ||= TERMINAL_RUN_STATUS.includes(d.run.status)
+          }
           // The stored events now hold what was streamed so far.
           pending = ''
           clearTimeout(flushTimer)
           flushTimer = undefined
           setTail(null)
-          setDetail((prev) =>
-            since && prev ? { ...d, events: [...prev.events.filter((e) => e.id < since), ...d.events] } : d,
-          )
+          setDetail((prev) => {
+            const events =
+              since && prev ? [...prev.events.filter((e) => e.id < since), ...d.events] : d.events
+            return 'run' in d ? { ...d, events } : prev && { ...prev, purged: d.purged, events }
+          })
         },
         (e: Error) => alive && mine === seq && setError(e.message),
       )
@@ -119,9 +143,13 @@ function useRunDetail(runId: string, active: boolean) {
     load()
     const off = realtime.subscribe((e) => {
       const moved =
-        (e.t === 'run.updated' && e.run.id === runId) || (e.t === 'run.progress' && e.runId === runId)
-      if (moved) {
-        if (e.t === 'run.updated') setDetail((d) => d && { ...d, run: e.run })
+        e.t === 'run.updated' ? e.run.id : e.t === 'run.progress' || e.t === 'run.step' ? e.runId : null
+      if (moved === runId) {
+        if (e.t === 'run.updated') {
+          wantWhole()
+          ended ||= TERMINAL_RUN_STATUS.includes(e.run.status)
+          setDetail((d) => d && { ...d, run: e.run })
+        } else if (e.t === 'run.step') setDetail((d) => d && { ...d, run: withRunStep(d.run, e) })
         // Throttled, not debounced: a steady stream of events would otherwise postpone the refetch until it stops.
         if (shown.current)
           timer ??= setTimeout(() => {
@@ -139,6 +167,7 @@ function useRunDetail(runId: string, active: boolean) {
     })
     // Refill anything missed while the socket was down.
     const offReconnect = realtime.onReconnect(() => {
+      wantWhole()
       if (shown.current) load()
       else catchUp.current = load
     })

@@ -34,7 +34,7 @@ import { t } from '../../i18n'
 /** Coalesces a burst of run updates into one refetch. */
 const REFETCH_MS = 300
 
-/** Groups the bot is in; refetched whenever one of its runs changes. */
+/** Groups the bot is in; refetched whenever one of its runs changes, a live turn's step moves in place. */
 function usePlaces(botId: string, enabled: boolean) {
   const [places, setPlaces] = useState<BotPlaceDto[] | null>(null)
   useEffect(() => {
@@ -51,6 +51,13 @@ function usePlaces(botId: string, enabled: boolean) {
     }
     load()
     const off = realtime.subscribe((e) => {
+      if (e.t === 'run.step' && e.botId === botId)
+        setPlaces(
+          (ps) =>
+            ps?.map((p) =>
+              p.run?.id === e.runId ? { ...p, run: { ...p.run, step: e.step, stepI18n: e.stepI18n } } : p,
+            ) ?? null,
+        )
       if (e.t !== 'run.updated' || e.run.botId !== botId) return
       clearTimeout(timer)
       timer = setTimeout(load, REFETCH_MS)
