@@ -235,3 +235,61 @@ async fn claude_gets_the_providers_proxy_and_env_in_its_settings_file() {
     );
     assert_eq!(env["GG_EXTRA"], "1");
 }
+
+#[tokio::test]
+async fn changed_agent_defaults_restart_the_adapter_on_the_next_turn_and_resume() {
+    let mut r = rig(Duration::from_secs(60));
+    let id = r.add(AgentKind::Claude, "kimi-coding", true);
+    r.run(start("r1", AgentKind::Claude));
+    let first = r.finish("r1").await;
+    assert_eq!(echo(&first)["settings"], r.settings_file(&id).to_str().unwrap(), "no agent settings: the plain file");
+
+    let settings =
+        AgentSettings { values: [("language".to_string(), "chinese".to_string())].into(), inherit_cli: true };
+    Store::update(r.home(), |s| s.set_agent_settings(AgentKind::Claude, settings)).unwrap();
+    let with = |s: RunStart| RunStart {
+        bot: RunBot { agent_settings: [("language".into(), "english".into())].into(), ..s.bot.clone() },
+        ..s
+    };
+    r.run(with(follow_up("r2", &first, AgentKind::Claude)));
+    let second = r.finish("r2").await;
+    let e = echo(&second);
+    assert_ne!(e["pid"], echo(&first)["pid"], "a new adapter process");
+    assert_eq!((second.session_id.clone(), second.new_session_reason.clone()), (first.session_id.clone(), None));
+    let file = e["settings"].as_str().unwrap();
+    assert_ne!(file, r.settings_file(&id).to_str().unwrap());
+    let written: Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+    assert_eq!(written["language"], "english", "the bot's override over the machine default");
+    assert_eq!(written["env"]["ANTHROPIC_AUTH_TOKEN"], KEY);
+    let snapshot = r.settings.pop().unwrap().1.unwrap();
+    assert_eq!(
+        (snapshot.provider.as_deref(), snapshot.context_window, snapshot.auto_compact_window, snapshot.from_bot),
+        (Some("Kimi For Coding"), Some(262144), Some(262144), vec!["language".to_string()])
+    );
+
+    // Same settings: the same process takes the next turn.
+    r.run(with(follow_up("r3", &second, AgentKind::Claude)));
+    let third = r.finish("r3").await;
+    assert_eq!(echo(&third)["pid"], e["pid"]);
+}
+
+#[tokio::test]
+async fn the_bots_model_picks_the_context_window_and_a_change_restarts_the_adapter() {
+    let mut r = rig(Duration::from_secs(60));
+    let id = r.add(AgentKind::Claude, "kimi-coding", true);
+    Store::update(r.home(), |s| s.edit(&id, |p| p.env.clear())).unwrap();
+    let with_model =
+        |s: RunStart, model: &str| RunStart { bot: RunBot { model: Some(model.into()), ..s.bot.clone() }, ..s };
+    r.run(with_model(start("r1", AgentKind::Claude), "kimi-for-coding"));
+    let first = r.finish("r1").await;
+    let written: Value =
+        serde_json::from_slice(&std::fs::read(echo(&first)["settings"].as_str().unwrap()).unwrap()).unwrap();
+    assert_eq!(written["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "262144", "the preset's window for the model");
+    assert_eq!(r.settings.pop().unwrap().1.unwrap().context_window, Some(262144));
+
+    r.run(with_model(follow_up("r2", &first, AgentKind::Claude), "k3"));
+    let second = r.finish("r2").await;
+    assert_ne!(echo(&second)["pid"], echo(&first)["pid"], "another window: a new adapter process");
+    assert_eq!(second.session_id, first.session_id);
+    assert_eq!(r.settings.pop().unwrap().1.unwrap().context_window, None);
+}

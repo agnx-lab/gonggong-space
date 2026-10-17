@@ -48,6 +48,8 @@ const ASK_TIMEOUT_MS: &str = "90000000";
 
 pub struct EngineConfig {
     pub home: PathBuf,
+    /// Where the agent CLIs' own config (`~/.claude`) and CC Switch are read from.
+    pub user_home: PathBuf,
     /// Replaces the adapter command for every agent (tests / debugging), e.g. `node tools/mock-agent/agent.js`.
     pub adapter_cmd: Option<String>,
     /// Adapter processes idle this long are reaped; the next turn resumes the session in a new one.
@@ -109,6 +111,7 @@ impl Engine {
             Casts::new(config.api.clone(), config.home.clone(), services.clone(), bin, crate::wechatide::devtools());
         let home = config.home.clone();
         let replicas = Replicas::new(home.clone(), config.api.as_ref());
+        let manage = Manage::new(home, config.user_home.clone());
         Engine(Arc::new(Inner {
             config,
             workspaces,
@@ -123,7 +126,7 @@ impl Engine {
             tunnel: tokio::sync::watch::Sender::new(false),
             diffs: Coalesce::default(),
             diff_slots: Arc::new(tokio::sync::Semaphore::new(DIFF_SLOTS)),
-            manage: Manage::new(home, crate::config::user_home().join(".cc-switch")),
+            manage,
             replicas,
         }))
     }
@@ -180,9 +183,10 @@ impl Engine {
             allowlist: vec![],
             always_allow: vec![],
             git: None,
+            agent_settings: Default::default(),
         };
         let official = Selection::Official(Store::load(&self.0.config.home)?.official(kind));
-        Ok(AcpAgent::new(self.0.adapter(&bot, &local, &official).await?))
+        Ok(AcpAgent::new(self.0.adapter(&bot, &local, &official, None).await?))
     }
 }
 
@@ -557,6 +561,7 @@ impl Inner {
         bot: &RunBot,
         local: &LocalSettings,
         selection: &Selection,
+        launch: Option<&inject::ClaudeLaunch>,
     ) -> anyhow::Result<AcpAgentConfig> {
         // First, so the variables set below win over the user's.
         let env = Settings::load(&self.config.home)?.child_env();
@@ -593,10 +598,8 @@ impl Inner {
         };
         Ok(match bot.agent_kind {
             AgentKind::Claude => {
-                match selection {
-                    Selection::Provider(p) => inject::write_claude_settings(&self.config.home, p)?,
-                    Selection::Official(o) if !o.is_empty() => inject::write_official_settings(&self.config.home, o)?,
-                    Selection::Official(_) => {}
+                if let Some(launch) = launch {
+                    launch.write()?;
                 }
                 base.env("MCP_TOOL_TIMEOUT", ASK_TIMEOUT_MS)
                     .env("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", ASK_TIMEOUT_MS)

@@ -51,6 +51,9 @@
       "env": {
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "262144",
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "262144"
+      },
+      "modelContext": {
+        "kimi-for-coding": 262144
       }
     },
     {
@@ -71,6 +74,9 @@
       "env": {
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "262144",
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "262144"
+      },
+      "modelContext": {
+        "kimi-for-coding": 262144
       }
     },
     {

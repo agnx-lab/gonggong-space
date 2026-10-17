@@ -1,3 +1,4 @@
+pub mod agent_settings;
 pub mod agents;
 pub mod ask;
 pub mod attachments;

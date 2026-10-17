@@ -61,6 +61,7 @@ impl Daemon {
         let (agents, rx) = watch::channel(detect(&opts.home)?);
         let engine = Engine::new(EngineConfig {
             home: opts.home.clone(),
+            user_home: crate::config::user_home(),
             adapter_cmd: opts.adapter_cmd,
             idle: IDLE_REAP,
             api: Some(opts.config.clone()),
