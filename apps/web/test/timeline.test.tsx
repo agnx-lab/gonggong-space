@@ -468,6 +468,71 @@ describe('hover action bar', () => {
   })
 })
 
+describe('copying a selection (mobile partial copy)', () => {
+  const select = (node: Node, from: number, to: number) => {
+    const r = document.createRange()
+    r.setStart(node, from)
+    r.setEnd(node, to)
+    getSelection()?.removeAllRanges()
+    getSelection()?.addRange(r)
+    document.dispatchEvent(new Event('selectionchange'))
+  }
+  const BODY = '第一句要复制。第二句不要。'
+
+  it('copies only the text selected in the message from the bar', async () => {
+    renderChat({ messages: [msg({ seq: 1, body: BODY })], runs: [] })
+    const text = await screen.findByText(BODY)
+    const row = text.closest('.pn-msg') as HTMLElement
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    select(text.firstChild as Node, 0, 7)
+    const copy = within(row).getByRole('button', { name: '复制' })
+    fireEvent.pointerDown(copy)
+    getSelection()?.removeAllRanges()
+    fireEvent.click(copy)
+    expect(writeText).toHaveBeenCalledWith('第一句要复制。')
+  })
+
+  it('copies the selection from the right-click menu, the whole message without one', async () => {
+    renderChat({ messages: [msg({ seq: 1, body: BODY })], runs: [] })
+    const text = await screen.findByText(BODY)
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    select(text.firstChild as Node, 7, 13)
+    fireEvent.contextMenu(text)
+    getSelection()?.removeAllRanges()
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制' }))
+    expect(writeText).toHaveBeenLastCalledWith('第二句不要。')
+    fireEvent.contextMenu(text)
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制' }))
+    expect(writeText).toHaveBeenLastCalledWith(BODY)
+  })
+
+  it('leaves a touch long-press to the browser: no menu, and the bar steps aside once text gets selected', async () => {
+    renderChat({ messages: [msg({ seq: 1, body: BODY })], runs: [] })
+    const text = await screen.findByText(BODY)
+    const host = await waitFor(() => {
+      const el = text.closest<HTMLElement>('[data-actions]')
+      if (!el) throw new Error('long-press not attached yet')
+      return el
+    })
+    fireEvent.pointerDown(text, { pointerType: 'touch' })
+    const native = fireEvent.contextMenu(text)
+    expect(native).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+    vi.useFakeTimers()
+    fireEvent.pointerDown(host, { pointerType: 'touch' })
+    act(() => vi.advanceTimersByTime(600))
+    expect(host.dataset.actions).toBe('open')
+    act(() => select(text.firstChild as Node, 0, 3))
+    expect(host.dataset.actions).toBe('')
+    // The browser may select before the press is long enough: the bar then stays closed.
+    fireEvent.pointerDown(host, { pointerType: 'touch' })
+    act(() => vi.advanceTimersByTime(600))
+    expect(host.dataset.actions).toBe('')
+  })
+})
+
 describe('EmptyState illustration', () => {
   it('renders a decorative svg', () => {
     render(<EmptyState title="还没有消息" illustration={<EmptyChatArt />} />)

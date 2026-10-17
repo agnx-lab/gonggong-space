@@ -13,6 +13,8 @@ export interface ContextMenuProps {
   defaultPosition?: { x: number; y: number }
   activeValue?: string
   onOpen?: () => void
+  /** A touch long-press keeps the platform behaviour (text selection) instead of opening the menu. */
+  nativeTouch?: boolean
   className?: string
   style?: CSSProperties
 }
@@ -38,10 +40,12 @@ export function ContextMenu({
   defaultPosition,
   activeValue,
   onOpen,
+  nativeTouch,
   className,
   style,
 }: ContextMenuProps) {
   const menu = useRef<HTMLDivElement>(null)
+  const touch = useRef(false)
   const restore = useRef<HTMLElement | null>(null)
   const [pos, setPos] = useState<Position | null>(
     defaultPosition ? { ...defaultPosition, keyboard: false, local: true } : null,
@@ -102,7 +106,11 @@ export function ContextMenu({
     <div
       className={cx('ui-ctx', className)}
       style={style}
+      onPointerDown={(e) => {
+        touch.current = e.pointerType === 'touch'
+      }}
       onContextMenu={(e) => {
+        if (nativeTouch && touch.current) return
         e.preventDefault()
         show(e.clientX, e.clientY, false)
       }}

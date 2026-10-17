@@ -101,23 +101,44 @@ function DeleteDialog({ message, onClose }: { message: MessageDto; onClose: () =
   )
 }
 
-/** Keeps the bar of its message row open after a touch long-press, until the next touch elsewhere. */
+/** The text selected within `host`, if any. */
+function selectedIn(host: Element | null | undefined) {
+  const s = getSelection()
+  if (!host || !s || s.isCollapsed || !host.contains(s.anchorNode) || !host.contains(s.focusNode)) return ''
+  return s.toString()
+}
+
+/**
+ * Keeps the bar of its message row open after a touch long-press, until the next touch elsewhere. Once the press
+ * selects text (the browser's own long-press), the bar steps aside so the selection handles and menu stay usable.
+ */
 function useLongPress(bar: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const host = bar.current?.closest<HTMLElement>('.pn-msg')
     if (!host) return
     let timer: ReturnType<typeof setTimeout> | undefined
     const cancel = () => clearTimeout(timer)
-    // Listens on the document only while open: a long timeline would otherwise hold one listener per row.
+    // Listens on the document only from a touch press until closed: a long timeline would otherwise hold one
+    // listener per row.
     const outside = (e: PointerEvent) => {
-      if (host.contains(e.target as Node)) return
+      if (!host.contains(e.target as Node)) close()
+    }
+    const close = () => {
       host.dataset.actions = ''
       document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('selectionchange', selecting)
+    }
+    const selecting = () => {
+      if (!selectedIn(host)) return
+      cancel()
+      close()
     }
     const down = (e: PointerEvent) => {
       if (e.pointerType !== 'touch') return
       cancel()
+      document.addEventListener('selectionchange', selecting)
       timer = setTimeout(() => {
+        if (selectedIn(host)) return close()
         host.dataset.actions = 'open'
         document.addEventListener('pointerdown', outside)
       }, LONG_PRESS_MS)
@@ -131,6 +152,7 @@ function useLongPress(bar: RefObject<HTMLDivElement | null>) {
       for (const t of ['pointerup', 'pointercancel', 'pointermove'] as const)
         host.removeEventListener(t, cancel)
       document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('selectionchange', selecting)
     }
   }, [bar])
 }
@@ -174,6 +196,12 @@ function useMessageMenu(target: ActionTarget) {
   const [picking, setPicking] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const navigate = useNavigate()
+  const bar = useRef<HTMLDivElement>(null)
+  // Tapping 复制 or opening the menu may clear the selection before the click lands, so it is read first.
+  const picked = useRef('')
+  const keepSelection = () => {
+    picked.current = selectedIn(bar.current?.closest('.pn-msg'))
+  }
   const mine = target.own && target.message ? target.message : null
   const recallable = !!mine && Date.now() - Date.parse(mine.createdAt) < RECALL_WINDOW_MS
   // Commands are not editable (the server refuses them too).
@@ -196,9 +224,11 @@ function useMessageMenu(target: ActionTarget) {
   const select = (value: string) => {
     if (value === 'react') setPicking(true)
     else if (value === 'quote') target.onQuote()
-    else if (value === 'copy' && target.copyText !== undefined)
-      void copyWithToast(target.copyText, t('已复制'))
-    else if (value === 'link') void copyWithToast(target.link, t('链接已复制'))
+    else if (value === 'copy' && target.copyText !== undefined) {
+      const part = picked.current || selectedIn(bar.current?.closest('.pn-msg'))
+      picked.current = ''
+      void copyWithToast(part || target.copyText, t('已复制'))
+    } else if (value === 'link') void copyWithToast(target.link, t('链接已复制'))
     else if (value === 'branch' && target.message)
       void branch(target.message, (groupId) => navigate(`/g/${groupId}`))
     else if (value === 'edit') target.onEdit?.()
@@ -210,15 +240,14 @@ function useMessageMenu(target: ActionTarget) {
       {mine && deleting ? <DeleteDialog message={mine} onClose={() => setDeleting(false)} /> : null}
     </Presence>
   )
-  return { target, picking, setPicking, more, all, select, dialog }
+  return { target, picking, setPicking, more, all, select, dialog, bar, keepSelection }
 }
 
 type MessageMenuState = ReturnType<typeof useMessageMenu>
 
 /** The Pane glass hover bar; kept visible while its menus are open or after a touch long-press. */
 function Bar({ menu }: { menu: MessageMenuState }) {
-  const { target } = menu
-  const bar = useRef<HTMLDivElement>(null)
+  const { target, bar } = menu
   const [more, setMore] = useState(false)
   useLongPress(bar)
   return (
@@ -242,7 +271,13 @@ function Bar({ menu }: { menu: MessageMenuState }) {
         <Icon name="quote" />
       </button>
       {target.copyText !== undefined ? (
-        <button type="button" aria-label={t('复制')} title={t('复制')} onClick={() => menu.select('copy')}>
+        <button
+          type="button"
+          aria-label={t('复制')}
+          title={t('复制')}
+          onPointerDown={menu.keepSelection}
+          onClick={() => menu.select('copy')}
+        >
           <Icon name="copy" />
         </button>
       ) : null}
@@ -278,7 +313,7 @@ export function MessageMenu({
 }: ActionTarget & { children: (bar: ReactNode) => ReactNode }) {
   const menu = useMessageMenu(target)
   return (
-    <ContextMenu items={menu.all} onSelect={menu.select}>
+    <ContextMenu items={menu.all} onSelect={menu.select} onOpen={menu.keepSelection} nativeTouch>
       {children(<Bar menu={menu} />)}
       {menu.dialog}
     </ContextMenu>

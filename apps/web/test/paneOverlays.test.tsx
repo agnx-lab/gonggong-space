@@ -101,6 +101,23 @@ describe('Menu v2', () => {
   })
 })
 
+describe('ContextMenu nativeTouch', () => {
+  it('lets a touch long-press keep the platform behaviour, a mouse right-click still opens', () => {
+    render(
+      <ContextMenu items={SHARE} nativeTouch>
+        <p>正文</p>
+      </ContextMenu>,
+    )
+    const p = screen.getByText('正文')
+    fireEvent.pointerDown(p, { pointerType: 'touch' })
+    expect(fireEvent.contextMenu(p)).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.pointerDown(p, { pointerType: 'mouse' })
+    expect(fireEvent.contextMenu(p)).toBe(false)
+    expect(screen.getByRole('menu')).toBeTruthy()
+  })
+})
+
 describe('ContextMenu', () => {
   function Host({ onSelect = () => {} }: { onSelect?: (v: string) => void }) {
     return (

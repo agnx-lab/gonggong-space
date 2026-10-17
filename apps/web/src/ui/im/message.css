@@ -153,7 +153,13 @@
   opacity: 1;
   pointer-events: auto;
 }
-.pn-msg:hover .pn-msg__actions,
+/* Touch screens keep :hover after a tap; there the bar opens by long-press only, leaving the text selectable. */
+@media (hover: hover) {
+  .pn-msg:hover .pn-msg__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 .pn-msg:focus-within .pn-msg__actions,
 .pn-msg__actions:has([data-open]),
 .pn-msg[data-actions="open"] .pn-msg__actions {
