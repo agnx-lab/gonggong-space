@@ -20,6 +20,7 @@ import {
 } from '../../ui'
 import { BotAvatar } from '../bots/avatars'
 import { AGENT_LABEL, PRESENCE } from '../bots/model'
+import { AgentSettingsPanel } from './AgentSettingsPanel'
 import { OS_LABEL } from './BindMachineDialog'
 import { ProvidersPanel } from './ProvidersPanel'
 import { RevokeMachineDialog } from './RevokeMachineDialog'
@@ -42,12 +43,14 @@ export const OS_ICON: Record<MachineDto['os'], IconName> = {
   windows: 'windows',
 }
 
-type Tab = 'overview' | 'tools' | 'providers'
+type Tab = 'overview' | 'tools' | 'providers' | 'agent'
 const TAB_NAME = { tools: t('Agent 工具'), providers: t('供应商#nav') }
+/** Agent settings travel with the providers command. */
+const FEATURE = { tools: 'tools', providers: 'providers', agent: 'providers' } as const
 
 /** Why the machine's tools / providers cannot be managed live right now, if so. */
-const blocked = (m: MachineDto, feature: 'tools' | 'providers') =>
-  !m.online ? 'offline' : m.features.includes(feature) ? null : 'outdated'
+const blocked = (m: MachineDto, tab: Exclude<Tab, 'overview'>) =>
+  !m.online ? 'offline' : m.features.includes(FEATURE[tab]) ? null : 'outdated'
 
 function blockedNote(m: MachineDto) {
   if (!m.online) return t('机器离线，上线后才能管理 Agent 工具与供应商')
@@ -110,6 +113,7 @@ export function MachineDetails({
               { value: 'overview', label: t('概览') },
               { value: 'tools', label: TAB_NAME.tools, disabled: !!blocked(machine, 'tools') },
               { value: 'providers', label: TAB_NAME.providers, disabled: !!blocked(machine, 'providers') },
+              { value: 'agent', label: t('Agent 设置'), disabled: !!blocked(machine, 'agent') },
             ]}
           />
           {blockedNote(machine) ? <p className="machine__tabs-note">{blockedNote(machine)}</p> : null}
@@ -127,6 +131,8 @@ export function MachineDetails({
         />
       ) : tab === 'tools' ? (
         <ToolsPanel machine={machine} />
+      ) : tab === 'agent' ? (
+        <AgentSettingsPanel machine={machine} />
       ) : (
         <ProvidersPanel machine={machine} />
       )}

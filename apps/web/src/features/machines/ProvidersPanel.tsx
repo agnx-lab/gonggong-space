@@ -11,6 +11,7 @@ import { api, errorText } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { Alert, AlertDialog, Button, GroupBox, Presence, Skeleton, toast } from '../../ui'
 import { AGENT_LABEL, AGENTS } from '../bots/model'
+import { providerSummary } from './agentSettings'
 import { OfficialEditor, ProviderEditor } from './ProviderEditor'
 import { CcSwitchImport, LinkImport } from './ProviderImports'
 import { OFFICIAL_NAME, removalLines, SessionLines, useProviderSwitch } from './providers'
@@ -162,7 +163,7 @@ function ProviderBox({
           row(
             p.id,
             p.name,
-            [p.baseUrl, p.model, `Key ${p.apiKey}`].filter(Boolean).join(' · '),
+            [p.baseUrl, p.model, providerSummary(p.env), `Key ${p.apiKey}`].filter(Boolean).join(' · '),
             <>
               <Button size="small" onClick={() => setOpen({ kind: 'editor', editing: p })}>
                 {t('编辑…')}

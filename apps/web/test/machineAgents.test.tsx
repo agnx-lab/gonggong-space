@@ -16,6 +16,7 @@ import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
 import { MachineDialog } from '../src/features/machines/MachineDialog'
 import { realtime } from '../src/lib/realtime'
+import { Toaster } from '../src/ui'
 import { type Call, mockApi } from './mockApi'
 
 const me: UserDto = {
@@ -79,6 +80,7 @@ const kimiPreset: ProviderPreset = {
   env: {},
   wireApi: null,
   effort: null,
+  modelContext: {},
 }
 const PRESETS: ProviderPreset[] = [
   kimiPreset,
@@ -118,6 +120,8 @@ const VIEW: ProviderStoreView = {
     { groupId: 'g2', botId: 'b1', agent: 'claude', provider: 'official' },
     { groupId: 'g3', botId: 'b2', agent: 'claude', provider: 'official' },
   ],
+  agentSettings: {},
+  cli: {},
 }
 
 const group = (id: string, name: string) => ({ id, name }) as never
@@ -162,6 +166,7 @@ describe('machine dialog tabs', () => {
     expect(tab('概览').getAttribute('aria-selected')).toBe('true')
     expect(tab('Agent 工具').disabled).toBe(false)
     expect(tab('供应商').disabled).toBe(false)
+    expect(tab('Agent 设置').disabled).toBe(false)
   })
 
   it('has no tabs for someone else (a sysadmin looking at a member machine)', () => {
@@ -174,6 +179,7 @@ describe('machine dialog tabs', () => {
     open({ ...mbp, online: false, features: [] })
     expect(tab('Agent 工具').disabled).toBe(true)
     expect(tab('供应商').disabled).toBe(true)
+    expect(tab('Agent 设置').disabled).toBe(true)
     expect(screen.getByText(/机器离线/)).toBeTruthy()
   })
 
@@ -466,7 +472,7 @@ describe('供应商', () => {
     const form = await screen.findByRole('form', { name: 'Claude Code 官方登录设置' })
     const proxy = within(form).getByRole('textbox', { name: '代理地址' }) as HTMLInputElement
     expect(proxy.value).toBe('http://bob:****@10.0.0.2:3128')
-    const env = within(form).getByRole('textbox', { name: '环境变量' })
+    const env = within(form).getByRole('textbox', { name: '其他环境变量' })
     expect((env as HTMLTextAreaElement).value).toBe('DISABLE_TELEMETRY=1')
     fireEvent.change(env, { target: { value: 'DISABLE_TELEMETRY=1\nNO_PROXY=.corp' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
@@ -619,5 +625,253 @@ describe('供应商', () => {
     )
     expect(screen.getAllByText(/机器离线/).length).toBeGreaterThan(0)
     expect(screen.queryByRole('region', { name: 'Claude Code 供应商' })).toBeNull()
+  })
+})
+
+describe('供应商 · 高级设置', () => {
+  const PRESET: ProviderPreset = {
+    ...kimiPreset,
+    env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '262144' },
+    modelContext: { 'kimi-for-coding': 262144, 'kimi-k2': 1000000 },
+  }
+  const openEditor = async (provider: ProviderView, preset = PRESET) => {
+    const calls = mockApi({
+      'GET /machines/m1/providers': { ...VIEW, providers: [provider] },
+      'GET /machines/m1/providers/presets?agent=claude': [preset],
+      'PUT /machines/m1/providers/p1': { id: 'p1', view: VIEW },
+    })
+    open()
+    fireEvent.click(tab('供应商'))
+    const claude = await screen.findByRole('region', { name: 'Claude Code 供应商' })
+    fireEvent.click(within(claude).getByRole('button', { name: '编辑…' }))
+    const form = await screen.findByRole('form', { name: '编辑供应商' })
+    fireEvent.click(within(form).getByRole('button', { name: '高级' }))
+    await within(form).findByText('预设：256K')
+    return { calls, form }
+  }
+  const saved = async (calls: Call[]) => {
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
+    return calls.find((c) => c.method === 'PUT')?.body as { env: Record<string, string>; models?: unknown }
+  }
+  const radio = (form: HTMLElement, group: string, name: string) =>
+    within(within(form).getByRole('radiogroup', { name: group })).getByRole('radio', { name })
+
+  it('saves untouched settings exactly as they were (a provider setting only the auto-compact window)', async () => {
+    const env = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '204800', GITHUB_TOKEN: '****wxyz' }
+    const { calls, form } = await openEditor({ ...kimi, env })
+    expect((within(form).getByRole('textbox', { name: '其他环境变量' }) as HTMLTextAreaElement).value).toBe(
+      'GITHUB_TOKEN=****wxyz',
+    )
+    expect((await saved(calls)).env).toEqual(env)
+  })
+
+  it('shows the window of the selected model until one is set', async () => {
+    const { form } = await openEditor(kimi)
+    const window = within(form).getByRole('button', { name: '上下文窗口' })
+    expect(window.textContent).toContain('按模型：256K')
+    fireEvent.change(within(form).getByRole('combobox', { name: '模型' }), { target: { value: 'kimi-k2' } })
+    expect(window.textContent).toContain('按模型：1M')
+    fireEvent.click(window)
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '200K' }))
+    expect(window.textContent).toContain('200K')
+    expect(window.textContent).not.toContain('按模型')
+  })
+
+  it('writes the controls into env with units and the three-state switch', async () => {
+    const { calls, form } = await openEditor(kimi)
+    fireEvent.click(within(form).getByRole('button', { name: '上下文窗口' }))
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: '自定义' }))
+    fireEvent.change(within(form).getByRole('textbox', { name: '自定义上下文窗口' }), {
+      target: { value: '1m' },
+    })
+    fireEvent.change(within(form).getByRole('textbox', { name: '输出上限' }), { target: { value: '128k' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'API 超时' }), { target: { value: '10m' } })
+    fireEvent.click(radio(form, '工具搜索', '关'))
+    fireEvent.click(within(form).getByRole('checkbox', { name: '关闭实验性 beta' }))
+    expect((await saved(calls)).env).toEqual({
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: '128000',
+      API_TIMEOUT_MS: '600000',
+      ENABLE_TOOL_SEARCH: 'false',
+      CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1',
+    })
+  })
+
+  it('marks a value changed from the preset and restores it alone', async () => {
+    const { calls, form } = await openEditor({
+      ...kimi,
+      env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '204800', CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000' },
+    })
+    expect(form.textContent).toContain('预设：256K')
+    expect(within(form).getAllByText('已修改')).toHaveLength(2)
+    fireEvent.click(within(form).getByRole('button', { name: '恢复预设：自动压缩窗口' }))
+    expect(within(form).getAllByText('已修改')).toHaveLength(1)
+    expect((await saved(calls)).env).toEqual({
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: '262144',
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000',
+    })
+  })
+
+  it('refuses a known variable among the others', async () => {
+    const { calls, form } = await openEditor(kimi)
+    fireEvent.change(within(form).getByRole('textbox', { name: '其他环境变量' }), {
+      target: { value: 'CLAUDE_CODE_MAX_OUTPUT_TOKENS=1000' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(await screen.findByText('请在上方「输出上限」设置')).toBeTruthy()
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+  })
+
+  it('refuses an auto-compact window above the model window', async () => {
+    const { calls, form } = await openEditor(kimi)
+    fireEvent.change(within(form).getByRole('textbox', { name: '自动压缩窗口' }), {
+      target: { value: '300k' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(await screen.findByText(/不能大于上下文窗口/)).toBeTruthy()
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+  })
+
+  it('moves the deprecated small fast model to the Haiku mapping', async () => {
+    const { calls, form } = await openEditor({
+      ...kimi,
+      env: { ANTHROPIC_SMALL_FAST_MODEL: 'kimi-k2', X: '1' },
+    })
+    expect(form.textContent).toContain('ANTHROPIC_SMALL_FAST_MODEL 已废弃')
+    fireEvent.click(within(form).getByRole('button', { name: '改用 Haiku 映射' }))
+    expect((within(form).getByRole('textbox', { name: 'haiku 模型' }) as HTMLInputElement).value).toBe(
+      'kimi-k2',
+    )
+    expect(form.textContent).not.toContain('已废弃')
+    const body = await saved(calls)
+    expect(body.env).toEqual({ X: '1' })
+    expect(body.models).toEqual({ haiku: 'kimi-k2' })
+  })
+
+  it('summarises window and output in the provider list', async () => {
+    const env = { CLAUDE_CODE_MAX_CONTEXT_TOKENS: '262144', CLAUDE_CODE_MAX_OUTPUT_TOKENS: '128000' }
+    mockApi({ 'GET /machines/m1/providers': { ...VIEW, providers: [{ ...kimi, env }] } })
+    open()
+    fireEvent.click(tab('供应商'))
+    const claude = await screen.findByRole('region', { name: 'Claude Code 供应商' })
+    expect(within(claude).getByRole('radio', { name: /Kimi/ }).closest('label')?.textContent).toContain(
+      '上下文 256K · 输出 128K',
+    )
+  })
+
+  it('gives the official login the same controls, without a model window', async () => {
+    const official = {
+      claude: { env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000', NO_PROXY: '.corp' }, proxy: null },
+    }
+    const calls = mockApi({
+      'GET /machines/m1/providers': { ...VIEW, official },
+      'PUT /machines/m1/providers/official': { ...VIEW, official },
+    })
+    open()
+    fireEvent.click(tab('供应商'))
+    const claude = await screen.findByRole('region', { name: 'Claude Code 供应商' })
+    fireEvent.click(within(claude).getByRole('button', { name: '设置…' }))
+    const form = await screen.findByRole('form', { name: 'Claude Code 官方登录设置' })
+    expect((within(form).getByRole('textbox', { name: '输出上限' }) as HTMLInputElement).value).toBe('64K')
+    expect(within(form).getByRole('button', { name: '上下文窗口' }).textContent).not.toContain('按模型')
+    fireEvent.change(within(form).getByRole('textbox', { name: '输出上限' }), { target: { value: '32k' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({
+      agent: 'claude',
+      proxy: '',
+      env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '32000', NO_PROXY: '.corp' },
+    })
+  })
+
+  it('leaves Codex providers with the plain variables', async () => {
+    const codex: ProviderView = { ...kimi, id: 'p2', agent: 'codex', name: 'GLM', presetId: null }
+    mockApi({
+      'GET /machines/m1/providers': { ...VIEW, providers: [codex] },
+      'GET /machines/m1/providers/presets?agent=codex': [],
+    })
+    open()
+    fireEvent.click(tab('供应商'))
+    const region = await screen.findByRole('region', { name: 'Codex 供应商' })
+    fireEvent.click(within(region).getByRole('button', { name: '编辑…' }))
+    const form = await screen.findByRole('form', { name: '编辑供应商' })
+    fireEvent.click(within(form).getByRole('button', { name: '高级' }))
+    expect(within(form).queryByRole('button', { name: '上下文窗口' })).toBeNull()
+    expect(within(form).getByRole('textbox', { name: '环境变量' })).toBeTruthy()
+  })
+})
+
+describe('Agent 设置', () => {
+  const SET_VIEW: ProviderStoreView = {
+    ...VIEW,
+    agentSettings: { claude: { values: { language: 'chinese', autoMemory: 'false' }, inheritCli: true } },
+    cli: {
+      claude: {
+        values: { language: 'english', thinking: 'true' },
+        conflicts: ['CLAUDE_CODE_EFFORT_LEVEL'],
+        hooks: 2,
+        permissionRules: 5,
+        version: '2.1.296',
+      },
+    },
+  }
+  const openSettings = async (routes: Record<string, unknown> = {}, view = SET_VIEW) => {
+    const calls = mockApi({ 'GET /machines/m1/providers': view, ...routes })
+    render(
+      <MemoryRouter>
+        <MachineDialog machine={mbp} onClose={() => {}} />
+        <Toaster />
+      </MemoryRouter>,
+    )
+    fireEvent.click(tab('Agent 设置'))
+    return { calls, region: await screen.findByRole('region', { name: 'Claude Code Agent 设置' }) }
+  }
+  const row = (region: HTMLElement, label: string) =>
+    within(region)
+      .getByText(label, { selector: '.ui-group__text > div' })
+      .closest('.ui-group__row') as HTMLElement
+
+  it('shows where each value comes from, striking the CLI value it overrides', async () => {
+    const { region } = await openSettings()
+    const language = row(region, '语言')
+    expect(language.textContent).toContain('来源：Agent 设置')
+    expect(language.querySelector('s')?.textContent).toContain('本机 CLI：english')
+    expect(row(region, '扩展思考').textContent).toContain('来源：本机 CLI（开）')
+    expect(row(region, 'Bash 默认超时').textContent).toContain('来源：默认')
+    expect(region.textContent).toContain('本机 CLI 设置了 CLAUDE_CODE_EFFORT_LEVEL')
+    expect(region.textContent).toContain('2 个 hooks、5 条权限规则')
+    expect(row(region, '由共工管理').textContent).toContain('permissions')
+  })
+
+  it('saves the machine defaults and says they apply from the next turn', async () => {
+    const { calls, region } = await openSettings({ 'PUT /machines/m1/agent-settings': SET_VIEW })
+    fireEvent.click(within(row(region, '扩展思考')).getByRole('radio', { name: '关' }))
+    fireEvent.change(within(region).getByRole('textbox', { name: 'Bash 默认超时' }), {
+      target: { value: '10m' },
+    })
+    expect(region.textContent).not.toContain('个人 CLAUDE.md')
+    fireEvent.click(within(region).getByRole('switch', { name: '继承本机 CLI 配置' }))
+    expect(region.textContent).toContain('个人 CLAUDE.md、记忆、hooks 和用户 Skill')
+    fireEvent.click(within(region).getByRole('button', { name: '保存' }))
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === 'PUT')).toMatchObject({
+        path: '/machines/m1/agent-settings',
+        body: {
+          agent: 'claude',
+          values: { language: 'chinese', autoMemory: 'false', thinking: 'false', bashTimeout: '600000' },
+          inheritCli: false,
+        },
+      }),
+    )
+    expect(await screen.findByText('Agent 设置已保存，将在下一轮生效')).toBeTruthy()
+  })
+
+  it('starts from the defaults with the CLI inherited when nothing is set', async () => {
+    const { region } = await openSettings({}, VIEW)
+    expect(row(region, '语言').textContent).toContain('来源：默认')
+    expect(
+      (within(region).getByRole('switch', { name: '继承本机 CLI 配置' }) as HTMLInputElement).checked,
+    ).toBe(true)
   })
 })
