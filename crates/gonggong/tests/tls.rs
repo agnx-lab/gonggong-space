@@ -97,7 +97,7 @@ async fn connecting_gives_up_on_a_server_that_never_answers_the_upgrade() {
     drop(listener);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn a_server_that_never_answers_fails_the_request_instead_of_hanging_it() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://127.0.0.1:{}/api/health", listener.local_addr().unwrap().port());
@@ -109,10 +109,15 @@ async fn a_server_that_never_answers_fails_the_request_instead_of_hanging_it() {
         let _ = got.send(());
         std::future::pending::<()>().await;
     });
-    let err = tokio::time::timeout(std::time::Duration::from_secs(3600), tls::http().unwrap().get(url).send())
+    let send = tokio::spawn(tls::http().unwrap().get(url).send());
+    request.await.expect("the request reached the server: the response was what stalled");
+    // Paused only now: a clock paused from the start jumps to the timeout whenever the loopback connect is not
+    // ready at once, so under load the request never reached the server and the test hung.
+    tokio::time::pause();
+    let err = tokio::time::timeout(std::time::Duration::from_secs(3600), send)
         .await
         .expect("the client's own timeout fires first")
+        .unwrap()
         .unwrap_err();
     assert!(err.is_timeout(), "{err:?}");
-    request.await.expect("the request reached the server: the response was what stalled");
 }
