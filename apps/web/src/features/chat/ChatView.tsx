@@ -15,7 +15,6 @@ import { GROUP_MODE_LABEL } from '../../app/Sidebar'
 import { useSession } from '../../app/session'
 import { useWorkbench } from '../../app/workbench'
 import { useWorkspace } from '../../app/workspace'
-import { api } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import {
   Button,
@@ -67,6 +66,7 @@ import {
   RunCard,
   UserMessage,
 } from './TimelineItems'
+import { useMarkRead } from './useMarkRead'
 import { useTimeline } from './useTimeline'
 import { WorkspaceBanner } from './WorkspaceBanner'
 import './chat.css'
@@ -160,7 +160,6 @@ export function ChatView({
   const box = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const olderAnchor = useRef<{ id: string; height: number } | null>(null)
-  const readSeq = useRef(0)
   /** What the view had shown at the last render, to count arrivals while scrolled up. */
   const seen = useRef({ first: '', seq: 0, runs: 0 })
   const [unseen, setUnseen] = useState(0)
@@ -191,17 +190,7 @@ export function ChatView({
   }, [group.id, setActiveGroup])
 
   const lastSeq = tl.messages.at(-1)?.seq ?? 0
-  // A hidden tab has not really seen the messages: mark read once it is visible again.
-  useEffect(() => {
-    const flush = () => {
-      if (readOnly || document.hidden || lastSeq <= readSeq.current) return
-      readSeq.current = lastSeq
-      api.post(`/groups/${group.id}/read`, { seq: lastSeq }).catch(() => {})
-    }
-    flush()
-    document.addEventListener('visibilitychange', flush)
-    return () => document.removeEventListener('visibilitychange', flush)
-  }, [group.id, lastSeq, readOnly])
+  useMarkRead(group.id, lastSeq, !readOnly)
 
   const runCount = Object.keys(tl.runs).length
   // Runs grow cards too, so they must re-pin the view.

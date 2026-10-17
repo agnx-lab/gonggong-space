@@ -483,6 +483,67 @@ describe('live runs bar', () => {
 })
 
 describe('read marks and timestamps', () => {
+  const reads = (calls: Call[], id = 'g1') =>
+    calls.filter((c) => c.path === `/groups/${id}/read`).map((c) => c.body)
+  const arrive = (seqs: number[]) => {
+    for (const seq of seqs)
+      push({
+        t: 'message.new',
+        message: msg({ seq, id: `m${seq}`, authorId: 'u2', authorName: '李建国', body: `新 ${seq}` }),
+      })
+  }
+
+  it('marks read on entry, then once for a burst of messages with the highest seq', async () => {
+    const calls = mockApi({ messages: [msg({ seq: 2, body: '你好' })], runs: [] })
+    renderAt()
+    await screen.findByText('你好')
+    await waitFor(() => expect(reads(calls)).toEqual([{ seq: 2 }]))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      arrive([3, 4, 5, 6])
+      await screen.findByText('新 6')
+      expect(reads(calls)).toEqual([{ seq: 2 }])
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      expect(reads(calls)).toEqual([{ seq: 2 }, { seq: 6 }])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends the pending read at once when switching to another group', async () => {
+    const calls = mockApi(
+      { messages: [msg({ seq: 2, body: '你好' })], runs: [] },
+      {
+        'GET /groups': () => [group(), group({ id: 'g2', name: '另一个群' })],
+        'GET /groups/g2/timeline': () => ({ messages: [], runs: [] }),
+        'POST /groups/g2/read': () => group({ id: 'g2', name: '另一个群' }),
+      },
+    )
+    renderAt()
+    await screen.findByText('你好')
+    await waitFor(() => expect(reads(calls)).toEqual([{ seq: 2 }]))
+    arrive([3, 4])
+    await screen.findByText('新 4')
+    expect(reads(calls)).toEqual([{ seq: 2 }])
+    const nav = screen.getByRole('navigation', { name: '会话列表' })
+    fireEvent.click(within(nav).getByRole('link', { name: /另一个群/ }))
+    expect(reads(calls)).toEqual([{ seq: 2 }, { seq: 4 }])
+  })
+
+  it('sends the pending read at once when the tab is hidden', async () => {
+    const calls = mockApi({ messages: [msg({ seq: 2, body: '你好' })], runs: [] })
+    renderAt()
+    await screen.findByText('你好')
+    await waitFor(() => expect(reads(calls)).toEqual([{ seq: 2 }]))
+    arrive([3])
+    await screen.findByText('新 3')
+    hidden = true
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(reads(calls)).toEqual([{ seq: 2 }, { seq: 3 }])
+  })
+
   it('does not mark read while the tab is hidden and flushes when it becomes visible', async () => {
     hidden = true
     const calls = mockApi({ messages: [msg({ seq: 2, body: '你好' })], runs: [] })

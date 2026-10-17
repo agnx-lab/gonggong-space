@@ -3,7 +3,7 @@ import { t } from '../i18n'
 import { cx } from '../lib/cx'
 import { useControlled } from './controlled'
 import { type Glyph, renderGlyph } from './controls'
-import { Avatar, type AvatarProps, Badge } from './display'
+import { Avatar, type AvatarProps, Badge, unreadCount } from './display'
 import './nav-rail.css'
 
 export interface NavRailItem {
@@ -91,7 +91,7 @@ export function NavRail({
         title={it.label}
         aria-label={
           it.badge
-            ? t('{label}（{n} 条未读）', { label: it.label, n: it.badge })
+            ? t('{label}（{n} 条未读）', { label: it.label, n: unreadCount(it.badge) })
             : it.dot
               ? t('{label}（有新内容）', { label: it.label })
               : it.label

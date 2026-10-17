@@ -103,10 +103,13 @@ const latest = (col: string) =>
   )
 const lastSeq = sql<number | null>`${latest('seq')}`
 const lastId = sql<string | null>`${latest('id')}`
-// System events and the viewer's own messages never count as unread.
+// System events and the viewer's own messages never count as unread. Counting stops at 100 (shown as 99+),
+// so a long-unread group costs no more than a busy one.
 const unread =
-  sql<number>`${sql.raw(`(select count(*) from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
-  and m.kind <> 'event' and m.author_user_id is distinct from "group_members"."user_id")`)}`.mapWith(Number)
+  sql<number>`${sql.raw(`(select count(*) from (select 1 from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
+  and m.kind <> 'event' and m.author_user_id is distinct from "group_members"."user_id" limit 100) u)`)}`.mapWith(
+    Number,
+  )
 
 const mentioned = sql<boolean>`${sql.raw(`exists(select 1 from messages m where ${inGroupAfter('"group_members"."last_read_seq"')}
   and m.meta->'userMentions' @> jsonb_build_array("group_members"."user_id")

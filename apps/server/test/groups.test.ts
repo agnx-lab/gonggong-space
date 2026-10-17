@@ -11,7 +11,7 @@ import {
   questionSets,
   runs,
 } from '../src/db/schema.js'
-import { publishGroup } from '../src/modules/groups/service.js'
+import { publishGroup, unreadByTeam } from '../src/modules/groups/service.js'
 import { createTestApp, type TestApp } from './support/app.js'
 import { client, events } from './support/http.js'
 
@@ -165,6 +165,25 @@ describe('reading groups', () => {
     expect((await p.asWang.post(`/api/groups/${mine.id}/read`, { seq: lastSeq })).status).toBe(200)
     expect((await p.asWang.get<GroupDto[]>('/api/groups')).body[0]!.unread).toBe(0)
     expect(wangEvents).toEqual([{ t: 'group.updated', group: expect.objectContaining({ unread: 0 }) }])
+  })
+
+  it('counts unread up to 100 and still sees a mention older than that', async () => {
+    const p = await people()
+    const g = await t.seed.group({ createdBy: p.wang.id, memberIds: [p.li.id], name: 'A' })
+    await t.db.insert(messages).values(
+      Array.from({ length: 150 }, (_, i) => ({
+        groupId: g.id,
+        kind: 'user',
+        authorUserId: p.li.id,
+        body: `第${i}条`,
+        meta: i === 0 ? { userMentions: [p.wang.id] } : {},
+      })),
+    )
+
+    const [mine] = (await p.asWang.get<GroupDto[]>('/api/groups')).body
+    expect(mine).toMatchObject({ unread: 100, mentioned: true })
+    expect((await p.asLi.get<GroupDto[]>('/api/groups')).body[0]).toMatchObject({ mentioned: false })
+    expect((await unreadByTeam(t.ctx, p.wang.id)).get(g.teamId)).toBe(100)
   })
 
   it('lists the group with the latest message first, an empty one by when it was created', async () => {

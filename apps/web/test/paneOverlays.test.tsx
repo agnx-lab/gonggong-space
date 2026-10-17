@@ -437,6 +437,12 @@ describe('NavRail', () => {
     expect(document.activeElement).toBe(item(/设置/))
     expect(item(/设置/).tabIndex).toBe(0)
   })
+
+  it('caps a badge of 100 or more at 99+ in text and label', () => {
+    render(<NavRail items={[{ id: 'msg', label: '消息', icon: 'bubble', badge: 100 }]} />)
+    const msg = screen.getByRole('button', { name: '消息（99+ 条未读）' })
+    expect(within(msg).getByRole('img', { name: '99+ 条未读' }).textContent).toBe('99+')
+  })
 })
 
 describe('Sidebar v2', () => {
