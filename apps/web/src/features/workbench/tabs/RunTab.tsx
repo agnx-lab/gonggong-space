@@ -28,6 +28,7 @@ import {
   GroupRow,
   Icon,
   IconButton,
+  MenuButton,
   Spinner,
   Tabs,
   Tag,
@@ -43,7 +44,7 @@ import { fieldLabel, tokensLabel } from '../../machines/agentSettings'
 import { OFFICIAL_NAME } from '../../machines/providers'
 import { ActivityDock } from '../../runs/ActivityDock'
 import { ApprovalCard } from '../../runs/ApprovalBlock'
-import { processText } from '../../runs/activity'
+import { processMarkdown, processText } from '../../runs/activity'
 import { IssueBanner } from '../../runs/IssueBanner'
 import { runIssue } from '../../runs/issue'
 import { ProcessView } from '../../runs/ProcessView'
@@ -282,12 +283,24 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
       >
         {run ? <Tag tone={RUN_STATUS[run.status].tone}>{RUN_STATUS[run.status].label}</Tag> : null}
         {steps && !detail?.purged ? (
-          <IconButton
+          <MenuButton
+            className="ui-btn ui-btn--plain ui-btn--large ui-btn--icon ui-icon-btn"
             title={t('复制过程')}
-            onClick={() => void copyWithToast(processText(steps, root), t('已复制过程'))}
+            aria-label={t('复制过程')}
+            align="end"
+            items={[
+              { label: t('复制为纯文本'), value: 'text' },
+              { label: t('复制为 Markdown'), value: 'markdown' },
+            ]}
+            onSelect={(v) =>
+              void copyWithToast(
+                (v === 'markdown' ? processMarkdown : processText)(steps, root),
+                t('已复制过程'),
+              )
+            }
           >
             <Icon name="copy" />
-          </IconButton>
+          </MenuButton>
         ) : null}
         <IconButton title={t('机器与会话')} aria-pressed={more} onClick={() => setMore(!more)}>
           <Icon name="info" />

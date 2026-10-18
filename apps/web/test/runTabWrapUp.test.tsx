@@ -2,7 +2,7 @@ import type { ApprovalDto, QuestionSetDto, RunDetailDto, RunDto } from '@gonggon
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkbench } from '../src/app/workbench'
-import { processText } from '../src/features/runs/activity'
+import { processMarkdown, processText } from '../src/features/runs/activity'
 import { ProcessView } from '../src/features/runs/ProcessView'
 import type { Step } from '../src/features/runs/steps'
 import { RunTab } from '../src/features/workbench/tabs/RunTab'
@@ -163,15 +163,58 @@ describe('copying the process', () => {
     )
   })
 
-  it('copies from the run tab', async () => {
+  it('writes Markdown: a list item per step, output fenced, replies quoted, subagents nested', () => {
+    const md = processMarkdown(
+      [
+        { key: 'c', kind: 'execute', label: '执行命令', mono: 'make build', out: '$ make build\nok', at },
+        failing('f'),
+        { key: 'aa1', kind: 'approval', label: '权限请求', mono: 'rm -rf dist', body: '王磊 已批准', at },
+        {
+          key: 'sa',
+          kind: 'subagent',
+          label: '子 agent',
+          title: 'Explore',
+          body: '找入口',
+          at,
+          children: [{ key: 'sr', kind: 'read', label: '读取文件', mono: 'src/a.ts', at }],
+        },
+        { key: 't', kind: 'text', label: '回复', body: '好了\n\n第二行', at },
+      ],
+      null,
+    )
+    expect(md).toBe(
+      [
+        '- `10:00:02` 已运行 `make build`',
+        '- `10:00:02` 运行失败 `make test`',
+        '  ```',
+        '  $ make test',
+        '  boom',
+        '  ```',
+        '- `10:00:02` 权限请求 `rm -rf dist` · 王磊 已批准',
+        '- `10:00:02` Explore 找入口',
+        '  - `10:00:02` 已读取 `src/a.ts`',
+        '- `10:00:02` 回复',
+        '  > 好了',
+        '  >',
+        '  > 第二行',
+      ].join('\n'),
+    )
+  })
+
+  it('copies from the run tab as plain text or Markdown', async () => {
     const writeText = vi.fn(async () => {})
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
     serve(detail())
     render(<RunTab {...tab('process')} />)
     await screen.findByRole('list', { name: '运行过程' })
     fireEvent.click(screen.getByRole('button', { name: '复制过程' }))
-    await waitFor(() => expect(writeText).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制为纯文本' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
     expect(String((writeText.mock.calls[0] as unknown[])[0])).toContain('权限请求 rm -rf dist')
+    fireEvent.click(screen.getByRole('button', { name: '复制过程' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制为 Markdown' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+    expect(String((writeText.mock.calls[1] as unknown[])[0])).toContain('权限请求 `rm -rf dist`')
   })
 })
 

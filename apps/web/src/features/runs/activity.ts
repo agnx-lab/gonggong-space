@@ -341,41 +341,96 @@ export function foldRepeats(actions: Action[]): Action[] {
   return out
 }
 
+/** One copied step: `verb code note`, then a quoted body, a failure's output and a subagent's own steps. */
+interface Entry {
+  time: string
+  verb: string
+  code?: string
+  note?: string
+  quote?: string
+  out?: string
+  children?: Step[]
+}
+
+function entries(steps: Step[], root: string | null): Entry[] {
+  const ref = steps.find((s) => s.at)?.at ?? null
+  return steps.map((s) => {
+    const a = classify(s, root)
+    const time = s.at ? stamp(s.at, ref) : ''
+    switch (a.family) {
+      case 'approval':
+        return { time, verb: s.label, code: s.mono, note: `· ${s.body ?? ''}` }
+      case 'context':
+        return { time, verb: s.label, note: s.meta, quote: s.body }
+      case 'text':
+      case 'thought':
+        return { time, verb: a.verb, quote: s.body }
+      case 'subagent':
+        return {
+          time,
+          verb: a.verb,
+          note: [a.target, s.meta].filter(Boolean).join(' '),
+          children: s.children,
+        }
+      case 'status':
+      case 'delegate':
+        return { time, verb: a.verb, note: a.target }
+      default:
+        return {
+          time,
+          verb: a.verb,
+          code: a.target,
+          out: s.failed && !a.quiet ? (s.out ?? s.mcp?.output) : undefined,
+        }
+    }
+  })
+}
+
+const lines = (text: string | undefined) =>
+  (text ?? '')
+    .replace(/\n+$/, '')
+    .split('\n')
+    .filter((l, i, all) => l || all.length > 1)
+
 /**
  * The process as plain text, for pasting into an issue: one line per step with its time, replies, thoughts and
  * failures' output indented below. The server stored the events redacted, so secrets are already masked.
  */
 export function processText(steps: Step[], root: string | null, indent = ''): string {
-  const ref = steps.find((s) => s.at)?.at ?? null
-  const body = (text: string | undefined) =>
-    (text ?? '')
-      .replace(/\n+$/, '')
-      .split('\n')
-      .filter((l, i, all) => l || all.length > 1)
-      .map((l) => `${indent}    ${l}`)
-  return steps
-    .flatMap((s) => {
-      const a = classify(s, root)
-      const time = s.at ? `${stamp(s.at, ref)} ` : ''
-      const line = (text: string) => `${indent}${time}${text}`
-      switch (a.family) {
-        case 'approval':
-          return [line(`${s.label} ${s.mono ?? ''} · ${s.body ?? ''}`)]
-        case 'text':
-        case 'thought':
-        case 'context':
-          return [line(a.family === 'context' ? `${s.label} ${s.meta ?? ''}` : a.verb), ...body(s.body)]
-        case 'subagent':
-          return [
-            line([a.verb, a.target, s.meta].filter(Boolean).join(' ')),
-            ...(s.children?.length ? [processText(s.children, root, `${indent}  `)] : []),
-          ]
-        default:
-          return [
-            line([a.verb, a.target].filter(Boolean).join(' ')),
-            ...(s.failed && !a.quiet ? body(s.out ?? s.mcp?.output) : []),
-          ]
-      }
+  const body = (text?: string) => lines(text).map((l) => `${indent}    ${l}`)
+  return entries(steps, root)
+    .flatMap((e) => [
+      `${indent}${e.time ? `${e.time} ` : ''}${[e.verb, e.code, e.note].filter(Boolean).join(' ')}`,
+      ...body(e.quote),
+      ...body(e.out),
+      ...(e.children?.length ? [processText(e.children, root, `${indent}  `)] : []),
+    ])
+    .join('\n')
+}
+
+/** Longer than any backtick run inside `text`, so commands and output holding backticks stay intact. */
+const fence = (text: string, min: number) =>
+  '`'.repeat(Math.max(min, ...(text.match(/`+/g) ?? []).map((r) => r.length + 1)))
+
+const inline = (code: string) => {
+  const f = fence(code, 1)
+  return f.length > 1 ? `${f} ${code} ${f}` : `${f}${code}${f}`
+}
+
+/** The same steps as Markdown: a list item each, replies quoted, failure output fenced, subagents nested. */
+export function processMarkdown(steps: Step[], root: string | null, indent = ''): string {
+  const pad = `${indent}  `
+  return entries(steps, root)
+    .flatMap((e) => {
+      const out = lines(e.out)
+      const f = fence(e.out ?? '', 3)
+      const head = [e.verb, e.code && inline(e.code), e.note].filter(Boolean).join(' ')
+      return [
+        `${indent}- ${e.time ? `\`${e.time}\` ` : ''}${head}`,
+        ...lines(e.quote).map((l) => `${pad}>${l ? ` ${l}` : ''}`),
+        ...(out.length ? [`${pad}${f}`, ...out.map((l) => (l ? `${pad}${l}` : '')), `${pad}${f}`] : []),
+        ...(e.children?.length ? [processMarkdown(e.children, root, pad)] : []),
+      ]
     })
     .join('\n')
 }
@@ -438,10 +493,11 @@ export function buildItems(
   const last = actions.at(-1)
   if (live || last?.family !== 'text' || actions.length < 2 || workedMs === null)
     return groupActions(actions, live)
-  // Background tasks still running outlive the turn: they stay in sight, stop button included.
-  const running = (a: Action) => a.family === 'task' && !!a.step.running
+  // Background tasks still running outlive the turn: they stay in sight, stop button included. Decided requests
+  // and questions are what people look for afterwards, so they stay in sight too.
+  const outside = (a: Action) => a.family === 'approval' || (a.family === 'task' && !!a.step.running)
   const before = actions.slice(0, -1)
-  const done = before.filter((a) => !running(a))
+  const done = before.filter((a) => !outside(a))
   return [
     {
       key: 'work',
@@ -450,7 +506,7 @@ export function buildItems(
       title: t('已工作 {time}', { time: fmtWorked(workedMs) }),
       summary: workSummary(done),
     },
-    ...before.filter(running).map((a) => ({ kind: 'action' as const, ...a })),
+    ...before.filter(outside).map((a) => ({ kind: 'action' as const, ...a })),
     { kind: 'action', ...last },
   ]
 }

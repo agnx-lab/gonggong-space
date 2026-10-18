@@ -58,16 +58,18 @@ export function ProcessView({
   // Only the user's own folding is remembered; everything starts folded (ZCode / Codex).
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [filter, setFilter] = useState<Filter>('all')
+  const matched = useMemo(() => {
+    const all = filterable ? flat(steps).map((s) => classify(s, root)) : []
+    return Object.fromEntries(
+      Object.entries(MATCH).map(([f, match]) => [f, foldRepeats(all.filter(match))]),
+    ) as Record<keyof typeof MATCH, Action[]>
+  }, [filterable, steps, root])
   const items = useMemo(
     () =>
       filter === 'all'
         ? buildItems(steps, root, live, workedMs)
-        : foldRepeats(
-            flat(steps)
-              .map((s) => classify(s, root))
-              .filter(MATCH[filter]),
-          ).map((a): Item => ({ kind: 'action', ...a })),
-    [steps, root, live, workedMs, filter],
+        : matched[filter].map((a): Item => ({ kind: 'action', ...a })),
+    [steps, root, live, workedMs, filter, matched],
   )
   // Between calls the model is thinking: say so, like Codex's `Working (12s)` line.
   const idle = live && filter === 'all' && !steps.some((s) => s.running)
@@ -85,17 +87,25 @@ export function ProcessView({
     <>
       {filterable ? (
         <fieldset className="act-filters" aria-label={t('筛选过程')}>
-          {FILTERS.map((f) => (
-            <button
-              key={f.value}
-              type="button"
-              className="act-filter"
-              aria-pressed={filter === f.value}
-              onClick={() => setFilter(f.value)}
-            >
-              {f.label}
-            </button>
-          ))}
+          {FILTERS.map((f) => {
+            const n = f.value === 'all' ? 0 : matched[f.value].length
+            return (
+              <button
+                key={f.value}
+                type="button"
+                className="act-filter"
+                aria-pressed={filter === f.value}
+                onClick={() => setFilter(f.value)}
+              >
+                {f.label}
+                {n ? (
+                  <span className="act-filter__n" aria-hidden>
+                    {n}
+                  </span>
+                ) : null}
+              </button>
+            )
+          })}
         </fieldset>
       ) : null}
       <ol className="act act-root" aria-label={t('运行过程')}>

@@ -46,6 +46,34 @@ describe('process filters', () => {
     expect(screen.getByText('好了')).toBeTruthy()
   })
 
+  it('counts each filter like it filters: subagent steps in, repeats folded, zero left out', () => {
+    const fail = (key: string) => cmd(key, 'make lint', { failed: true, out: '$ make lint\nbad' })
+    const sub: Step = {
+      key: 'sa',
+      kind: 'subagent',
+      label: '子 agent',
+      title: 'Explore',
+      at,
+      children: [cmd('sc1', 'make e2e', { failed: true, out: 'timeout' })],
+    }
+    render(
+      <ProcessView
+        steps={[cmd('c1', 'make build'), fail('f1'), fail('f2'), sub]}
+        root={null}
+        live={false}
+        startedAt={at}
+        workedMs={null}
+        filterable
+      />,
+    )
+    const filters = screen.getByRole('group', { name: '筛选过程' })
+    const count = (name: string) => within(filters).getByRole('button', { name }).textContent
+    expect(count('全部')).toBe('全部')
+    expect(count('失败')).toBe('失败2')
+    expect(count('需处理')).toBe('需处理')
+    expect(count('命令')).toBe('命令3')
+  })
+
   it('says so when nothing matches', () => {
     render(
       <ProcessView

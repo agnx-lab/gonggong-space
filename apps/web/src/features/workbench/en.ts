@@ -79,6 +79,8 @@ export default {
   回到最新: 'Jump to latest',
   复制过程: 'Copy process',
   已复制过程: 'Process copied',
+  复制为纯文本: 'Copy as plain text',
+  '复制为 Markdown': 'Copy as Markdown',
   在审批记录中查看: 'Show in audit log',
   在过程中查看: 'Show in process',
   '提问：{title} · {status}': 'Question: {title} · {status}',

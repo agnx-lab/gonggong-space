@@ -5,6 +5,7 @@ import {
   fmtWorked,
   type Group,
   groupActions,
+  itemSteps,
   relative,
 } from '../src/features/runs/activity'
 import type { Step } from '../src/features/runs/process'
@@ -192,6 +193,22 @@ describe('buildItems', () => {
     const steps = [step('context'), exec('ls'), task, step('text', { body: 'started' })]
     const items = buildItems(steps, ROOT, false, 5000)
     expect(items.map((i) => (i.kind === 'action' ? i.family : i.kind))).toEqual(['work', 'task', 'text'])
+  })
+
+  it('keeps decided requests and questions outside 已工作, in their order', () => {
+    const ask = step('approval', { label: '权限请求', mono: 'rm -rf dist', body: '已批准' })
+    const q = step('question', { label: '提问', mono: '继续吗？', body: '已回答' })
+    const steps = [step('context'), exec('ls'), ask, exec('make'), q, step('text', { body: '完成' })]
+    const items = buildItems(steps, ROOT, false, 5000)
+    expect(items.map((i) => (i.kind === 'action' ? i.key : i.kind))).toEqual([
+      'work',
+      ask.key,
+      q.key,
+      items.at(-1)?.key,
+    ])
+    const [work] = items
+    expect(work).toMatchObject({ kind: 'work', summary: '查阅 1 · 命令 1' })
+    expect(work && itemSteps(work).some((s) => s.kind === 'approval' || s.kind === 'question')).toBe(false)
   })
 
   it('does not fold a run that ended without a reply', () => {

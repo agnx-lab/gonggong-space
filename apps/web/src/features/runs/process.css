@@ -337,6 +337,11 @@ button.act-row:hover .act-row__target--file {
   font: inherit;
   font-size: var(--text-subheadline-size);
 }
+.act-filter__n {
+  margin-left: var(--space-4);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
 .act-filter[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent);
