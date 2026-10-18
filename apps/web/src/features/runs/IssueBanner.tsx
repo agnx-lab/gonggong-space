@@ -3,6 +3,7 @@ import { t } from '../../i18n'
 import { copyWithToast } from '../../lib/clipboard'
 import { Button, Icon } from '../../ui'
 import type { RunIssue } from './issue'
+import './runs.css'
 
 const HEAD_LINES = 4
 

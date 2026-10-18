@@ -1,4 +1,6 @@
 import { ActivityDock } from '@web/features/runs/ActivityDock'
+import { IssueBanner } from '@web/features/runs/IssueBanner'
+import { agentErrorIssue, interruptedIssue, type RunIssue } from '@web/features/runs/issue'
 import { ProcessView } from '@web/features/runs/ProcessView'
 import { processSteps } from '@web/features/runs/steps'
 import { Badge, Button, EmptyState, GroupBox, Icon, Spinner } from '@web/ui'
@@ -18,6 +20,11 @@ const OUTCOME = {
   interrupted: { text: t('已中断'), variant: 'secondary' },
   failed: { text: t('失败'), variant: 'destructive' },
 } as const
+
+function processIssue(p: RunProcess): RunIssue | null {
+  if (p.outcome === 'failed') return agentErrorIssue(p.error ?? '')
+  return p.outcome === 'interrupted' && p.error ? interruptedIssue(p.error) : null
+}
 
 /** Applies a `runProcess` poll to the process shown so far: the same object back when nothing changed. */
 export function mergeProcess(
@@ -82,6 +89,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
   }, [title, subtitle])
   useEffect(() => () => useHeading.setState({ heading: null }), [])
   const badge = process?.outcome ? OUTCOME[process.outcome] : runBadge(run?.status ?? null)
+  const issue = process && processIssue(process)
   return (
     <>
       <div className="dk-row dk-detail__head">
@@ -92,6 +100,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
         <span className="dk-flex" />
         {run ? <Badge variant={badge.variant}>{badge.text}</Badge> : null}
       </div>
+      {issue ? <IssueBanner issue={issue} /> : null}
       <Section title={t('运行过程')}>
         <GroupBox>
           {process === undefined ? (

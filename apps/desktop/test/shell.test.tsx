@@ -39,6 +39,7 @@ it('titles a run detail after the run instead of the overview', async () => {
     events: [],
     endedMs: null,
     outcome: null,
+    error: null,
     rev: 0,
     firstId: null,
   })

@@ -13,6 +13,25 @@ export interface RunIssue {
 
 const AGENT_ERROR = 'agent 异常：{error}'
 
+/** Shared with the desktop app, which reads the agent's error from the local daemon. */
+export function agentErrorIssue(detail: string): RunIssue {
+  return {
+    tone: 'error',
+    title: t('运行失败：agent 异常'),
+    detail: detail || t('未知错误'),
+    hint: t('看完错误信息后重新 @ Bot 再试；反复出现时检查 Bot 所在机器上 agent 的登录、额度与网络。'),
+  }
+}
+
+export function interruptedIssue(detail: string): RunIssue {
+  return {
+    tone: 'error',
+    title: t('运行已中断'),
+    detail: detail || t('未记录原因'),
+    hint: t('重新 @ Bot 再试一次；已改的文件见「改动」。'),
+  }
+}
+
 /** Why a run did not (yet) do its work, from its status and its card step; null while it works or once it completed. */
 export function runIssue(run: RunDto): RunIssue | null {
   const detail = stepText(run)
@@ -20,20 +39,12 @@ export function runIssue(run: RunDto): RunIssue | null {
     case 'interrupted': {
       if (run.stepI18n?.key === AGENT_ERROR) {
         const error = run.stepI18n.params?.error
-        return {
-          tone: 'error',
-          title: t('运行失败：agent 异常'),
-          detail: error === undefined ? detail : typeof error === 'object' ? t.text(error) : String(error),
-          hint: t('看完错误信息后重新 @ Bot 再试；反复出现时检查 Bot 所在机器上 agent 的登录、额度与网络。'),
-        }
+        return agentErrorIssue(
+          error === undefined ? detail : typeof error === 'object' ? t.text(error) : String(error),
+        )
       }
       if (run.stoppedBy) return { tone: 'info', title: t('运行已停止'), detail }
-      return {
-        tone: 'error',
-        title: t('运行已中断'),
-        detail: detail || t('未记录原因'),
-        hint: t('重新 @ Bot 再试一次；已改的文件见「改动」。'),
-      }
+      return interruptedIssue(detail)
     }
     case 'expired':
       return {

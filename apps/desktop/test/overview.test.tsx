@@ -117,6 +117,7 @@ describe('overview', () => {
       run: r1,
       endedMs: null,
       outcome: null,
+      error: null,
       rev: 5,
       firstId: 1,
       events: [
@@ -133,6 +134,7 @@ describe('overview', () => {
       run: r1,
       endedMs: null,
       outcome: null,
+      error: null,
       rev: 7,
       firstId: 1,
       events: [
@@ -158,13 +160,72 @@ describe('overview', () => {
     expect(screen.getByTestId('stats')).toBeTruthy()
   })
 
+  it("shows why a run failed above its process, the agent's error in full", async () => {
+    const r1 = run({ runId: 'r1', status: 'running', step: 'Read' })
+    m.runProcess.mockResolvedValue({
+      run: r1,
+      endedMs: 9000,
+      outcome: 'failed',
+      error: '401 Unauthorized\nplease run /login',
+      rev: 3,
+      firstId: 1,
+      events: [{ id: 1, atMs: 1000, event: { kind: 'text', delta: '主进度' } }],
+    })
+    show(status({ runs: [r1] }))
+    fireEvent.click(within(screen.getByTestId('running')).getByRole('button', { name: /小王的 Claude/ }))
+    const alert = (await screen.findByText('运行失败：agent 异常')).closest('[role="alert"]') as HTMLElement
+    expect(alert.querySelector('pre')?.textContent).toBe('401 Unauthorized\nplease run /login')
+    expect(within(alert).getByText(/检查 Bot 所在机器上 agent 的登录/)).toBeTruthy()
+    expect(within(alert).getByRole('button', { name: '复制错误信息' })).toBeTruthy()
+    expect(
+      alert.compareDocumentPosition(screen.getByText('主进度')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it.each([
+    ['failed without an error', 'failed', null, '运行失败：agent 异常', '未知错误'],
+    ['interrupted with a reason', 'interrupted', 'agent 进程退出', '运行已中断', 'agent 进程退出'],
+  ] as const)('explains a run %s', async (_, outcome, error, title, detail) => {
+    const r1 = run({ runId: 'r1' })
+    m.runProcess.mockResolvedValue({
+      run: r1,
+      endedMs: 9000,
+      outcome,
+      error,
+      rev: 1,
+      firstId: null,
+      events: [],
+    })
+    show(status({ runs: [r1] }))
+    fireEvent.click(within(screen.getByTestId('running')).getByRole('button', { name: /小王的 Claude/ }))
+    const alert = (await screen.findByText(title)).closest('[role="alert"]') as HTMLElement
+    expect(alert.querySelector('pre')?.textContent).toBe(detail)
+  })
+
+  it('shows no banner for a completed run or one interrupted without a reason', async () => {
+    const r1 = run({ runId: 'r1' })
+    m.runProcess.mockResolvedValue({
+      run: r1,
+      endedMs: 9000,
+      outcome: 'interrupted',
+      error: null,
+      rev: 1,
+      firstId: null,
+      events: [],
+    })
+    show(status({ runs: [r1] }))
+    fireEvent.click(within(screen.getByTestId('running')).getByRole('button', { name: /小王的 Claude/ }))
+    expect(await screen.findByText('已中断')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('merges each poll into the process shown so far', () => {
     const ev = (id: number, delta: string) => ({
       id,
       atMs: id * 1000,
       event: { kind: 'text' as const, delta },
     })
-    const base = { run: run({ runId: 'r1' }), endedMs: null, outcome: null }
+    const base = { run: run({ runId: 'r1' }), endedMs: null, outcome: null, error: null }
     const shown = { ...base, rev: 2, events: [ev(1, 'a'), ev(2, 'b'), ev(3, 'c')] }
     expect(mergeProcess(shown, { ...base, rev: 2, firstId: 1, events: [] })).toBe(shown)
     expect(

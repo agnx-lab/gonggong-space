@@ -88,6 +88,8 @@ struct Process {
     events: VecDeque<TimedEvent>,
     ended_ms: Option<u64>,
     outcome: Option<RunOutcome>,
+    /// The agent's error as `run.done` sent it to the server.
+    error: Option<String>,
     /// Bumped on every change: a merged delta grows the last event without a new id.
     rev: u64,
 }
@@ -99,6 +101,7 @@ pub struct ProcessPatch {
     pub run: RunInfo,
     pub ended_ms: Option<u64>,
     pub outcome: Option<RunOutcome>,
+    pub error: Option<String>,
     pub rev: u64,
     /// The oldest event still kept; anything before it was evicted.
     pub first_id: Option<u64>,
@@ -135,10 +138,11 @@ impl Journal {
         p.events.push_back(TimedEvent { id: self.next_id, at_ms: now_ms(), event: event.clone() });
     }
 
-    fn end(&mut self, run_id: &str, outcome: RunOutcome) {
+    fn end(&mut self, run_id: &str, outcome: RunOutcome, error: Option<String>) {
         if let Some(p) = self.runs.iter_mut().find(|p| p.run.run_id == run_id) {
             p.ended_ms = Some(now_ms());
             p.outcome = Some(outcome);
+            p.error = error;
             p.rev += 1;
         }
         let ended = self.runs.iter().filter(|p| p.ended_ms.is_some()).count();
@@ -209,6 +213,7 @@ impl Monitor {
             run: p.run.clone(),
             ended_ms: p.ended_ms,
             outcome: p.outcome,
+            error: p.error.clone(),
             rev: p.rev,
             first_id: p.events.front().map(|e| e.id),
             events,
@@ -286,6 +291,7 @@ impl Monitor {
             events: VecDeque::new(),
             ended_ms: None,
             outcome: None,
+            error: None,
             rev: 0,
         });
         drop(journal);
@@ -303,7 +309,7 @@ impl Monitor {
                 self.update(|s| s.runs.iter_mut().find(|r| &r.run_id == run_id).is_some_and(|run| progress(run, event)))
             }
             DaemonToServer::RunDone(done) => {
-                self.journal.lock().unwrap().end(&done.run_id, done.outcome);
+                self.journal.lock().unwrap().end(&done.run_id, done.outcome, done.error.clone());
                 self.update(|s| {
                     let before = s.runs.len();
                     s.runs.retain(|r| r.run_id != done.run_id);
@@ -387,10 +393,12 @@ mod tests {
         assert_eq!(tail.run.step, "Read");
         assert_eq!(texts(&m.process_since("r1", Some(ids[2]), Some(grown.rev)).unwrap()), [(ids[2], "c".into())]);
 
-        m.outbound(&failed("r1", "x".into()));
+        assert_eq!(tail.error, None);
+        m.outbound(&failed("r1", "401 Unauthorized\nrun /login".into()));
         let ended = m.process_since("r1", Some(ids[2]), Some(tail.rev)).unwrap();
         assert!(ended.rev > tail.rev && ended.ended_ms.is_some());
         assert_eq!(ended.outcome, Some(RunOutcome::Failed));
+        assert_eq!(ended.error.as_deref(), Some("401 Unauthorized\nrun /login"), "the agent's error as sent");
         assert!(m.process_since("r9", None, None).is_none());
     }
 

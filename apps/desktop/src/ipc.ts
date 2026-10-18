@@ -52,6 +52,8 @@ export interface RunProcess {
   events: { id: number; atMs: number; event: RunEvent }[]
   endedMs: number | null
   outcome: 'completed' | 'interrupted' | 'failed' | null
+  /** The agent's error the run ended with. */
+  error: string | null
   /** Bumped on every change. */
   rev: number
 }
