@@ -126,8 +126,20 @@
   gap: var(--space-12);
   font-size: var(--text-callout-size);
 }
+.run-audit--link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-callout-size);
+  text-align: left;
+}
+.run-audit--link:hover .run-audit__text {
+  color: var(--accent);
+}
 .run-audit__time {
-  width: 44px;
+  width: 64px;
   flex: none;
   font-family: var(--font-mono);
   color: var(--label-secondary);
@@ -309,4 +321,17 @@
 .run-tab__facts {
   flex-wrap: wrap;
   row-gap: var(--space-4);
+}
+.run-ask__audit {
+  display: block;
+  margin: var(--space-4) 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--label-tertiary);
+  font: inherit;
+  font-size: var(--text-footnote-size);
+}
+.run-ask__audit:hover {
+  color: var(--accent);
 }

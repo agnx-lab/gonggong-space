@@ -77,4 +77,9 @@ export default {
   '开始 – 结束': 'Started – ended',
   待处理: 'Needs you',
   回到最新: 'Jump to latest',
+  复制过程: 'Copy process',
+  已复制过程: 'Process copied',
+  在审批记录中查看: 'Show in audit log',
+  在过程中查看: 'Show in process',
+  '提问：{title} · {status}': 'Question: {title} · {status}',
 } satisfies Record<string, string>

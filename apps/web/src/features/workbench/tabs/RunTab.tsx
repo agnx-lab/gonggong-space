@@ -19,7 +19,7 @@ import { copyWithToast } from '../../../lib/clipboard'
 import { cx } from '../../../lib/cx'
 import { Elapsed } from '../../../lib/now'
 import { realtime } from '../../../lib/realtime'
-import { hm, stamp } from '../../../lib/time'
+import { hm, hms, stamp } from '../../../lib/time'
 import {
   Button,
   EmptyState,
@@ -43,10 +43,11 @@ import { fieldLabel, tokensLabel } from '../../machines/agentSettings'
 import { OFFICIAL_NAME } from '../../machines/providers'
 import { ActivityDock } from '../../runs/ActivityDock'
 import { ApprovalCard } from '../../runs/ApprovalBlock'
+import { processText } from '../../runs/activity'
 import { IssueBanner } from '../../runs/IssueBanner'
 import { runIssue } from '../../runs/issue'
 import { ProcessView } from '../../runs/ProcessView'
-import { approvalText, buildSteps } from '../../runs/process'
+import { approvalText, buildSteps, questionText } from '../../runs/process'
 import { QuestionCard } from '../../runs/QuestionBlock'
 import type { Step } from '../../runs/steps'
 import { openTab } from '../open'
@@ -252,12 +253,18 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
   const [more, setMore] = useState(false)
   // A dock row leads back to its process row, switching to the process view first.
   const tabRef = useRef<HTMLDivElement>(null)
-  const [locate, setLocate] = useState<string | null>(null)
+  const [locate, setLocate] = useState<{ view: RunView; key: string } | null>(null)
   useEffect(() => {
-    if (!locate || view !== 'process') return
-    tabRef.current?.querySelector(`[data-step="${CSS.escape(locate)}"]`)?.scrollIntoView({ block: 'center' })
+    if (!locate || view !== locate.view) return
+    tabRef.current
+      ?.querySelector(`[data-step="${CSS.escape(locate.key)}"]`)
+      ?.scrollIntoView({ block: 'center' })
     setLocate(null)
   }, [locate, view])
+  const goTo = (to: RunView, key: string) => {
+    patch(tabKey, { view: to })
+    setLocate({ view: to, key })
+  }
   const body = useRef<HTMLDivElement>(null)
   const away = useFollow(body, live && view === 'process', steps)
   const started = run?.startedAt ? Date.parse(run.startedAt) : null
@@ -274,6 +281,14 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
         }
       >
         {run ? <Tag tone={RUN_STATUS[run.status].tone}>{RUN_STATUS[run.status].label}</Tag> : null}
+        {steps && !detail?.purged ? (
+          <IconButton
+            title={t('复制过程')}
+            onClick={() => void copyWithToast(processText(steps, root), t('已复制过程'))}
+          >
+            <Icon name="copy" />
+          </IconButton>
+        ) : null}
         <IconButton title={t('机器与会话')} aria-pressed={more} onClick={() => setMore(!more)}>
           <Icon name="info" />
         </IconButton>
@@ -352,7 +367,17 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
             <Pending run={detail.run} />
             <EarlierRounds key={`${runId}:earlier`} runId={runId} root={root} />
             {detail.purged ? (
-              <div className="run-tab__empty">{PURGED}</div>
+              <>
+                <div className="run-tab__empty">{PURGED}</div>
+                <ProcessView
+                  steps={(stored ?? []).filter((s) => s.kind === 'approval' || s.kind === 'question')}
+                  root={root}
+                  live={false}
+                  startedAt={run?.startedAt ?? null}
+                  workedMs={null}
+                  renderAsk={(s) => decidedAsk(detail.run, s, (key) => goTo('audit', key))}
+                />
+              </>
             ) : (
               <ProcessView
                 key={runId}
@@ -365,7 +390,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
                 onStopTask={(taskId) => stopTask(runId, taskId)}
                 costume={costume}
                 active={active}
-                renderAsk={(s) => decidedAsk(detail.run, s)}
+                renderAsk={(s) => decidedAsk(detail.run, s, (key) => goTo('audit', key))}
                 filterable
               />
             )}
@@ -386,7 +411,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
           />
         ) : (
           <div className="run-tab__column">
-            <Audit detail={detail} userName={userName} />
+            <Audit detail={detail} userName={userName} onLocate={(key) => goTo('process', key)} />
           </div>
         )}
       </div>
@@ -394,10 +419,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
         <ActivityDock
           steps={steps}
           onStopTask={(taskId) => stopTask(runId, taskId)}
-          onLocate={(key) => {
-            patch(tabKey, { view: 'process' })
-            setLocate(key)
-          }}
+          onLocate={(key) => goTo('process', key)}
         />
       ) : null}
     </div>
@@ -475,12 +497,20 @@ function Pending({ run }: { run: RunDto }) {
 }
 
 /** A decided request as its card where it happened; pending ones keep their row, their card is pinned above. */
-function decidedAsk(run: RunDto, step: Step) {
+function decidedAsk(run: RunDto, step: Step, onAudit: (key: string) => void) {
   if (step.running) return null
   const approval = run.approvals.find((a) => `a${a.id}` === step.key)
-  if (approval) return <ApprovalCard run={run} approval={approval} />
-  const set = run.questions.find((q) => `q${q.id}` === step.key)
-  return set ? <QuestionCard run={run} set={set} /> : null
+  const set = approval ? undefined : run.questions.find((q) => `q${q.id}` === step.key)
+  if (!approval && !set) return null
+  return (
+    <>
+      {approval ? <ApprovalCard run={run} approval={approval} /> : null}
+      {set ? <QuestionCard run={run} set={set} /> : null}
+      <button type="button" className="run-ask__audit" onClick={() => onAudit(step.key)}>
+        {t('在审批记录中查看')}
+      </button>
+    </>
+  )
 }
 
 const workedMs = (run?: RunDto) =>
@@ -642,9 +672,18 @@ function Changes({
   )
 }
 
-function Audit({ detail, userName }: { detail: RunDetailDto; userName: (id: string | null) => string }) {
+function Audit({
+  detail,
+  userName,
+  onLocate,
+}: {
+  detail: RunDetailDto
+  userName: (id: string | null) => string
+  /** Leads a request to its place in the process. */
+  onLocate: (key: string) => void
+}) {
   const { run } = detail
-  const rows = [
+  const rows: { at: string; text: string; key?: string }[] = [
     {
       at: run.queuedAt,
       text:
@@ -654,20 +693,43 @@ function Audit({ detail, userName }: { detail: RunDetailDto; userName: (id: stri
     },
     ...run.approvals.map((a) => ({
       at: a.createdAt,
+      key: `a${a.id}`,
       text: t('权限请求：{detail} · {status}', { detail: a.detail, status: approvalText(a) }),
+    })),
+    ...run.questions.map((q) => ({
+      at: q.createdAt,
+      key: `q${q.id}`,
+      text: t('提问：{title} · {status}', {
+        title: q.questions.map((x) => x.title).join(' / '),
+        status: questionText(q),
+      }),
     })),
     ...(run.stoppedBy && run.endedAt
       ? [{ at: run.endedAt, text: t('{name} 停止了运行', { name: userName(run.stoppedBy) }) }]
       : []),
-  ]
+  ].sort((x, y) => Date.parse(x.at) - Date.parse(y.at))
   return (
     <>
-      {rows.map((r) => (
-        <div key={`${r.at}${r.text}`} className="run-audit">
-          <span className="run-audit__time">{hm(r.at)}</span>
-          <span className="run-audit__text">{r.text}</span>
-        </div>
-      ))}
+      {rows.map((r) =>
+        r.key ? (
+          <button
+            key={r.key}
+            type="button"
+            className="run-audit run-audit--link"
+            data-step={r.key}
+            title={t('在过程中查看')}
+            onClick={() => r.key && onLocate(r.key)}
+          >
+            <span className="run-audit__time">{hms(r.at)}</span>
+            <span className="run-audit__text">{r.text}</span>
+          </button>
+        ) : (
+          <div key={`${r.at}${r.text}`} className="run-audit">
+            <span className="run-audit__time">{hms(r.at)}</span>
+            <span className="run-audit__text">{r.text}</span>
+          </div>
+        ),
+      )}
       <div className="run-audit__note">
         {t('审批与提问记录永久保存；完整运行过程保留 {n} 天，过期后卡片只保留摘要。', {
           n: detail.retentionDays,

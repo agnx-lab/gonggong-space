@@ -246,4 +246,5 @@ export default {
   '{n} 行匹配': '{n} matching {n:line|lines}',
   复制输出: 'Copy output',
   已复制输出: 'Output copied',
+  '同一错误重复 {n} 次': 'Same failure {n} {n:time|times} in a row',
 } satisfies Record<string, string>

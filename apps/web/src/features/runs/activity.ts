@@ -1,4 +1,5 @@
 import { t } from '../../i18n'
+import { stamp } from '../../lib/time'
 import type { Step } from './steps'
 
 /**
@@ -33,6 +34,8 @@ export interface Action {
   target?: string
   /** A failed call that is not a problem (a search without matches). */
   quiet?: boolean
+  /** The same failure in a row this many times, folded into this one. */
+  repeat?: number
   step: Step
 }
 
@@ -316,6 +319,67 @@ export function fmtWorked(ms: number) {
     .join(' ')
 }
 
+const failure = (a: Action) =>
+  a.step.failed && !a.quiet
+    ? `${a.family}\n${a.target ?? ''}\n${a.step.out ?? a.step.mcp?.output ?? ''}`
+    : null
+
+/** An agent retrying the same failing call: one row, counted, timed from the first try to the last. */
+export function foldRepeats(actions: Action[]): Action[] {
+  const out: Action[] = []
+  for (const a of actions) {
+    const prev = out.at(-1)
+    const same = failure(a)
+    if (prev && same && failure(prev) === same) {
+      out[out.length - 1] = {
+        ...prev,
+        repeat: (prev.repeat ?? 1) + 1,
+        step: { ...prev.step, end: a.step.end ?? a.step.at ?? prev.step.end },
+      }
+    } else out.push(a)
+  }
+  return out
+}
+
+/**
+ * The process as plain text, for pasting into an issue: one line per step with its time, replies, thoughts and
+ * failures' output indented below. The server stored the events redacted, so secrets are already masked.
+ */
+export function processText(steps: Step[], root: string | null, indent = ''): string {
+  const ref = steps.find((s) => s.at)?.at ?? null
+  const body = (text: string | undefined) =>
+    (text ?? '')
+      .replace(/\n+$/, '')
+      .split('\n')
+      .filter((l, i, all) => l || all.length > 1)
+      .map((l) => `${indent}    ${l}`)
+  return steps
+    .flatMap((s) => {
+      const a = classify(s, root)
+      const time = s.at ? `${stamp(s.at, ref)} ` : ''
+      const line = (text: string) => `${indent}${time}${text}`
+      switch (a.family) {
+        case 'approval':
+          return [line(`${s.label} ${s.mono ?? ''} · ${s.body ?? ''}`)]
+        case 'text':
+        case 'thought':
+        case 'context':
+          return [line(a.family === 'context' ? `${s.label} ${s.meta ?? ''}` : a.verb), ...body(s.body)]
+        case 'subagent':
+          return [
+            line([a.verb, a.target, s.meta].filter(Boolean).join(' ')),
+            ...(s.children?.length ? [processText(s.children, root, `${indent}  `)] : []),
+          ]
+        default:
+          return [
+            line([a.verb, a.target].filter(Boolean).join(' ')),
+            ...(s.failed && !a.quiet ? body(s.out ?? s.mcp?.output) : []),
+          ]
+      }
+    })
+    .join('\n')
+}
+
 /** A step's or segment's duration: tenths of seconds below a minute. */
 export const fmtSpan = (ms: number) =>
   ms < 60_000 ? t('{n} 秒', { n: (Math.max(0, ms) / 1000).toFixed(1) }) : fmtWorked(ms)
@@ -366,9 +430,11 @@ export function buildItems(
   live: boolean,
   workedMs: number | null,
 ): Item[] {
-  const actions = steps
-    .filter((s) => !(s.kind === 'execute' && s.running && !s.out && !named(s.title)))
-    .map((s) => classify(s, root))
+  const actions = foldRepeats(
+    steps
+      .filter((s) => !(s.kind === 'execute' && s.running && !s.out && !named(s.title)))
+      .map((s) => classify(s, root)),
+  )
   const last = actions.at(-1)
   if (live || last?.family !== 'text' || actions.length < 2 || workedMs === null)
     return groupActions(actions, live)

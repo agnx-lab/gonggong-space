@@ -23,7 +23,7 @@ export function approvalText(a: ApprovalDto) {
   }
 }
 
-function questionText(q: QuestionSetDto) {
+export function questionText(q: QuestionSetDto) {
   switch (q.status) {
     case 'pending':
       return t('等待触发人或 Bot 主人回答')

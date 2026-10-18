@@ -11,6 +11,7 @@ import {
   classify,
   fmtSpan,
   fmtWorked,
+  foldRepeats,
   GROUP_SEP,
   type Item,
   itemSteps,
@@ -61,10 +62,11 @@ export function ProcessView({
     () =>
       filter === 'all'
         ? buildItems(steps, root, live, workedMs)
-        : flat(steps)
-            .map((s) => classify(s, root))
-            .filter(MATCH[filter])
-            .map((a): Item => ({ kind: 'action', ...a })),
+        : foldRepeats(
+            flat(steps)
+              .map((s) => classify(s, root))
+              .filter(MATCH[filter]),
+          ).map((a): Item => ({ kind: 'action', ...a })),
     [steps, root, live, workedMs, filter],
   )
   // Between calls the model is thinking: say so, like Codex's `Working (12s)` line.
@@ -360,6 +362,11 @@ function ActionRow({
           title={a.target ?? s.mono}
         >
           {target}
+        </span>
+      ) : null}
+      {a.repeat ? (
+        <span className="act-row__repeat" title={t('同一错误重复 {n} 次', { n: a.repeat })}>
+          ×{a.repeat}
         </span>
       ) : null}
       {s.diff ? (

@@ -92,13 +92,26 @@ test('fan-out + owner-only approval: approve one bot, reject the other; /stop vo
     // Message actions appear while the message is hovered, as with a pointer.
     await cardA.hover()
     await cardA.getByRole('button', { name: '查看过程' }).click()
-    await page.getByRole('tab', { name: '审批记录' }).click()
-    await expect(page.getByTestId('run-tab')).toContainText("console.log('hello-' + 'approval')")
+    const runTab = page.getByTestId('run-tab')
+    // The decided request sits in the process as its card, every step with its time.
+    const process = runTab.getByRole('list', { name: '运行过程' })
+    await process.getByRole('button', { name: /已工作/ }).click()
+    await expect(process).toContainText('appr1 已批准')
+    await expect(process.locator('time').first()).toHaveText(/^\d{2}:\d{2}:\d{2}/)
+    await process.getByRole('button', { name: '在审批记录中查看' }).click()
+    await expect(page.getByRole('tab', { name: '审批记录' })).toHaveAttribute('aria-selected', 'true')
+    await expect(runTab).toContainText("console.log('hello-' + 'approval')")
 
     // /stop while a request is pending: the run is interrupted and the request is voided.
     await say(page, '@审批 A 请用 Bash 工具执行命令 `node -e "console.log(\'second\')"`，然后只回复输出。')
     const second = cardOf(page, '审批 A').last()
     await expect(second).toContainText('等待审批', { timeout: 3 * 60_000 })
+    // The run tab pins the pending request on top of its process, where the owner can decide it.
+    await second.hover()
+    await second.getByRole('button', { name: '查看过程' }).click()
+    const pinned = page.getByRole('region', { name: '待处理' })
+    await expect(pinned).toContainText("console.log('second')")
+    await expect(pinned.getByRole('button', { name: '批准' })).toBeEnabled()
     await say(page, '/stop @审批 A')
     await expect(second).toContainText('已中断')
     await expect(second).toContainText('运行已停止，请求作废')
