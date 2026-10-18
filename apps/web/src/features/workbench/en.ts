@@ -75,4 +75,5 @@ export default {
   选择打开方式: 'Choose an app to open with',
   '{app}（默认）': '{app} (default)',
   '开始 – 结束': 'Started – ended',
+  待处理: 'Needs you',
 } satisfies Record<string, string>

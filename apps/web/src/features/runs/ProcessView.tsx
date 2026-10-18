@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { cx } from '../../lib/cx'
 import { Elapsed } from '../../lib/now'
 import { fullTime, stamp } from '../../lib/time'
@@ -33,6 +33,7 @@ export function ProcessView({
   onStopTask,
   costume,
   active = true,
+  renderAsk,
 }: {
   steps: Step[]
   root: string | null
@@ -45,6 +46,8 @@ export function ProcessView({
   costume?: MascotCostume
   /** False while out of sight (a hidden workbench tab): its clock stops. */
   active?: boolean
+  /** A permission request's or question's own card in place of its row; null keeps the row (web only). */
+  renderAsk?: (step: Step) => ReactNode
 }) {
   // Only the user's own folding is remembered; everything starts folded (ZCode / Codex).
   const [open, setOpen] = useState<Record<string, boolean>>({})
@@ -59,6 +62,7 @@ export function ProcessView({
     day: startedAt ?? steps.find((s) => s.at)?.at ?? null,
     onOpenDiff,
     onStopTask,
+    renderAsk,
   }
   return (
     <ol className="act" aria-label={t('运行过程')}>
@@ -89,6 +93,7 @@ type Ctx = {
   day: string | null
   onOpenDiff?: (path: string) => void
   onStopTask?: (taskId: string) => Promise<unknown>
+  renderAsk?: (step: Step) => ReactNode
 }
 
 /** When a row happened: its start, a range for segments and subagents; the tooltip has full times and the duration. */
@@ -227,6 +232,7 @@ function ActionRow({
   day,
   onOpenDiff,
   onStopTask,
+  renderAsk,
 }: { action: Action } & Ctx) {
   const s = a.step
   // A failed call shows its error output until folded.
@@ -251,18 +257,30 @@ function ActionRow({
         {open ? <div className="act-detail act-detail--text">{s.body}</div> : null}
       </li>
     )
-  if (a.family === 'approval')
+  if (a.family === 'approval') {
+    const card = renderAsk?.(s)
+    if (card)
+      return (
+        <li className="act-item act-ask-card" data-step={a.key}>
+          {card}
+        </li>
+      )
     return (
-      <li className="act-item act-approval" data-state={s.running ? 'running' : undefined}>
+      <li className="act-item act-approval" data-state={s.running ? 'running' : undefined} data-step={a.key}>
         <div className="act-row">
-          <Icon name="shield-warning" size={14} className="act-row__icon" />
-          <span className="act-row__verb">{t('权限请求')}</span>
+          <Icon
+            name={s.kind === 'question' ? 'bubble-question' : 'shield-warning'}
+            size={14}
+            className="act-row__icon"
+          />
+          <span className="act-row__verb">{s.label}</span>
           <span className="act-row__target act-row__target--mono">{s.mono}</span>
           <When steps={[s]} day={day} />
         </div>
         <div className="act-approval__state">{s.body}</div>
       </li>
     )
+  }
   const state = stateOf(s, a.quiet)
   const task = a.family === 'task'
   const out =

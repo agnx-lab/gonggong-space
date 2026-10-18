@@ -1,4 +1,4 @@
-import type { ApprovalDto, RunDetailDto } from '@gonggong/protocol'
+import type { ApprovalDto, QuestionSetDto, RunDetailDto } from '@gonggong/protocol'
 import { t } from '../../i18n'
 import { newSessionNote } from '../chat/TimelineItems'
 import { parsePatch } from '../diff/patch'
@@ -23,6 +23,19 @@ export function approvalText(a: ApprovalDto) {
   }
 }
 
+function questionText(q: QuestionSetDto) {
+  switch (q.status) {
+    case 'pending':
+      return t('等待触发人或 Bot 主人回答')
+    case 'answered':
+      return t('{name} 已回答', { name: q.answeredByName ?? '' }).trim()
+    case 'expired':
+      return t('无人回答，agent 已按推荐项继续')
+    case 'void':
+      return t('提问已作废')
+  }
+}
+
 /** Daemon statuses that only mirror an approval's lifecycle; its 权限请求 row carries the outcome. */
 const APPROVAL_ECHO = /^(等待审批|已批准)：|^请求被拒绝，|^(Awaiting approval|Approved): |^Request denied; /
 
@@ -44,7 +57,8 @@ function contextStep(d: RunDetailDto, gitStep: string | undefined, configs: stri
   }
 }
 
-/** Side-panel 过程 steps: this turn's context, then thoughts / replies / tool calls / statuses / approvals in time order. */
+/** Side-panel 过程 steps: this turn's context, then thoughts / replies / tool calls / statuses / approvals / questions
+ * in time order. */
 export function buildSteps(d: RunDetailDto): Step[] {
   const firstReal = d.events.findIndex((e) => e.event.kind !== 'status')
   const opening = d.events.slice(0, firstReal < 0 ? d.events.length : firstReal)
@@ -62,6 +76,20 @@ export function buildSteps(d: RunDetailDto): Step[] {
         running: a.status === 'pending',
         at: a.createdAt,
         end: a.decidedAt ?? undefined,
+      },
+    })
+  for (const q of d.run.questions)
+    timed.push({
+      at: q.createdAt,
+      step: {
+        key: `q${q.id}`,
+        kind: 'question',
+        label: t('向群成员提问'),
+        mono: q.questions.map((x) => x.title).join(' / '),
+        body: questionText(q),
+        running: q.status === 'pending',
+        at: q.createdAt,
+        end: q.answeredAt ?? undefined,
       },
     })
   const configs = d.events.map(statusOf).filter((s): s is string => !!s && CONFIG_ECHO.test(s))

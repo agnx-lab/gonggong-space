@@ -154,6 +154,8 @@ export function classify(s: Step, root: string | null): Action {
     case 'status':
     case 'approval':
       return { ...base, family: s.kind, verb: s.label, target: s.body }
+    case 'question':
+      return { ...base, family: 'approval', verb: s.label, target: s.body }
     case 'read':
       return { ...base, family: 'explore', bucket: 'file', verb: verbOf('file', s), target: rel(s, root) }
     case 'search': {

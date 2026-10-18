@@ -8,8 +8,9 @@ import { runningWork, type Step } from './steps'
 import './process.css'
 
 /**
- * Pinned under a run: how many subagents and background tasks are running, the list one click away. Hidden while
- * none is; `onLocate` scrolls the process to a row, `onStopTask` stops a background task (web only).
+ * Pinned under a run: requests waiting on someone, how many subagents and background tasks are running, the list one
+ * click away. Hidden while none is; `onLocate` scrolls the process to a row, `onStopTask` stops a background task
+ * (web only).
  */
 export function ActivityDock({
   steps,
@@ -22,8 +23,10 @@ export function ActivityDock({
 }) {
   const [open, setOpen] = useState(false)
   const work = runningWork(steps)
+  const asks = steps.filter((s) => s.running && (s.kind === 'approval' || s.kind === 'question'))
+  const [ask] = asks
   const now = useNow(open && work.length > 0)
-  if (!work.length) return null
+  if (!work.length && !ask) return null
   const subagents = work.filter((s) => s.kind === 'subagent').length
   const tasks = work.length - subagents
   return (
@@ -49,26 +52,38 @@ export function ActivityDock({
           ))}
         </ol>
       ) : null}
-      <button
-        type="button"
-        className="act-row act-row--head"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        {subagents ? (
-          <span className="act-dock__count">
-            <Icon name="bot" size={14} className="act-row__icon" />
-            {t('子 agent {n} 个运行中', { n: subagents })}
-          </span>
-        ) : null}
-        {tasks ? (
-          <span className="act-dock__count">
-            <Icon name="bolt" size={14} className="act-row__icon" />
-            {t('后台任务 {n} 个运行中', { n: tasks })}
-          </span>
-        ) : null}
-        <Icon name="chevron-up" size={12} className="act-row__chevron act-dock__chevron" />
-      </button>
+      {ask ? (
+        <button
+          type="button"
+          className="act-row act-row--head act-dock__asks"
+          onClick={() => onLocate?.(ask.key)}
+        >
+          <Icon name="bell" size={14} className="act-row__icon" />
+          <span className="act-row__verb">{t('待处理 {n} 项', { n: asks.length })}</span>
+        </button>
+      ) : null}
+      {work.length ? (
+        <button
+          type="button"
+          className="act-row act-row--head"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {subagents ? (
+            <span className="act-dock__count">
+              <Icon name="bot" size={14} className="act-row__icon" />
+              {t('子 agent {n} 个运行中', { n: subagents })}
+            </span>
+          ) : null}
+          {tasks ? (
+            <span className="act-dock__count">
+              <Icon name="bolt" size={14} className="act-row__icon" />
+              {t('后台任务 {n} 个运行中', { n: tasks })}
+            </span>
+          ) : null}
+          <Icon name="chevron-up" size={12} className="act-row__chevron act-dock__chevron" />
+        </button>
+      ) : null}
     </div>
   )
 }

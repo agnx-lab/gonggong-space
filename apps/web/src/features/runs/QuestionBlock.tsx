@@ -59,7 +59,8 @@ export function QuestionBlock({ run }: { run: RunDto }) {
   return q ? <QuestionCard key={q.id} run={run} set={q} /> : null
 }
 
-function QuestionCard({ run, set }: { run: RunDto; set: QuestionSetDto }) {
+/** One 「向群成员提问」 card of the run, answerable while pending. */
+export function QuestionCard({ run, set }: { run: RunDto; set: QuestionSetDto }) {
   const bot = useWorkspace((s) => s.bots.find((b) => b.id === run.botId))
   const me = useSession((s) => s.user?.id)
   const trigger = useMemberName(run.groupId, run.originUserId)

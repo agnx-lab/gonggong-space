@@ -41,10 +41,12 @@ import { useWorkspaceDiff, type WorkspaceDiff } from '../../diff/useWorkspaceDif
 import { fieldLabel, tokensLabel } from '../../machines/agentSettings'
 import { OFFICIAL_NAME } from '../../machines/providers'
 import { ActivityDock } from '../../runs/ActivityDock'
+import { ApprovalCard } from '../../runs/ApprovalBlock'
 import { IssueBanner } from '../../runs/IssueBanner'
 import { runIssue } from '../../runs/issue'
 import { ProcessView } from '../../runs/ProcessView'
 import { approvalText, buildSteps } from '../../runs/process'
+import { QuestionCard } from '../../runs/QuestionBlock'
 import type { Step } from '../../runs/steps'
 import { openTab } from '../open'
 import type { TabMeta, TabProps } from '../types'
@@ -340,6 +342,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
           </div>
         ) : !source ? null : view === 'process' ? (
           <div className="run-tab__column">
+            <Pending run={detail.run} />
             <EarlierRounds key={`${runId}:earlier`} runId={runId} root={root} />
             {detail.purged ? (
               <div className="run-tab__empty">{PURGED}</div>
@@ -355,6 +358,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
                 onStopTask={(taskId) => stopTask(runId, taskId)}
                 costume={costume}
                 active={active}
+                renderAsk={(s) => decidedAsk(detail.run, s)}
               />
             )}
           </div>
@@ -394,6 +398,7 @@ export function useRunTabMeta(tab: TabProps<'run'>['tab']): TabMeta {
   return {
     icon: 'square-terminal',
     title: round ? t('{name} · 第 {round} 轮', { name, round }) : t('{name} · 运行', { name }),
+    badge: run && waiting(run) ? t('待处理') : undefined,
     status: !run
       ? undefined
       : run.status === 'completed'
@@ -402,6 +407,39 @@ export function useRunTabMeta(tab: TabProps<'run'>['tab']): TabMeta {
           ? 'failed'
           : 'running',
   }
+}
+
+const waiting = (run: RunDto) =>
+  run.approvals.some((a) => a.status === 'pending') || run.questions.some((q) => q.status === 'pending')
+
+/** Requests the run waits on, on top of its process: whoever may decide does it here. */
+function Pending({ run }: { run: RunDto }) {
+  const approvals = run.approvals.filter((a) => a.status === 'pending')
+  const questions = run.questions.filter((q) => q.status === 'pending')
+  if (!approvals.length && !questions.length) return null
+  return (
+    <section className="run-pending" aria-label={t('待处理')}>
+      {approvals.map((a) => (
+        <div key={a.id} data-step={`a${a.id}`}>
+          <ApprovalCard run={run} approval={a} />
+        </div>
+      ))}
+      {questions.map((q) => (
+        <div key={q.id} data-step={`q${q.id}`}>
+          <QuestionCard run={run} set={q} />
+        </div>
+      ))}
+    </section>
+  )
+}
+
+/** A decided request as its card where it happened; pending ones keep their row, their card is pinned above. */
+function decidedAsk(run: RunDto, step: Step) {
+  if (step.running) return null
+  const approval = run.approvals.find((a) => `a${a.id}` === step.key)
+  if (approval) return <ApprovalCard run={run} approval={approval} />
+  const set = run.questions.find((q) => `q${q.id}` === step.key)
+  return set ? <QuestionCard run={run} set={set} /> : null
 }
 
 const workedMs = (run?: RunDto) =>

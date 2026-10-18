@@ -112,6 +112,7 @@ export function TabBar({
                       <Mark meta={meta} />
                     </span>
                     <span className="bench-tab__title">{meta.title}</span>
+                    {meta.badge ? <span className="bench-tab__badge">{meta.badge}</span> : null}
                     {key.startsWith('web:') && !live.has(key) ? (
                       <Icon name="moon" size={11} label={t('休眠')} className="bench-tab__sleep" />
                     ) : null}

@@ -60,13 +60,17 @@ function outcome(a: ApprovalDto) {
  *  Agents may ask several in parallel; deciding a later one must not hide an earlier one still blocking the turn. */
 export function ApprovalBlock({ run }: { run: RunDto }) {
   const a = run.approvals.find((x) => x.status === 'pending') ?? run.approvals.at(-1)
+  return a ? <ApprovalCard key={a.id} run={run} approval={a} /> : null
+}
+
+/** One permission request of the run, decidable while pending. */
+export function ApprovalCard({ run, approval: a }: { run: RunDto; approval: ApprovalDto }) {
   const bot = useWorkspace((s) => s.bots.find((b) => b.id === run.botId))
   const state = useWorkspace((s) => s.botStates[run.groupId]?.[run.botId])
   const me = useSession((s) => s.user)
-  const pending = a?.status === 'pending'
+  const pending = a.status === 'pending'
   const now = useNow(pending)
   const [busy, setBusy] = useState(false)
-  if (!a) return null
   const mine = !!me && me.id === bot?.ownerId
   const allow = pick(a.options, ['allow_once', 'allow_always'])
   // Without rules to remember, 始终允许 would silently behave like 批准 (plan A7).

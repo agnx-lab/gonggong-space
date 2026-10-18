@@ -7,6 +7,8 @@ export interface TabMeta {
   title: string
   /** Replaces the icon with a live mark: a spinner while running, a dot for a preview's state. */
   status?: 'running' | 'done' | 'failed' | 'online' | 'offline'
+  /** Something waits on the user (待处理), shown after the title. */
+  badge?: string
 }
 
 /** Props every tab body receives; `active` is false while another tab is shown (bodies stay mounted). */
