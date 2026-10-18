@@ -1,4 +1,4 @@
-import type { GroupDto, MessageDto, NotificationDto } from '@gonggong/protocol'
+import type { GroupDto, MessageDto, NotificationDto, WebEvent } from '@gonggong/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
 import { createTestApp, type TestApp } from './support/app.js'
@@ -55,5 +55,34 @@ describe('被 @ 提醒', () => {
     expect((await groupOf(s.asChen, s.g.id))?.mentioned).toBe(false)
     await s.asLi.post(`/api/groups/${s.g.id}/read`, {})
     expect((await groupOf(s.asLi, s.g.id))?.mentioned).toBe(false)
+  })
+
+  it('marks the @ notifications read once the group is read up to them, and tells the user live', async () => {
+    const s = await setup()
+    const first = (await send(s.asWang, s.g.id, '@李建国 先看这个')).body
+    const second = (await send(s.asWang, s.g.id, '@李建国 再看这个')).body
+    const seen: WebEvent[] = []
+    t.ctx.bus.attach(s.li.id, (e) => seen.push(e))
+
+    await s.asLi.post(`/api/groups/${s.g.id}/read`, { seq: first.seq })
+    const byMsg = async (id: string) => (await notes(s.asLi)).find((n) => n.payload.messageId === id)!
+    const read = await byMsg(first.id)
+    expect(read.readAt).not.toBeNull()
+    expect((await byMsg(second.id)).readAt).toBeNull()
+    expect(seen.filter((e) => e.t === 'notification.resolved')).toEqual([
+      {
+        t: 'notification.resolved',
+        notifications: [expect.objectContaining({ id: read.id, readAt: read.readAt })],
+        unread: 1,
+      },
+    ])
+
+    await s.asLi.post(`/api/groups/${s.g.id}/read`, {})
+    expect((await notes(s.asLi)).every((n) => n.readAt)).toBe(true)
+    expect(seen.filter((e) => e.t === 'notification.resolved').at(-1)).toMatchObject({ unread: 0 })
+    expect((await s.asLi.get<{ n: number }>('/api/notifications/unread')).body.n).toBe(0)
+
+    await s.asLi.post(`/api/groups/${s.g.id}/read`, {})
+    expect(seen.filter((e) => e.t === 'notification.resolved')).toHaveLength(2)
   })
 })

@@ -28,6 +28,7 @@ import { requireUser } from '../auth/session.js'
 import { isSharedWith } from '../bots/shares.js'
 import { pullIntoChat } from '../feishu/members.js'
 import { forgetMembers, postEvent } from '../messages/service.js'
+import { readMentions } from '../notifications/notify.js'
 import { branchKnownMissing } from '../repos/probe.js'
 import { recordRepo } from '../repos/service.js'
 import { leaveReplica } from '../sync/switch.js'
@@ -102,6 +103,7 @@ export function groupRoutes(ctx: Ctx) {
           .update(groupMembers)
           .set({ lastReadSeq: sql`greatest(${groupMembers.lastReadSeq}, ${target})` })
           .where(and(eq(groupMembers.groupId, req.params.id), eq(groupMembers.userId, me.id)))
+        await readMentions(ctx, me.id, req.params.id, target)
       }
       const group = await groupDto(ctx, me.id, req.params.id)
       if (target > member.lastReadSeq) ctx.bus.publish([me.id], { t: 'group.updated', group })

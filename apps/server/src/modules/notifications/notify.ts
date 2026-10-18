@@ -1,7 +1,7 @@
 import { type NotificationDto, NotificationType, PUSHED_NOTIFICATION_TYPES } from '@gonggong/protocol'
 import { and, count, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
-import { notifications } from '../../db/schema.js'
+import { messages, notifications } from '../../db/schema.js'
 import { groupTitles } from '../groups/title.js'
 import { teamOfBot, teamOfGroup } from '../teams/service.js'
 import { sendFeishuNotice } from './feishu.js'
@@ -88,14 +88,40 @@ export async function resolveNotifications(
     )
     .returning()) as Row[]
   for (const userId of new Set(rows.map((r) => r.userId))) {
-    const [unread] = await ctx.db
-      .select({ n: count() })
-      .from(notifications)
-      .where(and(eq(notifications.userId, userId), isNull(notifications.readAt), knownNotification))
-    ctx.bus.publish([userId], {
-      t: 'notification.resolved',
-      notifications: rows.filter((r) => r.userId === userId).map(notificationDto),
-      unread: unread?.n ?? 0,
-    })
+    await publishResolved(
+      ctx,
+      userId,
+      rows.filter((r) => r.userId === userId),
+    )
   }
+}
+
+/** Reading a group up to `seq` also reads the @ notifications of the messages it covered. */
+export async function readMentions(ctx: Ctx, userId: string, groupId: string, seq: number) {
+  const rows = (await ctx.db
+    .update(notifications)
+    .set({ readAt: ctx.now() })
+    .where(
+      and(
+        eq(notifications.userId, userId),
+        eq(notifications.type, 'mention'),
+        isNull(notifications.readAt),
+        sql`${notifications.payload}->>'groupId' = ${groupId}`,
+        sql`exists (select 1 from ${messages} where ${messages.id}::text = ${notifications.payload}->>'messageId' and ${messages.groupId} = ${groupId} and ${messages.seq} <= ${seq})`,
+      ),
+    )
+    .returning()) as Row[]
+  if (rows.length) await publishResolved(ctx, userId, rows)
+}
+
+async function publishResolved(ctx: Ctx, userId: string, rows: Row[]) {
+  const [unread] = await ctx.db
+    .select({ n: count() })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), isNull(notifications.readAt), knownNotification))
+  ctx.bus.publish([userId], {
+    t: 'notification.resolved',
+    notifications: rows.map(notificationDto),
+    unread: unread?.n ?? 0,
+  })
 }
