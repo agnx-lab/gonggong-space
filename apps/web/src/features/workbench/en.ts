@@ -84,4 +84,5 @@ export default {
   在审批记录中查看: 'Show in audit log',
   在过程中查看: 'Show in process',
   '提问：{title} · {status}': 'Question: {title} · {status}',
+  '已重新运行，新的运行卡片会出现在群里': 'Rerun started; the new run card will appear in the group',
 } satisfies Record<string, string>

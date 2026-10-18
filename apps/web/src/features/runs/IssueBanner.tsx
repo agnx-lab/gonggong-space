@@ -1,14 +1,23 @@
 import { useState } from 'react'
 import { t } from '../../i18n'
 import { copyWithToast } from '../../lib/clipboard'
-import { Icon } from '../../ui'
+import { Button, Icon } from '../../ui'
 import type { RunIssue } from './issue'
 
 const HEAD_LINES = 4
 
-/** Why the run failed or waits, its reason in full (folded past a few lines) and what to do about it. */
-export function IssueBanner({ issue }: { issue: RunIssue }) {
+/**
+ * Why the run failed or waits, its reason in full (folded past a few lines) and what to do about it.
+ * `onRetry` resolves whether it worked; after success the button stays disabled so one click starts one run.
+ */
+export function IssueBanner({ issue, onRetry }: { issue: RunIssue; onRetry?: () => Promise<boolean> }) {
   const [all, setAll] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const retry = async () => {
+    if (!onRetry) return
+    setRetrying(true)
+    if (!(await onRetry())) setRetrying(false)
+  }
   const lines = issue.detail.replace(/\n+$/, '').split('\n')
   const folded = !all && lines.length > HEAD_LINES
   const error = issue.tone === 'error'
@@ -27,6 +36,11 @@ export function IssueBanner({ issue }: { issue: RunIssue }) {
           >
             <Icon name="copy" size={12} />
           </button>
+        ) : null}
+        {onRetry ? (
+          <Button size="small" disabled={retrying} onClick={() => void retry()}>
+            {t('重新运行')}
+          </Button>
         ) : null}
       </div>
       {issue.detail ? (

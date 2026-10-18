@@ -3,11 +3,12 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { Ctx } from '../../context.js'
-import { bots, groupMembers, runs } from '../../db/schema.js'
+import { bots, groupMembers, messages, runs } from '../../db/schema.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { requireUser } from '../auth/session.js'
 import { chooseInterrupt, stopRuns } from './stop.js'
+import { rerunFor } from './trigger.js'
 
 const Params = z.object({ id: z.uuid() })
 const TaskParams = Params.extend({ taskId: z.string().min(1).max(200) })
@@ -72,6 +73,38 @@ export function stopRoutes(ctx: Ctx) {
       const { choice } = InterruptChoiceReq.parse(req.body)
       await chooseInterrupt(ctx, id, choice, user)
       return { ok: true }
+    })
+    // 重新运行 from the run detail: the same bot, again on the original message, like re-sending it.
+    app.post('/api/runs/:id/retry', async (req, reply) => {
+      const user = await requireUser(ctx, req)
+      const { id } = Params.parse(req.params)
+      const [row] = await ctx.db
+        .select({ run: runs, ownerId: bots.ownerId, message: messages })
+        .from(runs)
+        .innerJoin(bots, eq(bots.id, runs.botId))
+        .innerJoin(messages, eq(messages.id, runs.triggerMessageId))
+        .innerJoin(
+          groupMembers,
+          and(eq(groupMembers.groupId, runs.groupId), eq(groupMembers.userId, user.id)),
+        )
+        .where(eq(runs.id, id))
+      if (!row) return fail('not_found', '运行不存在')
+      const { run, message } = row
+      if (user.id !== run.originUserId && user.id !== row.ownerId)
+        return fail('forbidden', '只有触发人或 Bot 主人可以重新运行')
+      if (run.hop !== 1) return fail('conflict', '接力运行不能单独重新运行，请到原群消息重新触发')
+      if (run.status !== 'interrupted' && run.status !== 'expired')
+        return fail('conflict', '只有失败或作废的运行可以重新运行')
+      if (message.recalledAt) return fail('conflict', '原消息已撤回，无法重新运行')
+      await rerunFor(ctx, message, [run.botId])
+      await audit(ctx, {
+        category: 'run',
+        actorUserId: user.id,
+        action: 'run.retry',
+        groupId: run.groupId,
+        detail: { runId: id },
+      })
+      return reply.status(204).send()
     })
   }
 }

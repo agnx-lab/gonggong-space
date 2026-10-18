@@ -232,6 +232,7 @@ export default {
   等待开始: 'Waiting to start',
   复制错误信息: 'Copy error',
   已复制错误信息: 'Error copied',
+  重新运行: 'Rerun',
   展开全部: 'Show all',
   '等待触发人或 Bot 主人回答': 'Waiting for the trigger user or the bot owner to answer',
   '{name} 已回答': '{name} answered',

@@ -11,12 +11,14 @@ import {
 } from '@gonggong/protocol'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
+import { useSession } from '../../../app/session'
 import { useWorkbench } from '../../../app/workbench'
 import { useWorkspace } from '../../../app/workspace'
 import { t } from '../../../i18n'
 import { api } from '../../../lib/api'
 import { copyWithToast } from '../../../lib/clipboard'
 import { cx } from '../../../lib/cx'
+import { attempt } from '../../../lib/errors'
 import { Elapsed } from '../../../lib/now'
 import { realtime } from '../../../lib/realtime'
 import { hm, hms, stamp } from '../../../lib/time'
@@ -270,6 +272,20 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
   const away = useFollow(body, live && view === 'process', steps)
   const started = run?.startedAt ? Date.parse(run.startedAt) : null
   const issue = run ? runIssue(run) : null
+  const me = useSession((s) => s.user?.id)
+  // The server allows the same: a failed hop-1 run, by its trigger user or the bot owner.
+  const canRetry =
+    !!run &&
+    issue?.tone === 'error' &&
+    run.hop === 1 &&
+    (run.status === 'interrupted' || run.status === 'expired') &&
+    !!me &&
+    (me === run.originUserId || me === bot?.ownerId)
+  const retry = async () => {
+    const ok = await attempt(() => api.post(`/runs/${runId}/retry`))
+    if (ok) toast({ type: 'success', message: t('已重新运行，新的运行卡片会出现在群里') })
+    return ok
+  }
   return (
     <div className="run-tab" data-testid="run-tab" ref={tabRef}>
       <Toolbar
@@ -361,7 +377,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
           </GroupBox>
         ) : null}
         {more && detail?.settings ? <RunSettings settings={detail.settings} /> : null}
-        {issue ? <IssueBanner issue={issue} /> : null}
+        {issue ? <IssueBanner issue={issue} onRetry={canRetry ? retry : undefined} /> : null}
         <Tabs size="sm" items={VIEWS} value={view} onChange={(v) => patch(tabKey, { view: v })} />
       </div>
       <div

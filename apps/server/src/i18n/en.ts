@@ -155,6 +155,11 @@ export const en = {
 
   // Runs, approvals, questions
   运行不存在: 'Run not found',
+  '只有触发人或 Bot 主人可以重新运行': 'Only the requester or the bot owner can rerun this run',
+  '接力运行不能单独重新运行，请到原群消息重新触发':
+    'A relayed run cannot be rerun alone; trigger it again from the original group message',
+  只有失败或作废的运行可以重新运行: 'Only failed or expired runs can be rerun',
+  '原消息已撤回，无法重新运行': 'The original message was recalled; cannot rerun',
   '工具 {name} 不存在': 'Tool {name} not found',
   审批请求不存在: 'Approval request not found',
   '仅 Bot 主人可以审批': "Only the Bot's owner can approve",
