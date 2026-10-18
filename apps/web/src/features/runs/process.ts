@@ -1,6 +1,5 @@
 import type { ApprovalDto, RunDetailDto } from '@gonggong/protocol'
 import { t } from '../../i18n'
-import { hm } from '../../lib/time'
 import { newSessionNote } from '../chat/TimelineItems'
 import { parsePatch } from '../diff/patch'
 import { VOID_TEXT } from './ApprovalBlock'
@@ -58,10 +57,11 @@ export function buildSteps(d: RunDetailDto): Step[] {
         key: `a${a.id}`,
         kind: 'approval',
         label: t('权限请求'),
-        meta: hm(a.createdAt),
         mono: a.detail,
         body: approvalText(a),
         running: a.status === 'pending',
+        at: a.createdAt,
+        end: a.decidedAt ?? undefined,
       },
     })
   const configs = d.events.map(statusOf).filter((s): s is string => !!s && CONFIG_ECHO.test(s))

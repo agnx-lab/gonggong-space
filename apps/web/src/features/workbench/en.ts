@@ -74,4 +74,5 @@ export default {
   '无法用 {app} 打开': "Couldn't open in {app}",
   选择打开方式: 'Choose an app to open with',
   '{app}（默认）': '{app} (default)',
+  '开始 – 结束': 'Started – ended',
 } satisfies Record<string, string>

@@ -70,6 +70,18 @@ button.act-row:hover {
   flex: none;
   font-size: var(--text-subheadline-size);
 }
+.act-row__time {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote-size);
+  color: var(--label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.act-text > .act-row__time {
+  float: right;
+  margin: 0 0 var(--space-2) var(--space-8);
+}
 .act-row__chevron {
   flex: none;
   margin-left: auto;
@@ -186,10 +198,6 @@ button.act-row:hover {
 }
 .act-item--group > .act-row .act-row__chevron {
   margin-left: 0;
-}
-.act-item--group > .act-row {
-  width: auto;
-  max-width: 100%;
 }
 .act-row__target--file {
   flex: 0 1 auto;

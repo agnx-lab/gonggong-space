@@ -19,7 +19,7 @@ import { copyWithToast } from '../../../lib/clipboard'
 import { cx } from '../../../lib/cx'
 import { Elapsed } from '../../../lib/now'
 import { realtime } from '../../../lib/realtime'
-import { hm } from '../../../lib/time'
+import { hm, stamp } from '../../../lib/time'
 import {
   EmptyState,
   FailedArt,
@@ -298,6 +298,14 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
                 />
               )}
             </span>
+            {run.startedAt ? (
+              <span className="run-tab__fact" title={t('开始 – 结束')}>
+                <Icon name="calendar" size={14} />
+                <span className="run-tab__val run-tab__mono">
+                  {`${stamp(run.startedAt, null)} – ${run.endedAt ? stamp(run.endedAt, run.startedAt) : t('进行中')}`}
+                </span>
+              </span>
+            ) : null}
             <span className="run-tab__fact" title={t('用量')}>
               <Icon name="chart-bar" size={14} />
               <span className="run-tab__val">{fmtUsage(run.usage)}</span>

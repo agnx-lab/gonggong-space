@@ -314,6 +314,33 @@ export function fmtWorked(ms: number) {
     .join(' ')
 }
 
+/** A step's or segment's duration: tenths of seconds below a minute. */
+export const fmtSpan = (ms: number) =>
+  ms < 60_000 ? t('{n} 秒', { n: (Math.max(0, ms) / 1000).toFixed(1) }) : fmtWorked(ms)
+
+/** From the earliest start to the latest change of `steps`; null when none is timed. */
+export function timeRange(steps: Step[]): { from: string; to: string } | null {
+  let range: { from: string; to: string } | null = null
+  for (const s of steps) {
+    if (!s.at) continue
+    const end = s.end ?? s.at
+    if (!range) range = { from: s.at, to: end }
+    else {
+      if (Date.parse(s.at) < Date.parse(range.from)) range.from = s.at
+      if (Date.parse(end) > Date.parse(range.to)) range.to = end
+    }
+  }
+  return range
+}
+
+/** The steps under an item, nested segments included. */
+export const itemSteps = (item: Item): Step[] =>
+  item.kind === 'action'
+    ? [item.step]
+    : item.kind === 'group'
+      ? item.actions.map((a) => a.step)
+      : item.items.flatMap(itemSteps)
+
 function workSummary(actions: Action[]) {
   const n = (f: Family) => actions.filter((a) => a.family === f).length
   const files = new Set(actions.filter((a) => a.family === 'edit').map((a) => a.target)).size

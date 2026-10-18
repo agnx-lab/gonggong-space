@@ -1,9 +1,19 @@
 import { useMemo, useState } from 'react'
 import { cx } from '../../lib/cx'
 import { Elapsed } from '../../lib/now'
+import { fullTime, stamp } from '../../lib/time'
 import { Button, Icon, type IconName, Mascot, type MascotCostume } from '../../ui'
 import { Markdown } from '../chat/Markdown'
-import { type Action, buildItems, fmtWorked, GROUP_SEP, type Item } from './activity'
+import {
+  type Action,
+  buildItems,
+  fmtSpan,
+  fmtWorked,
+  GROUP_SEP,
+  type Item,
+  itemSteps,
+  timeRange,
+} from './activity'
 import { McpDetail } from './McpDetail'
 import type { Step } from './steps'
 import './process.css'
@@ -46,6 +56,7 @@ export function ProcessView({
     toggle: (key, current = !!open[key]) => setOpen((o) => ({ ...o, [key]: !current })),
     root,
     live,
+    day: startedAt ?? steps.find((s) => s.at)?.at ?? null,
     onOpenDiff,
     onStopTask,
   }
@@ -74,8 +85,29 @@ type Ctx = {
   toggle: (key: string, current?: boolean) => void
   root: string | null
   live: boolean
+  /** Rows on another day than this (the run's start) show their date. */
+  day: string | null
   onOpenDiff?: (path: string) => void
   onStopTask?: (taskId: string) => Promise<unknown>
+}
+
+/** When a row happened: its start, a range for segments and subagents; the tooltip has full times and the duration. */
+function When({ steps, day, range }: { steps: Step[]; day: string | null; range?: boolean }) {
+  const r = timeRange(steps)
+  if (!r) return null
+  const spans = r.to !== r.from
+  const ms = Date.parse(r.to) - Date.parse(r.from)
+  const text = range && spans ? `${stamp(r.from, day)}–${stamp(r.to, r.from)}` : stamp(r.from, day)
+  const full = range && spans ? `${fullTime(r.from)} – ${fullTime(r.to)}` : fullTime(r.from)
+  return (
+    <time
+      className="act-row__time"
+      dateTime={r.from}
+      title={spans ? t('{time} · 耗时 {span}', { time: full, span: fmtSpan(ms) }) : full}
+    >
+      {text}
+    </time>
+  )
 }
 
 const GROUP_ICON: Record<string, IconName> = {
@@ -121,6 +153,7 @@ function ItemRow({ item, ...ctx }: { item: Item } & Ctx) {
           <span className="act-row__fail">{t('{n} 个失败', { n: item.failed })}</span>
         ) : null}
         <Icon name="chevron-right" size={12} className="act-row__chevron" />
+        <When steps={itemSteps(item)} day={ctx.day} range />
       </button>
       {expanded ? <ol className={cx('act', work ? 'act--nested' : 'act--flat')}>{children}</ol> : null}
     </li>
@@ -153,6 +186,7 @@ function SubagentRow({ action: a, ...ctx }: { action: Action } & Ctx) {
           {calls ? t('{n} 次调用 · {state}', { n: calls, state: s.meta ?? '' }) : s.meta}
         </span>
         <Icon name="chevron-right" size={12} className="act-row__chevron" />
+        <When steps={[s, ...children]} day={ctx.day} range />
       </button>
       {expanded ? (
         <ol className="act act--nested">
@@ -186,13 +220,21 @@ const OUT_LINES = 6
 /** Paths show as their file name (Codex app); the full path stays in the tooltip. */
 const FILE_TARGET = (a: Action) => a.family === 'edit' || (a.family === 'explore' && a.bucket === 'file')
 
-function ActionRow({ action: a, open: opened, toggle, onOpenDiff, onStopTask }: { action: Action } & Ctx) {
+function ActionRow({
+  action: a,
+  open: opened,
+  toggle,
+  day,
+  onOpenDiff,
+  onStopTask,
+}: { action: Action } & Ctx) {
   const s = a.step
   const open = !!opened[a.key]
   const onToggle = () => toggle(a.key)
   if (a.family === 'text')
     return (
       <li className="act-item act-text">
+        <When steps={[s]} day={day} />
         <Markdown text={s.body ?? ''} />
       </li>
     )
@@ -215,6 +257,7 @@ function ActionRow({ action: a, open: opened, toggle, onOpenDiff, onStopTask }: 
           <Icon name="shield-warning" size={14} className="act-row__icon" />
           <span className="act-row__verb">{t('权限请求')}</span>
           <span className="act-row__target act-row__target--mono">{s.mono}</span>
+          <When steps={[s]} day={day} />
         </div>
         <div className="act-approval__state">{s.body}</div>
       </li>
@@ -260,6 +303,7 @@ function ActionRow({ action: a, open: opened, toggle, onOpenDiff, onStopTask }: 
         <span className="act-row__meta">{s.meta}</span>
       ) : null}
       {expandable ? <Icon name="chevron-right" size={12} className="act-row__chevron" /> : null}
+      <When steps={[s]} day={day} />
     </>
   )
   const row = expandable ? (

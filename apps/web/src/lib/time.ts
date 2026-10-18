@@ -11,6 +11,23 @@ export const hm = (iso: string) => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** Local HH:mm:ss. */
+export const hms = (iso: string) => {
+  const d = new Date(iso)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+
+/** Local YYYY-MM-DD HH:mm:ss. */
+export const fullTime = (iso: string) => `${ymd(new Date(iso))} ${hms(iso)}`
+
+/** HH:mm:ss, with MM-DD in front when not on the day of `ref`. */
+export const stamp = (iso: string, ref: string | null) => {
+  const d = new Date(iso)
+  return !ref || ymd(d) === ymd(new Date(ref)) ? hms(iso) : `${ymd(d).slice(5)} ${hms(iso)}`
+}
+
 /** mm:ss left, rounded up so it reaches 00:00 only when time is up. */
 export const countdown = (ms: number) => {
   const s = Math.max(0, Math.ceil(ms / 1000))

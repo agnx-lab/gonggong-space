@@ -214,4 +214,5 @@ export default {
   '回滚 Skill': 'Roll back skill',
   '子 agent {n} 个运行中': '{n} {n:subagent|subagents} running',
   后台运行: 'Running in background',
+  '{time} · 耗时 {span}': '{time} · took {span}',
 } satisfies Record<string, string>
