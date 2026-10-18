@@ -127,8 +127,8 @@ function ItemRow({ item, ...ctx }: { item: Item } & Ctx) {
     ) : (
       <ActionRow action={item} {...ctx} />
     )
-  // A segment still being worked on stays open unless the user folded it.
-  const expanded = open[item.key] ?? (item.kind === 'group' && item.running)
+  // A segment still being worked on or holding a failure stays open unless the user folded it.
+  const expanded = open[item.key] ?? (item.kind === 'group' && (item.running || item.failed > 0))
   const children =
     item.kind === 'work'
       ? item.items.map((i) => <ItemRow key={i.key} item={i} {...ctx} />)
@@ -229,8 +229,9 @@ function ActionRow({
   onStopTask,
 }: { action: Action } & Ctx) {
   const s = a.step
-  const open = !!opened[a.key]
-  const onToggle = () => toggle(a.key)
+  // A failed call shows its error output until folded.
+  const open = opened[a.key] ?? (!!s.failed && !a.quiet && (!!s.out || !!s.mcp?.output))
+  const onToggle = () => toggle(a.key, open)
   if (a.family === 'text')
     return (
       <li className="act-item act-text">

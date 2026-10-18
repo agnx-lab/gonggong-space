@@ -215,4 +215,22 @@ export default {
   '子 agent {n} 个运行中': '{n} {n:subagent|subagents} running',
   后台运行: 'Running in background',
   '{time} · 耗时 {span}': '{time} · took {span}',
+  '运行失败：agent 异常': 'Run failed: agent error',
+  '看完错误信息后重新 @ Bot 再试；反复出现时检查 Bot 所在机器上 agent 的登录、额度与网络。':
+    "Read the error, then @ the bot again. If it keeps happening, check the agent's sign-in, quota and network on the bot's machine.",
+  运行已停止: 'Run stopped',
+  运行已中断: 'Run interrupted',
+  未记录原因: 'No reason recorded',
+  '重新 @ Bot 再试一次；已改的文件见「改动」。':
+    '@ the bot to try again; files already changed are under Changes.',
+  运行已作废: 'Run voided',
+  '确认 Bot 所在机器在线、daemon 正在运行后重新 @ Bot。':
+    "Make sure the bot's machine is online and its daemon running, then @ the bot again.",
+  未获准运行: 'Not allowed to run',
+  'Bot 所在机器离线；超过 {n} 分钟仍未上线本轮作废。':
+    "The bot's machine is offline; this run is voided if it isn't back within {n} {n:minute|minutes}.",
+  等待开始: 'Waiting to start',
+  复制错误信息: 'Copy error',
+  已复制错误信息: 'Error copied',
+  展开全部: 'Show all',
 } satisfies Record<string, string>

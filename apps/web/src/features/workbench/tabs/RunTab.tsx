@@ -41,6 +41,8 @@ import { useWorkspaceDiff, type WorkspaceDiff } from '../../diff/useWorkspaceDif
 import { fieldLabel, tokensLabel } from '../../machines/agentSettings'
 import { OFFICIAL_NAME } from '../../machines/providers'
 import { ActivityDock } from '../../runs/ActivityDock'
+import { IssueBanner } from '../../runs/IssueBanner'
+import { runIssue } from '../../runs/issue'
 import { ProcessView } from '../../runs/ProcessView'
 import { approvalText, buildSteps } from '../../runs/process'
 import type { Step } from '../../runs/steps'
@@ -254,6 +256,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
     setLocate(null)
   }, [locate, view])
   const started = run?.startedAt ? Date.parse(run.startedAt) : null
+  const issue = run ? runIssue(run) : null
   return (
     <div className="run-tab" data-testid="run-tab" ref={tabRef}>
       <Toolbar
@@ -325,6 +328,7 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
           </GroupBox>
         ) : null}
         {more && detail?.settings ? <RunSettings settings={detail.settings} /> : null}
+        {issue ? <IssueBanner issue={issue} /> : null}
         <Tabs size="sm" items={VIEWS} value={view} onChange={(v) => patch(tabKey, { view: v })} />
       </div>
       <div className={cx('run-tab__body', view === 'diff' && 'run-tab__body--fill')}>

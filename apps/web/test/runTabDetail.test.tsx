@@ -1,5 +1,5 @@
 import type { RunDetailDto, RunDto } from '@gonggong/protocol'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RunTab } from '../src/features/workbench/tabs/RunTab'
 
@@ -78,5 +78,81 @@ describe('run tab detail', () => {
     serve(detail(run({ status: 'running', endedAt: null })))
     render(<RunTab {...props} />)
     expect((await screen.findByTitle('开始 – 结束')).textContent).toBe('10:00:01 – 进行中')
+  })
+
+  it('shows why an agent failed, in full, with what to do', async () => {
+    const error = [
+      'API Error: 529 overloaded',
+      ...Array.from({ length: 8 }, (_, i) => `  at line ${i}`),
+    ].join('\n')
+    serve(
+      detail(
+        run({
+          status: 'interrupted',
+          step: `agent 异常：${error}`,
+          stepI18n: { key: 'agent 异常：{error}', params: { error } },
+        }),
+      ),
+    )
+    render(<RunTab {...props} />)
+    const banner = await screen.findByRole('alert')
+    expect(within(banner).getByText('运行失败：agent 异常')).toBeTruthy()
+    expect(within(banner).getByText(/API Error: 529 overloaded/)).toBeTruthy()
+    expect(within(banner).queryByText(/at line 7/)).toBeNull()
+    fireEvent.click(within(banner).getByRole('button', { name: '展开全部' }))
+    expect(within(banner).getByText(/at line 7/)).toBeTruthy()
+    expect(within(banner).getByRole('button', { name: '复制错误信息' })).toBeTruthy()
+    expect(within(banner).getByText(/重新 @ Bot/)).toBeTruthy()
+  })
+
+  it('tells a stop, an expiry and a wait apart', async () => {
+    serve(detail(run({ status: 'interrupted', step: '张三 执行了 /stop', stoppedBy: 'u2' })))
+    const { unmount } = render(<RunTab {...props} />)
+    const stopped = (await screen.findByText('运行已停止')).closest('[role="status"]') as HTMLElement
+    expect(within(stopped).getByText('张三 执行了 /stop')).toBeTruthy()
+    unmount()
+
+    serve(detail(run({ status: 'expired', step: 'Bot 离线超过 30 分钟，已作废并通知 张三' })))
+    const second = render(<RunTab {...props} />)
+    const expired = await screen.findByRole('alert')
+    expect(within(expired).getByText('运行已作废')).toBeTruthy()
+    expect(within(expired).getByText(/机器/)).toBeTruthy()
+    second.unmount()
+
+    serve(detail(run({ status: 'offline_wait', step: 'Bot 离线，等待上线', startedAt: null, endedAt: null })))
+    render(<RunTab {...props} />)
+    const waiting = (await screen.findByText('等待 Bot 上线')).closest('[role="status"]') as HTMLElement
+    expect(within(waiting).getByText(/超过 30 分钟/)).toBeTruthy()
+  })
+
+  it('opens failed calls and the segments holding them', async () => {
+    const at = local(10, 0, 2)
+    const tool = (
+      id: number,
+      toolCallId: string,
+      cmd: string,
+      status: 'completed' | 'failed',
+      out: string,
+    ) => ({
+      id,
+      at,
+      event: {
+        kind: 'tool' as const,
+        toolCallId,
+        title: cmd,
+        toolKind: 'execute' as const,
+        status,
+        detail: `$ ${cmd}\n${out}`,
+      },
+    })
+    serve(
+      detail(run({ status: 'running', endedAt: null }), [
+        tool(1, 't1', 'make build', 'completed', 'built'),
+        tool(2, 't2', 'make test', 'failed', 'boom: 3 failed'),
+      ]),
+    )
+    render(<RunTab {...props} />)
+    expect(await screen.findByText(/boom: 3 failed/)).toBeTruthy()
+    expect(screen.queryByText(/^built$/)).toBeNull()
   })
 })
