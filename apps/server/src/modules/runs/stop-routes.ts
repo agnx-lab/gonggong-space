@@ -74,7 +74,7 @@ export function stopRoutes(ctx: Ctx) {
       await chooseInterrupt(ctx, id, choice, user)
       return { ok: true }
     })
-    // 重新运行 from the run detail: the same bot, again on the original message, like re-sending it.
+    // 重新运行 from the run detail (failed, voided or stopped by hand): the same bot, again on the original message.
     app.post('/api/runs/:id/retry', async (req, reply) => {
       const user = await requireUser(ctx, req)
       const { id } = Params.parse(req.params)

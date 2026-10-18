@@ -72,6 +72,13 @@ describe('POST /api/runs/:id/retry', () => {
     expect(['queued', 'offline_wait', 'running']).toContain(fresh.status)
   })
 
+  it('retries a run stopped by hand', async () => {
+    const w = await world()
+    const stopped = await w.run({ stoppedBy: w.msg.authorUserId })
+    expect((await w.retry(stopped.id)).status).toBe(204)
+    expect(await w.runsOf()).toHaveLength(2)
+  })
+
   it('lets the bot owner retry an expired run; anyone else gets 403', async () => {
     const w = await world()
     const expired = await w.run({ status: 'expired' })

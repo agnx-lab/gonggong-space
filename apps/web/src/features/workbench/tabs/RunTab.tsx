@@ -273,10 +273,9 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
   const started = run?.startedAt ? Date.parse(run.startedAt) : null
   const issue = run ? runIssue(run) : null
   const me = useSession((s) => s.user?.id)
-  // The server allows the same: a failed hop-1 run, by its trigger user or the bot owner.
+  // The server allows the same: an unfinished hop-1 run (stopped ones too), by its trigger user or the bot owner.
   const canRetry =
     !!run &&
-    issue?.tone === 'error' &&
     run.hop === 1 &&
     (run.status === 'interrupted' || run.status === 'expired') &&
     !!me &&

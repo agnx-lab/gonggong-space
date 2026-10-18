@@ -39,7 +39,7 @@ export function IssueBanner({ issue, onRetry }: { issue: RunIssue; onRetry?: () 
           </button>
         ) : null}
         {onRetry ? (
-          <Button size="small" disabled={retrying} onClick={() => void retry()}>
+          <Button size="small" icon="arrow-clockwise" disabled={retrying} onClick={() => void retry()}>
             {t('重新运行')}
           </Button>
         ) : null}

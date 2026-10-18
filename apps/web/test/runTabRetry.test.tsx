@@ -1,5 +1,5 @@
 import type { BotDto, RunDetailDto, RunDto, UserDto } from '@gonggong/protocol'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
@@ -121,10 +121,19 @@ describe('run tab retry', () => {
     expect(button.disabled).toBe(false)
   })
 
+  it('lets a manually stopped run be rerun too, the button with its icon', async () => {
+    const fetch = serve(detail(run({ step: '王磊 执行了 /stop', stepI18n: undefined, stoppedBy: 'u-wang' })))
+    render(<RunTab {...props} />)
+    const banner = (await screen.findByText('运行已停止')).closest('.run-issue') as HTMLElement
+    const button = within(banner).getByRole('button', { name: '重新运行' })
+    expect(button.querySelector('svg')).toBeTruthy()
+    fireEvent.click(button)
+    await waitFor(() => expect(retried(fetch)).toHaveLength(1))
+  })
+
   it.each([
     ['someone else', run(), 'u-zhao'],
     ['a relayed run', run({ hop: 2 }), 'u-wang'],
-    ['a stopped run', run({ stoppedBy: 'u-wang' }), 'u-wang'],
   ])('offers no rerun to %s', async (_, r, user) => {
     me(user)
     serve(detail(r))
