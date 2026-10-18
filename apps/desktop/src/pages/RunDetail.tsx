@@ -108,6 +108,7 @@ export function RunDetail({ runId, onBack }: { runId: string; onBack: () => void
                 live={live}
                 startedAt={run ? new Date(run.startedMs).toISOString() : null}
                 workedMs={process.endedMs && run ? process.endedMs - run.startedMs : null}
+                filterable
               />
             </div>
           )}

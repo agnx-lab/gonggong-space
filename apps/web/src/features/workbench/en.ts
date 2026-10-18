@@ -76,4 +76,5 @@ export default {
   '{app}（默认）': '{app} (default)',
   '开始 – 结束': 'Started – ended',
   待处理: 'Needs you',
+  回到最新: 'Jump to latest',
 } satisfies Record<string, string>

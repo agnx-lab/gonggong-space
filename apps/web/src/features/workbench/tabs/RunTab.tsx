@@ -9,7 +9,7 @@ import {
   TERMINAL_RUN_STATUS,
   withRunStep,
 } from '@gonggong/protocol'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { useWorkbench } from '../../../app/workbench'
 import { useWorkspace } from '../../../app/workspace'
@@ -21,6 +21,7 @@ import { Elapsed } from '../../../lib/now'
 import { realtime } from '../../../lib/realtime'
 import { hm, stamp } from '../../../lib/time'
 import {
+  Button,
   EmptyState,
   FailedArt,
   GroupBox,
@@ -257,6 +258,8 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
     tabRef.current?.querySelector(`[data-step="${CSS.escape(locate)}"]`)?.scrollIntoView({ block: 'center' })
     setLocate(null)
   }, [locate, view])
+  const body = useRef<HTMLDivElement>(null)
+  const away = useFollow(body, live && view === 'process', steps)
   const started = run?.startedAt ? Date.parse(run.startedAt) : null
   const issue = run ? runIssue(run) : null
   return (
@@ -333,7 +336,11 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
         {issue ? <IssueBanner issue={issue} /> : null}
         <Tabs size="sm" items={VIEWS} value={view} onChange={(v) => patch(tabKey, { view: v })} />
       </div>
-      <div className={cx('run-tab__body', view === 'diff' && 'run-tab__body--fill')}>
+      <div
+        ref={body}
+        className={cx('run-tab__body', view === 'diff' && 'run-tab__body--fill')}
+        onScroll={away.onScroll}
+      >
         {error ? (
           <EmptyState bare illustration={<FailedArt />} title={t('无法加载运行过程')} description={error} />
         ) : !detail ? (
@@ -359,8 +366,14 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
                 costume={costume}
                 active={active}
                 renderAsk={(s) => decidedAsk(detail.run, s)}
+                filterable
               />
             )}
+            {away.shown ? (
+              <Button size="small" icon="arrow-down" className="run-tab__follow" onClick={away.back}>
+                {t('回到最新')}
+              </Button>
+            ) : null}
           </div>
         ) : view === 'diff' ? (
           <Changes
@@ -406,6 +419,34 @@ export function useRunTabMeta(tab: TabProps<'run'>['tab']): TabMeta {
         : FAILED.includes(run.status)
           ? 'failed'
           : 'running',
+  }
+}
+
+/** Pixels from the end a pane may be and still count as following. */
+const FOLLOW_SLACK = 40
+
+/**
+ * While `on` (a live run's process), new steps keep the pane at its end, as long as the user has not scrolled up;
+ * then 回到最新 brings them back.
+ */
+function useFollow(ref: RefObject<HTMLDivElement | null>, on: boolean, steps: unknown) {
+  const [up, setUp] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow every new step
+  useEffect(() => {
+    const el = ref.current
+    if (on && !up && el) el.scrollTop = el.scrollHeight
+  }, [on, up, steps, ref])
+  return {
+    shown: on && up,
+    onScroll: () => {
+      const el = ref.current
+      if (el) setUp(el.scrollHeight - el.scrollTop - el.clientHeight > FOLLOW_SLACK)
+    },
+    back: () => {
+      const el = ref.current
+      if (el) el.scrollTop = el.scrollHeight
+      setUp(false)
+    },
   }
 }
 

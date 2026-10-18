@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react'
+import { copyWithToast } from '../../lib/clipboard'
 import { cx } from '../../lib/cx'
 import { Elapsed } from '../../lib/now'
 import { fullTime, stamp } from '../../lib/time'
@@ -7,6 +8,7 @@ import { Markdown } from '../chat/Markdown'
 import {
   type Action,
   buildItems,
+  classify,
   fmtSpan,
   fmtWorked,
   GROUP_SEP,
@@ -34,6 +36,7 @@ export function ProcessView({
   costume,
   active = true,
   renderAsk,
+  filterable = false,
 }: {
   steps: Step[]
   root: string | null
@@ -48,12 +51,24 @@ export function ProcessView({
   active?: boolean
   /** A permission request's or question's own card in place of its row; null keeps the row (web only). */
   renderAsk?: (step: Step) => ReactNode
+  /** Offers 失败 / 需处理 / 命令 filters above the list. */
+  filterable?: boolean
 }) {
   // Only the user's own folding is remembered; everything starts folded (ZCode / Codex).
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  const items = useMemo(() => buildItems(steps, root, live, workedMs), [steps, root, live, workedMs])
+  const [filter, setFilter] = useState<Filter>('all')
+  const items = useMemo(
+    () =>
+      filter === 'all'
+        ? buildItems(steps, root, live, workedMs)
+        : flat(steps)
+            .map((s) => classify(s, root))
+            .filter(MATCH[filter])
+            .map((a): Item => ({ kind: 'action', ...a })),
+    [steps, root, live, workedMs, filter],
+  )
   // Between calls the model is thinking: say so, like Codex's `Working (12s)` line.
-  const idle = live && !steps.some((s) => s.running)
+  const idle = live && filter === 'all' && !steps.some((s) => s.running)
   const ctx: Ctx = {
     open,
     toggle: (key, current = !!open[key]) => setOpen((o) => ({ ...o, [key]: !current })),
@@ -65,24 +80,60 @@ export function ProcessView({
     renderAsk,
   }
   return (
-    <ol className="act" aria-label={t('运行过程')}>
-      {items.map((item) => (
-        <ItemRow key={item.key} item={item} {...ctx} />
-      ))}
-      {idle ? (
-        <li className="act-item act-working" aria-live="polite">
-          <Mascot className="act-working__mascot" action="think" costume={costume} size={32} />
-          <span className="act-shimmer">{t('正在处理')}</span>
-          {startedAt ? (
-            <span className="act-row__meta">
-              <Elapsed from={Date.parse(startedAt)} ticking={active} format={fmtWorked} />
-            </span>
-          ) : null}
-        </li>
+    <>
+      {filterable ? (
+        <fieldset className="act-filters" aria-label={t('筛选过程')}>
+          {FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              className="act-filter"
+              aria-pressed={filter === f.value}
+              onClick={() => setFilter(f.value)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </fieldset>
       ) : null}
-    </ol>
+      <ol className="act act-root" aria-label={t('运行过程')}>
+        {items.map((item) => (
+          <ItemRow key={item.key} item={item} {...ctx} />
+        ))}
+        {filter !== 'all' && !items.length ? <li className="act-empty">{t('没有符合条件的步骤')}</li> : null}
+        {idle ? (
+          <li className="act-item act-working" aria-live="polite">
+            <Mascot className="act-working__mascot" action="think" costume={costume} size={32} />
+            <span className="act-shimmer">{t('正在处理')}</span>
+            {startedAt ? (
+              <span className="act-row__meta">
+                <Elapsed from={Date.parse(startedAt)} ticking={active} format={fmtWorked} />
+              </span>
+            ) : null}
+          </li>
+        ) : null}
+      </ol>
+    </>
   )
 }
+
+type Filter = 'all' | 'failed' | 'ask' | 'command'
+
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all', label: t('全部') },
+  { value: 'failed', label: t('失败') },
+  { value: 'ask', label: t('需处理') },
+  { value: 'command', label: t('命令#filter') },
+]
+
+const MATCH: Record<Exclude<Filter, 'all'>, (a: Action) => boolean> = {
+  failed: (a) => !!a.step.failed && !a.quiet,
+  ask: (a) => a.family === 'approval',
+  command: (a) => a.step.kind === 'execute',
+}
+
+/** Subagents' steps after their own row, for filtering across the whole run. */
+const flat = (steps: Step[]): Step[] => steps.flatMap((s) => [s, ...flat(s.children ?? [])])
 
 type Ctx = {
   open: Record<string, boolean>
@@ -384,19 +435,46 @@ export function StopTask({
   )
 }
 
-/** Tail of a command's output (Codex keeps the last lines), the rest one click away. */
+/** Tail of a command's output (Codex keeps the last lines), the rest one click away; long ones can be searched. */
 function Output({ text, mono }: { text: string; mono: boolean }) {
   const [all, setAll] = useState(false)
+  const [query, setQuery] = useState('')
   const lines = text.replace(/\n+$/, '').split('\n')
-  const hidden = mono && !all ? Math.max(0, lines.length - OUT_LINES) : 0
+  const q = query.trim().toLowerCase()
+  const matched = q ? lines.filter((l) => l.toLowerCase().includes(q)) : lines
+  const hidden = mono && !all && !q ? Math.max(0, lines.length - OUT_LINES) : 0
   return (
     <div className={cx('act-detail', mono ? 'act-detail--mono' : 'act-detail--text')}>
+      {mono ? (
+        <div className="act-detail__tools">
+          {lines.length > OUT_LINES ? (
+            <input
+              type="search"
+              className="act-detail__search"
+              aria-label={t('搜索输出')}
+              placeholder={t('搜索输出')}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          ) : null}
+          {q ? <span className="act-detail__hits">{t('{n} 行匹配', { n: matched.length })}</span> : null}
+          <button
+            type="button"
+            className="act-detail__copy"
+            aria-label={t('复制输出')}
+            title={t('复制输出')}
+            onClick={() => void copyWithToast(text, t('已复制输出'))}
+          >
+            <Icon name="copy" size={12} />
+          </button>
+        </div>
+      ) : null}
       {hidden ? (
         <button type="button" className="act-detail__more" onClick={() => setAll(true)}>
           {t('… 另有 {n} 行', { n: hidden })}
         </button>
       ) : null}
-      {mono ? <pre>{lines.slice(hidden).join('\n')}</pre> : text}
+      {mono ? <pre>{matched.slice(hidden).join('\n')}</pre> : text}
     </div>
   )
 }

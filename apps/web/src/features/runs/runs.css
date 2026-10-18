@@ -300,3 +300,13 @@
   border-radius: var(--radius-field);
   background: var(--tint-orange);
 }
+.run-tab__follow {
+  position: sticky;
+  bottom: 0;
+  align-self: center;
+  box-shadow: var(--shadow-control);
+}
+.run-tab__facts {
+  flex-wrap: wrap;
+  row-gap: var(--space-4);
+}
