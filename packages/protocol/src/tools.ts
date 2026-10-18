@@ -124,6 +124,18 @@ const scheduleBots = z
   .describe(
     '候选 Bot 名字（get_group_info 列出的本群 Bot），按擅长此任务的程度从高到低排列；到点时由第一个可用（在线、空闲）的执行。默认只有你自己',
   )
+const scheduleRunOptions = z
+  .array(
+    z.object({
+      bot: z.string().min(1).max(64).describe('候选 Bot 的名字'),
+      model: z.string().max(100).optional().describe('模型取值，如 opus、sonnet；省略 = 跟随默认'),
+      effort: z.string().max(40).optional().describe('推理强度，如 low、medium、high；省略 = 跟随默认'),
+    }),
+  )
+  .max(10)
+  .describe(
+    '按候选 Bot 指定执行时用的模型与推理强度，不给的 Bot 跟随默认。用户明确要求时才填；修改时给完整列表，[] = 全部恢复默认',
+  )
 const scheduleTz = z.string().describe('IANA 时区，默认 Asia/Shanghai')
 const atMostOneTiming = (a: { cron?: unknown; at?: unknown }) => !(a.cron !== undefined && a.at !== undefined)
 
@@ -139,6 +151,7 @@ export const ScheduleCreateArgs = z
     at: scheduleAt.optional(),
     timezone: scheduleTz.optional(),
     bots: scheduleBots.optional(),
+    run_options: scheduleRunOptions.optional(),
   })
   .refine((a) => atMostOneTiming(a) && (a.cron !== undefined || a.at !== undefined), {
     message: 'cron 与 at 需要且只能给一个',
@@ -153,6 +166,7 @@ export const ScheduleUpdateArgs = z
     at: scheduleAt.optional(),
     timezone: scheduleTz.optional(),
     bots: scheduleBots.optional(),
+    run_options: scheduleRunOptions.optional(),
     enabled: z.boolean().describe('false = 暂停，true = 恢复').optional(),
   })
   .refine(atMostOneTiming, { message: 'cron 与 at 最多给一个' })

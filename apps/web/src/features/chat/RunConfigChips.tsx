@@ -12,6 +12,7 @@ import { api } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { Icon, MenuButton, type MenuItem } from '../../ui'
 import { effortOptions, modelOptions, useBotCatalog, withModel } from '../bots/AgentConfig'
+import './run-config.css'
 
 export type Picks = Record<string, RunConfigPick>
 
@@ -27,9 +28,9 @@ export function mentionedBots(draft: string, bots: BotDto[]) {
 }
 
 /** Plan M1: the bot owner or a group admin; anyone in a DM. */
-function useCanConfigure(group: GroupDto) {
+export function useCanConfigure(group: GroupDto | undefined) {
   const me = useSession((s) => s.user)
-  const admin = group.kind === 'dm' || !!group.members.find((m) => m.userId === me?.id)?.isAdmin
+  const admin = group?.kind === 'dm' || !!group?.members.find((m) => m.userId === me?.id)?.isAdmin
   return (bot: BotDto) => admin || bot.ownerId === me?.id
 }
 
@@ -70,20 +71,26 @@ export function RunConfigChips({
   )
 }
 
-/** The picks offered are those of the bot's next session, asked of its machine (its provider's models). */
-function RunConfigChip({
+/**
+ * The picks offered are those of the bot's next session, asked of its machine (its provider's models). A message
+ * pick may be saved as the group default; a scheduled task keeps its own.
+ */
+export function RunConfigChip({
   group,
   bot,
   pick,
   editable,
   onPick,
+  scope = 'message',
 }: {
   group: GroupDto
   bot: BotDto
   pick: RunConfigPick | undefined
   editable: boolean
   onPick: (next: RunConfigPick | null) => void
+  scope?: 'message' | 'schedule'
 }) {
+  const message = scope === 'message'
   const state = useWorkspace((s) => s.botStates[group.id]?.[bot.id])
   const live = useBotCatalog(bot.id)
   const catalog = live ? live.catalog : bot.catalog
@@ -91,7 +98,7 @@ function RunConfigChip({
   const model = pick?.model !== undefined ? pick.model : saved.model
   const effort = fitEffort(catalog, model, pick?.effort !== undefined ? pick.effort : saved.effort)
   const label = agentConfigLabel(catalog, model ?? catalog?.current ?? null, effort)
-  const text = `${bot.name} · ${label}`
+  const text = message ? `${bot.name} · ${label}` : label
   const name = t('{name} 的模型与推理强度', { name: bot.name })
   if (!editable || !live?.catalog)
     return (
@@ -137,18 +144,20 @@ function RunConfigChip({
             .map((o) => ({ label: o.label, value: `e:${o.value}`, checked: effort === o.value })),
         ]
       : []),
-    ...(pick ? [{ separator: true as const }, { label: t('设为本群默认'), value: 'save' }] : []),
+    ...(pick && message ? [{ separator: true as const }, { label: t('设为本群默认'), value: 'save' }] : []),
+    ...(pick && !message ? [{ separator: true as const }, { label: t('跟随默认'), value: 'reset' }] : []),
   ]
   return (
     <MenuButton
       className="run-config__chip"
       aria-label={name}
       align="end"
-      placement="above"
+      placement={message ? 'above' : undefined}
       title={text}
       items={items}
       onSelect={(v) => {
         if (v === 'save') return void save()
+        if (v === 'reset') return onPick(null)
         if (v.startsWith('m:')) {
           const next = withModel(available, pick?.effort ?? null, v.slice(2) || null)
           return set({ model: next.model, ...(next.effort && { effort: next.effort }) })
@@ -157,7 +166,7 @@ function RunConfigChip({
       }}
     >
       <span className="run-config__label">{text}</span>
-      {pick ? <span className="run-config__once">{t('仅本条')}</span> : null}
+      {pick ? <span className="run-config__once">{message ? t('仅本条') : t('本任务')}</span> : null}
       <Icon name="chevron-updown" size={10} weight={2.2} />
     </MenuButton>
   )

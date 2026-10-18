@@ -119,6 +119,8 @@ export default {
   推理强度: 'Reasoning effort',
   设为本群默认: 'Set as group default',
   仅本条: 'This message only',
+  本任务: 'This task',
+  跟随默认: 'Follow the defaults',
   排队中: 'Queued',
   离线等待: 'Waiting for machine',
   无权触发: 'Not allowed',

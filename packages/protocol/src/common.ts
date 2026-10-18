@@ -140,3 +140,10 @@ export type Permission = z.infer<typeof Permission>
  */
 export const DevtoolsBlocker = z.enum(['port', 'auth', 'trust'])
 export type DevtoolsBlocker = z.infer<typeof DevtoolsBlocker>
+
+/** A one-shot pick for one message or a scheduled task; an absent field follows the defaults, null = the adapter's default. */
+export const RunConfigPick = z.object({
+  model: z.string().nullable().optional(),
+  effort: z.string().nullable().optional(),
+})
+export type RunConfigPick = z.infer<typeof RunConfigPick>

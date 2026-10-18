@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { RunStatus } from './common.js'
+import { RunConfigPick, RunStatus } from './common.js'
 import { I18nText } from './i18n.js'
 import type { ProtocolKey } from './i18n-en.js'
 
@@ -11,6 +11,8 @@ export const SCHEDULE_MAX_BOTS = 10
 
 export const ScheduleName = z.string().trim().min(1).max(60)
 export const SchedulePrompt = z.string().trim().min(1).max(4000)
+/** Model / thought level per candidate bot id (bot owner or group admin; anyone in a DM); absent = the defaults. */
+export const ScheduleRunOptions = z.record(z.string(), RunConfigPick)
 /** Five fields: minute hour day-of-month month day-of-week. */
 export const CronExpr = z.string().trim().min(9).max(100)
 export const ScheduleInstant = z.iso.datetime({ offset: true })
@@ -38,6 +40,7 @@ export const CreateScheduleReq = z
     name: ScheduleName,
     prompt: SchedulePrompt,
     botIds: z.array(z.string()).min(1).max(SCHEDULE_MAX_BOTS),
+    runOptions: ScheduleRunOptions.default({}),
     cron: CronExpr.optional(),
     runAt: ScheduleInstant.optional(),
     timezone: TimeZone,
@@ -52,6 +55,8 @@ export const UpdateScheduleReq = z
     name: ScheduleName.optional(),
     prompt: SchedulePrompt.optional(),
     botIds: z.array(z.string()).min(1).max(SCHEDULE_MAX_BOTS).optional(),
+    /** The full set; picks of bots no longer candidates are dropped either way. */
+    runOptions: ScheduleRunOptions.optional(),
     cron: CronExpr.optional(),
     runAt: ScheduleInstant.optional(),
     timezone: TimeZone.optional(),
@@ -71,6 +76,7 @@ export const ScheduleDto = z.object({
   timezone: z.string(),
   /** Candidates, most suitable first. */
   botIds: z.array(z.string()),
+  runOptions: ScheduleRunOptions,
   enabled: z.boolean(),
   /** Why the server turned it off (run once, kept failing, bots gone…); null when off by hand or on. */
   pausedReason: I18nText.nullable(),

@@ -4,7 +4,7 @@ import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { attempt } from '../../lib/errors'
 import { Button, EmptyState, GroupBox, Switch, Tag } from '../../ui'
-import { lastText, stateText } from './model'
+import { botsText, lastText, stateText } from './model'
 import { ScheduleDialog } from './ScheduleDialog'
 import { schedulesApi, timingText, useBotNames, useSchedules } from './store'
 import './schedules.css'
@@ -27,7 +27,7 @@ function Row({ s, onEdit }: { s: ScheduleDto; onEdit: () => void }) {
           {s.createdByBotId ? <Tag tone="gray">{t('Bot 创建')}</Tag> : null}
         </span>
         <span className="sc-muted">
-          {timingText(s)} · {names.join(' → ')}
+          {timingText(s)} · {botsText(s, names)}
         </span>
         <span className="sc-muted">
           {stateText(s)}

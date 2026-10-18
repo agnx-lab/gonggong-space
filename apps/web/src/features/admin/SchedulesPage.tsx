@@ -5,7 +5,7 @@ import { api } from '../../lib/api'
 import { attempt } from '../../lib/errors'
 import { useGet } from '../../lib/useGet'
 import { Alert, Button, EmptyState, SearchField, SegmentedControl, Spinner, Switch, Table } from '../../ui'
-import { lastText, stateText } from '../schedules/model'
+import { botsText, lastText, stateText } from '../schedules/model'
 import { timingText } from '../schedules/store'
 import { AdminPage } from './AdminPage'
 import { TeamFilter } from './TeamFilter'
@@ -104,7 +104,13 @@ export function SchedulesPage() {
               render: title,
             },
             { key: 'teamName', title: t('团队'), width: 110, secondary: true, sortable: true },
-            { key: 'bots', title: 'Bot', width: 150, secondary: true, render: (s) => s.botNames.join(' → ') },
+            {
+              key: 'bots',
+              title: 'Bot',
+              width: 150,
+              secondary: true,
+              render: (s) => botsText(s, s.botNames),
+            },
             { key: 'ownerName', title: t('主人'), width: 90, secondary: true, sortable: true },
             {
               key: 'state',

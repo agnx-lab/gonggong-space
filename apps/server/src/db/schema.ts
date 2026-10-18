@@ -3,6 +3,7 @@ import {
   type DiffRepo,
   type I18nText,
   LIVE_RUN_STATUSES,
+  type RunConfigPick,
   type RunSettingsSnapshot,
   type RunSyncDone,
 } from '@gonggong/protocol'
@@ -933,6 +934,8 @@ export const schedules = pgTable(
     timezone: text('timezone').notNull(),
     /** Candidates, most suitable first. */
     botIds: jsonb('bot_ids').$type<string[]>().notNull(),
+    /** Model / thought level per candidate bot id; absent = the defaults. */
+    runOptions: jsonb('run_options').$type<Record<string, RunConfigPick>>().notNull().default({}),
     enabled: boolean('enabled').notNull().default(true),
     /** Why the server turned it off; null when off by hand. */
     pausedReason: jsonb('paused_reason').$type<I18nText>(),

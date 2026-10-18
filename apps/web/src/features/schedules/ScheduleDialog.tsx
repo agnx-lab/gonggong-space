@@ -15,6 +15,7 @@ import {
   TextField,
 } from '../../ui'
 import { BotAvatar } from '../bots/avatars'
+import { type Picks, RunConfigChip, useCanConfigure } from '../chat/RunConfigChips'
 import { schedulesApi } from './store'
 import './schedules.css'
 
@@ -93,9 +94,11 @@ export function ScheduleDialog({
   onClose: () => void
 }) {
   const allBots = useWorkspace((s) => s.bots)
+  const group = useWorkspace((s) => s.groups.find((g) => g.id === groupId))
   const [name, setName] = useState(schedule?.name ?? '')
   const [prompt, setPrompt] = useState(schedule?.prompt ?? '')
   const [candidates, setCandidates] = useState<string[]>(schedule?.botIds ?? [])
+  const [picks, setPicks] = useState<Picks>(schedule?.runOptions ?? {})
   const [draft, setDraft] = useState(() => draftOf(schedule))
   const [preview, setPreview] = useState<{ error: I18nText | null; next: string[] } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -122,6 +125,12 @@ export function ScheduleDialog({
 
   const set = (o: Partial<Draft>) => setDraft((d) => ({ ...d, ...o }))
   const nameOf = (id: string) => allBots.find((b) => b.id === id)?.name ?? t('已移出')
+  const canConfigure = useCanConfigure(group)
+  const pickFor = (id: string, next: Picks[string] | null) => {
+    const rest = { ...picks }
+    delete rest[id]
+    setPicks(next ? { ...rest, [id]: next } : rest)
+  }
   const move = (i: number) =>
     setCandidates((c) =>
       c.map((id, j) => (j === i - 1 ? (c[i] as string) : j === i ? (c[i - 1] as string) : id)),
@@ -131,7 +140,15 @@ export function ScheduleDialog({
   const save = async () => {
     setSaving(true)
     try {
-      const body = { name: name.trim(), prompt: prompt.trim(), botIds: candidates, ...timing, timezone }
+      const runOptions = Object.fromEntries(candidates.flatMap((id) => (picks[id] ? [[id, picks[id]]] : [])))
+      const body = {
+        name: name.trim(),
+        prompt: prompt.trim(),
+        botIds: candidates,
+        runOptions,
+        ...timing,
+        timezone,
+      }
       if (schedule) await schedulesApi.update(schedule.id, body)
       else await schedulesApi.create(groupId, body)
       onClose()
@@ -177,28 +194,41 @@ export function ScheduleDialog({
         <section>
           <h3 className="sc-form__title">{t('候选 Bot · 到点由第一个可用的执行')}</h3>
           <GroupBox>
-            {candidates.map((id, i) => (
-              <div key={id} className="sc-bot">
-                <span className="sc-bot__rank">{i + 1}</span>
-                <BotAvatar id={id} name={nameOf(id)} size={22} />
-                <span className="sc-bot__name">{nameOf(id)}</span>
-                <IconButton
-                  size="small"
-                  title={t('上移 {name}', { name: nameOf(id) })}
-                  disabled={i === 0}
-                  onClick={() => move(i)}
-                >
-                  {'chevron-up' as const}
-                </IconButton>
-                <IconButton
-                  size="small"
-                  title={t('移除 {name}', { name: nameOf(id) })}
-                  onClick={() => setCandidates(candidates.filter((x) => x !== id))}
-                >
-                  {'minus' as const}
-                </IconButton>
-              </div>
-            ))}
+            {candidates.map((id, i) => {
+              const bot = allBots.find((b) => b.id === id)
+              return (
+                <div key={id} className="sc-bot">
+                  <span className="sc-bot__rank">{i + 1}</span>
+                  <BotAvatar id={id} name={nameOf(id)} size={22} />
+                  <span className="sc-bot__name">{nameOf(id)}</span>
+                  {group && bot ? (
+                    <RunConfigChip
+                      scope="schedule"
+                      group={group}
+                      bot={bot}
+                      pick={picks[id]}
+                      editable={canConfigure(bot)}
+                      onPick={(next) => pickFor(id, next)}
+                    />
+                  ) : null}
+                  <IconButton
+                    size="small"
+                    title={t('上移 {name}', { name: nameOf(id) })}
+                    disabled={i === 0}
+                    onClick={() => move(i)}
+                  >
+                    {'chevron-up' as const}
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    title={t('移除 {name}', { name: nameOf(id) })}
+                    onClick={() => setCandidates(candidates.filter((x) => x !== id))}
+                  >
+                    {'minus' as const}
+                  </IconButton>
+                </div>
+              )
+            })}
             <div className="sc-bot sc-bot--add">
               {botIds
                 .filter((id) => !candidates.includes(id))

@@ -2,12 +2,15 @@ import {
   type AdminSchedulesDto,
   type BotDto,
   formatInZone,
+  type GroupDto,
   type GroupSchedulesDto,
   type ScheduleDto,
+  type UserDto,
 } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
 import { SchedulesPage } from '../src/features/admin/SchedulesPage'
 import { ScheduleCard } from '../src/features/schedules/ScheduleCard'
@@ -65,6 +68,7 @@ const schedule = (o: Partial<ScheduleDto> = {}): ScheduleDto => ({
   runAt: null,
   timezone: 'Asia/Shanghai',
   botIds: ['b2', 'b1'],
+  runOptions: {},
   enabled: true,
   pausedReason: null,
   nextRunAt: '2026-10-05T01:00:00.000Z',
@@ -86,10 +90,12 @@ class NoopSocket {
   close() {}
 }
 
+const session = useSession.getState()
 beforeEach(() => {
+  useSession.setState(session, true)
   resetSchedules()
   vi.stubGlobal('WebSocket', NoopSocket)
-  useWorkspace.setState({ bots: [bot({}), bot({ id: 'b2', name: 'Codex', agentKind: 'codex' })] })
+  useWorkspace.setState({ groups: [], bots: [bot({}), bot({ id: 'b2', name: 'Codex', agentKind: 'codex' })] })
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -167,8 +173,46 @@ describe('schedule editor', () => {
       name: '日报',
       prompt: '汇总昨天合并的 PR',
       botIds: ['b1', 'b2'],
+      runOptions: {},
       cron: '0 9 * * 1-5',
       timezone: tz,
+    })
+  })
+
+  it('picks a model and thought level per candidate the user may configure', async () => {
+    const level = (value: string) => ({ value, name: value })
+    const catalog = {
+      current: 'sonnet',
+      efforts: ['low', 'high'].map(level),
+      effort: 'low',
+      models: [
+        { value: 'sonnet', name: 'Sonnet', efforts: ['low', 'high'].map(level), effort: 'low' },
+        { value: 'opus', name: 'Opus', efforts: ['high', 'max'].map(level), effort: 'high' },
+      ],
+    }
+    useWorkspace.setState({
+      bots: [bot({ catalog }), bot({ id: 'b2', name: 'Codex', agentKind: 'codex', ownerId: 'u9' })],
+      groups: [{ id: 'g1', kind: 'group', members: [{ userId: 'u1', isAdmin: false }] } as GroupDto],
+    })
+    useSession.setState({ user: { id: 'u1' } as UserDto, status: 'ready' })
+    const calls = mockApi({
+      'GET /bots/b1/catalog': { catalog },
+      'POST /schedules/preview': { error: null, next: ['2026-10-05T01:00:00.000Z'] },
+      'PATCH /schedules/s1': schedule(),
+    })
+    const onClose = vi.fn()
+    render(<ScheduleDialog groupId="g1" botIds={['b1', 'b2']} schedule={schedule()} onClose={onClose} />)
+    expect(screen.getByRole('button', { name: 'Codex 的模型与推理强度' }).hasAttribute('disabled')).toBe(true)
+    const chip = screen.getByRole('button', { name: 'Claude 的模型与推理强度' })
+    await waitFor(() => expect(chip.hasAttribute('disabled')).toBe(false))
+    fireEvent.click(chip)
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Opus' }))
+    expect(within(chip).getByText('本任务')).toBeTruthy()
+    await screen.findByText(/接下来/)
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(calls.find((c) => c.path === '/schedules/s1')?.body).toMatchObject({
+      runOptions: { b1: { model: 'opus' } },
     })
   })
 
@@ -262,7 +306,7 @@ describe('admin schedules', () => {
     })
     const data: AdminSchedulesDto = {
       schedules: [
-        row({}),
+        row({ runOptions: { b1: { model: 'opus', effort: 'max' } } }),
         row({
           id: 's2',
           name: '巡检',
@@ -280,6 +324,7 @@ describe('admin schedules', () => {
     )
     expect(await screen.findByText('日报')).toBeTruthy()
     expect(screen.getByText('巡检')).toBeTruthy()
+    expect(screen.getByText('Codex → Claude（opus · 最高）')).toBeTruthy()
     expect(screen.getByText(/已停用：连续 3 次失败/)).toBeTruthy()
     expect(screen.getByText('24 小时内触发')).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: '已停用' }))

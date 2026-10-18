@@ -97,7 +97,7 @@ export function assertPick(catalog: AgentCatalog | null, pick: RunConfigPick, cu
 /** Plan M1: the bot owner or a group admin; in a DM, its member. */
 export async function assertCanConfigure(
   ctx: Ctx,
-  user: SessionUser,
+  user: Pick<SessionUser, 'id'>,
   bot: { ownerId: string },
   groupId: string,
 ) {
@@ -122,6 +122,27 @@ export function resolveConfig(
   return { model, effort: fitEffort(catalog, model, effort) }
 }
 
+/** One bot's pick in the group, after the permission (plan M1) and catalog (plan M7) checks; false when not in it. */
+export async function checkPick(
+  ctx: Ctx,
+  user: Pick<SessionUser, 'id'>,
+  groupId: string,
+  botId: string,
+  pick: RunConfigPick,
+) {
+  const [row] = await ctx.db
+    .select({ bot: bots, groupModel: groupBots.model })
+    .from(groupBots)
+    .innerJoin(bots, eq(bots.id, groupBots.botId))
+    .where(and(eq(groupBots.groupId, groupId), eq(groupBots.botId, botId)))
+  if (!row) return false
+  await assertCanConfigure(ctx, user, row.bot, groupId)
+  assertPick(await pickCatalog(ctx, row.bot), pick, row.groupModel ?? row.bot.model)
+  return true
+}
+
+export const isEmptyPick = (pick: RunConfigPick) => pick.model === undefined && pick.effort === undefined
+
 /** A message's one-shot picks, kept for the bots it triggers only, after the permission and catalog checks. */
 export async function checkPicks(
   ctx: Ctx,
@@ -132,16 +153,8 @@ export async function checkPicks(
 ) {
   const kept: Record<string, RunConfigPick> = {}
   for (const [botId, pick] of Object.entries(picks)) {
-    if (!triggered.includes(botId) || (pick.model === undefined && pick.effort === undefined)) continue
-    const [row] = await ctx.db
-      .select({ bot: bots, groupModel: groupBots.model })
-      .from(groupBots)
-      .innerJoin(bots, eq(bots.id, groupBots.botId))
-      .where(and(eq(groupBots.groupId, groupId), eq(groupBots.botId, botId)))
-    if (!row) continue
-    await assertCanConfigure(ctx, user, row.bot, groupId)
-    assertPick(await pickCatalog(ctx, row.bot), pick, row.groupModel ?? row.bot.model)
-    kept[botId] = pick
+    if (!triggered.includes(botId) || isEmptyPick(pick)) continue
+    if (await checkPick(ctx, user, groupId, botId, pick)) kept[botId] = pick
   }
   return kept
 }

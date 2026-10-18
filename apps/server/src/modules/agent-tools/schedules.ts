@@ -40,6 +40,17 @@ async function botIdsOf(ctx: Ctx, run: Run, names: string[] | undefined) {
   })
 }
 
+type RunOptionArgs = NonNullable<Args<'schedule_create'>['run_options']>
+
+async function runOptionsOf(ctx: Ctx, run: Run, list: RunOptionArgs) {
+  const ids = await botIdsOf(
+    ctx,
+    run,
+    list.map((o) => o.bot),
+  )
+  return Object.fromEntries(list.map(({ model, effort }, i) => [ids[i], { model, effort }]))
+}
+
 function timingOf(a: { cron?: string; at?: string; timezone?: string }) {
   if (a.timezone !== undefined && !TimeZone.safeParse(a.timezone).success) refuse(`时区无效：${a.timezone}`)
   return { cron: a.cron, runAt: a.at, timezone: a.timezone }
@@ -53,6 +64,10 @@ async function summary(ctx: Ctx, s: ScheduleRow, head: string) {
   return [
     `${head}：${zhText(describeSchedule({ ...s, runAt: s.runAt?.toISOString() ?? null }))}（${s.timezone}）。`,
     `候选 Bot：${s.botIds.map((id) => names.get(id) ?? '已移出').join(' → ')}（到点由第一个可用的执行）`,
+    ...Object.entries(s.runOptions).map(
+      ([id, p]) =>
+        `${names.get(id) ?? '已移出'} 使用：${[p.model ?? '默认模型', p.effort].filter(Boolean).join(' · ')}`,
+    ),
     next.length ? `接下来执行：${next.join('、')}` : '已暂停，不会执行',
   ].join('\n')
 }
@@ -67,7 +82,12 @@ async function ownTask(ctx: Ctx, run: Run, id: string) {
   return row.s
 }
 
-const actorOf = (run: Run, botName: string) => ({ botId: run.botId, runId: run.id, botName })
+const actorOf = (run: Run, botName: string) => ({
+  botId: run.botId,
+  runId: run.id,
+  botName,
+  originUserId: run.originUserId,
+})
 
 async function botName(ctx: Ctx, run: Run) {
   return (await activeBots(ctx, run.groupId)).find((b) => b.id === run.botId)?.name ?? ''
@@ -84,6 +104,7 @@ export async function scheduleCreate(ctx: Ctx, run: Run, a: Args<'schedule_creat
     name: a.name,
     prompt: a.prompt,
     botIds: await botIdsOf(ctx, run, a.bots),
+    runOptions: a.run_options ? await runOptionsOf(ctx, run, a.run_options) : {},
     ...(t.cron !== undefined && { cron: t.cron }),
     ...(t.runAt !== undefined && { runAt: t.runAt }),
     timezone: t.timezone ?? DEFAULT_TZ,
@@ -122,6 +143,7 @@ export async function scheduleUpdate(ctx: Ctx, run: Run, a: Args<'schedule_updat
     ...(a.name !== undefined && { name: a.name }),
     ...(a.prompt !== undefined && { prompt: a.prompt }),
     ...(a.bots && { botIds: await botIdsOf(ctx, run, a.bots) }),
+    ...(a.run_options && { runOptions: await runOptionsOf(ctx, run, a.run_options) }),
     ...(t.cron !== undefined && { cron: t.cron }),
     ...(t.runAt !== undefined && { runAt: t.runAt }),
     ...(t.timezone !== undefined && { timezone: t.timezone }),

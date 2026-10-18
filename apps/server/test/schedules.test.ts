@@ -1,5 +1,6 @@
 import type {
   AdminSchedulesDto,
+  AgentCatalog,
   GroupSchedulesDto,
   RunStart,
   ScheduleDto,
@@ -11,6 +12,7 @@ import {
   auditLogs,
   groupBots,
   groupMembers,
+  machines,
   messages,
   notifications,
   runs,
@@ -28,13 +30,33 @@ beforeEach(async () => {
 afterEach(() => t.close())
 
 const TZ = 'Asia/Shanghai'
+const level = (value: string) => ({ value, name: value })
+const CATALOG: AgentCatalog = {
+  current: null,
+  efforts: ['low', 'medium', 'high'].map(level),
+  effort: 'medium',
+  models: [
+    { value: 'sonnet', name: 'Sonnet', efforts: ['low', 'medium', 'high'].map(level), effort: 'medium' },
+    { value: 'opus', name: 'Opus', efforts: ['low', 'medium', 'high', 'max'].map(level), effort: 'high' },
+  ],
+}
+const AGENTS = [
+  {
+    kind: 'claude',
+    available: true,
+    version: '2.1.4',
+    path: '/bin/claude',
+    minVersion: '2.0.0',
+    catalog: CATALOG,
+  },
+]
 const daily9 = { name: '日报', prompt: '汇总昨天的 PR', cron: '0 9 * * *', timezone: TZ }
 
 async function world() {
   const wang = await t.seed.user({ name: '王磊' })
   const li = await t.seed.user({ name: '李建国' })
   const zhao = await t.seed.user({ name: '赵敏' })
-  const { machine } = await t.seed.machine(wang.id)
+  const { machine } = await t.seed.machine(wang.id, { agents: AGENTS })
   const other = await t.seed.machine(li.id)
   const claude = await t.seed.bot({ ownerId: wang.id, name: 'Claude', machineId: machine.id })
   const codex = await t.seed.bot({ ownerId: li.id, name: 'Codex', machineId: other.machine.id })
@@ -334,6 +356,76 @@ describe('schedule engine', () => {
     expect(all.find((s) => s.id === a.id)?.pausedReason).toEqual({ key: '候选 Bot 都已不在群内' })
     expect(all.find((s) => s.id === b.id)?.pausedReason).toEqual({ key: '主人已不在群内' })
     expect((await w.groupMessages()).some((m) => m.kind === 'user')).toBe(false)
+  })
+})
+
+describe('schedule model and thought level', () => {
+  const opusMax = { model: 'opus', effort: 'max' }
+
+  it('keeps a pick per candidate bot and runs the chosen bot with it', async () => {
+    const w = await world()
+    const sent: RunStart[] = []
+    t.ctx.hub.register(w.machine.id, { send: (m) => void (m.t === 'run.start' && sent.push(m)), close() {} })
+    const res = await w.create('wang', {
+      ...daily9,
+      botIds: [w.claude.id],
+      runOptions: { [w.claude.id]: opusMax, [w.codex.id]: { model: 'opus' } },
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.runOptions).toEqual({ [w.claude.id]: opusMax })
+    expect((await w.list())[0]?.runOptions).toEqual({ [w.claude.id]: opusMax })
+    clock = new Date('2026-10-05T01:00:00Z')
+    await fireDue(t.ctx)
+    expect(sent[0]?.bot).toMatchObject({ model: 'opus', effort: 'max' })
+  })
+
+  it('refuses models the bot does not offer and picks by members who may not configure the bot', async () => {
+    const w = await world()
+    const bot = { ...daily9, botIds: [w.claude.id] }
+    expect((await w.create('wang', { ...bot, runOptions: { [w.claude.id]: { model: 'gpt' } } })).status).toBe(
+      400,
+    )
+    expect(
+      (await w.create('wang', { ...bot, runOptions: { [w.claude.id]: { model: 'sonnet', effort: 'max' } } }))
+        .status,
+    ).toBe(400)
+    expect((await w.create('zhao', { ...bot, runOptions: { [w.claude.id]: opusMax } })).status).toBe(403)
+    expect((await w.create('zhao', bot)).status).toBe(200)
+  })
+
+  it('edits picks, drops those of removed candidates and leaves untouched picks alone', async () => {
+    const w = await world()
+    const { body: s } = await w.create('li', { ...daily9, botIds: [w.claude.id, w.codex.id] })
+    const url = `/api/schedules/${s.id}`
+    const picked = await w.req<ScheduleDto>('wang', 'PATCH', url, { runOptions: { [w.claude.id]: opusMax } })
+    expect(picked.body.runOptions).toEqual({ [w.claude.id]: opusMax })
+    const renamed = await w.req<ScheduleDto>('li', 'PATCH', url, {
+      name: '周报',
+      runOptions: picked.body.runOptions,
+    })
+    expect(renamed.body.runOptions).toEqual({ [w.claude.id]: opusMax })
+    expect(
+      (await w.req('li', 'PATCH', url, { runOptions: { [w.claude.id]: { model: 'sonnet' } } })).status,
+    ).toBe(403)
+    const dropped = await w.req<ScheduleDto>('li', 'PATCH', url, { botIds: [w.codex.id] })
+    expect(dropped.body.runOptions).toEqual({})
+  })
+
+  it('falls back to the defaults and says so when the picked model is gone', async () => {
+    const w = await world()
+    const sent: RunStart[] = []
+    t.ctx.hub.register(w.machine.id, { send: (m) => void (m.t === 'run.start' && sent.push(m)), close() {} })
+    await w.create('wang', { ...daily9, botIds: [w.claude.id], runOptions: { [w.claude.id]: opusMax } })
+    const sonnetOnly = { ...CATALOG, models: CATALOG.models.slice(0, 1) }
+    await t.db
+      .update(machines)
+      .set({ agents: [{ ...AGENTS[0]!, catalog: sonnetOnly }] })
+      .where(eq(machines.id, w.machine.id))
+    clock = new Date('2026-10-05T01:00:00Z')
+    await fireDue(t.ctx)
+    expect(sent[0]?.bot).toMatchObject({ model: null })
+    const events = (await w.groupMessages()).filter((m) => m.kind === 'event').map((m) => m.body)
+    expect(events).toContain('定时任务「日报」为 Claude 设置的模型已不可用（opus · max），本次按默认运行')
   })
 })
 

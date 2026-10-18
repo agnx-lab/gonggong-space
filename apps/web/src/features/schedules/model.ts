@@ -1,4 +1,4 @@
-import type { ScheduleDto } from '@gonggong/protocol'
+import { agentConfigLabel, type ScheduleDto } from '@gonggong/protocol'
 import { t } from '../../i18n'
 import { at } from './store'
 
@@ -33,3 +33,13 @@ export const lastText = (s: ScheduleDto, botName: (id: string) => string) =>
         result: s.lastStatus ? (RESULT[s.lastStatus] ?? '') : t('跳过'),
       })
     : null
+
+/** Candidates in order, each with its own model and thought level when the task sets one. */
+export const botsText = (s: Pick<ScheduleDto, 'botIds' | 'runOptions'>, names: string[]) =>
+  s.botIds
+    .map((id, i) => {
+      const pick = s.runOptions[id]
+      const name = names[i] ?? ''
+      return pick ? `${name}（${agentConfigLabel(null, pick.model ?? null, pick.effort ?? null)}）` : name
+    })
+    .join(' → ')

@@ -3,6 +3,8 @@ import { and, asc, count, desc, eq, inArray, isNull, lte, sql } from 'drizzle-or
 import type { Ctx } from '../../context.js'
 import { bots, groupBots, groupMembers, groups, messages, runs, schedules, users } from '../../db/schema.js'
 import { audit } from '../../lib/audit.js'
+import { HttpError } from '../../lib/errors.js'
+import { assertPick, botCatalog } from '../bots/config.js'
 import { mirrorUserMessage } from '../feishu/mirror.js'
 import { activeBots } from '../groups/service.js'
 import { type MessageRow, messageDto, postEvent, publishMessage } from '../messages/service.js'
@@ -111,6 +113,37 @@ async function pick(
   return usable.find((b) => !busy.some((x) => x.botId === b.id)) ?? usable[0] ?? null
 }
 
+/**
+ * The schedule's pick for `botId` as message run options, if its machine still offers it; else the run follows the
+ * defaults and the group is told.
+ */
+async function runOptionsFor(ctx: Ctx, s: ScheduleRow, botId: string, botName: string) {
+  const pick = s.runOptions[botId]
+  if (!pick) return {}
+  const [row] = await ctx.db
+    .select({ bot: bots, groupModel: groupBots.model })
+    .from(groupBots)
+    .innerJoin(bots, eq(bots.id, groupBots.botId))
+    .where(and(eq(groupBots.groupId, s.groupId), eq(groupBots.botId, botId)))
+  try {
+    if (row) assertPick(await botCatalog(ctx.db, row.bot), pick, row.groupModel ?? row.bot.model)
+    return { runOptions: { [botId]: pick } }
+  } catch (err) {
+    if (!(err instanceof HttpError)) throw err
+    await postEvent(
+      ctx,
+      s.groupId,
+      '定时任务「{name}」为 {bot} 设置的模型已不可用（{pick}），本次按默认运行',
+      {
+        name: s.name,
+        bot: botName,
+        pick: [pick.model, pick.effort].filter(Boolean).join(' · '),
+      },
+    )
+    return {}
+  }
+}
+
 /** @-s the chosen bot with the task in its owner's name; the run then goes the way of any other @. */
 async function fire(ctx: Ctx, s: ScheduleRow) {
   const [owner] = await ctx.db
@@ -147,7 +180,7 @@ async function fire(ctx: Ctx, s: ScheduleRow) {
       kind: 'user',
       authorUserId: owner.id,
       body: `@${bot.name} ${s.prompt}`,
-      meta: { mentions: [bot.id], scheduleOf: s.id },
+      meta: { mentions: [bot.id], scheduleOf: s.id, ...(await runOptionsFor(ctx, s, bot.id, bot.name)) },
       createdAt: ctx.now(),
     })
     .returning()) as [MessageRow]

@@ -13,7 +13,16 @@ afterEach(() => t.close())
 async function world() {
   const wang = await t.seed.user({ name: '王磊' })
   const li = await t.seed.user({ name: '李建国' })
-  const { machine, token } = await t.seed.machine(wang.id)
+  const catalog = {
+    current: null,
+    efforts: [],
+    effort: null,
+    models: [{ value: 'opus', name: 'Opus', efforts: [{ value: 'high', name: 'High' }], effort: 'high' }],
+  }
+  const agents = [
+    { kind: 'claude', available: true, version: '2.1.4', path: null, minVersion: null, catalog },
+  ]
+  const { machine, token } = await t.seed.machine(wang.id, { agents })
   const claude = await t.seed.bot({
     ownerId: wang.id,
     name: 'Claude',
@@ -71,6 +80,28 @@ describe('schedule tools', () => {
     expect(res.text).toContain('2026-10-05 09:00、2026-10-06 09:00、2026-10-07 09:00')
     const [card] = await t.db.select().from(messages).where(eq(messages.id, s!.messageId!))
     expect(card!.body).toBe('Claude 创建了定时任务「日报」')
+  })
+
+  it('sets the model and thought level per candidate as the one who started the run may', async () => {
+    const w = await world()
+    const args = {
+      name: '日报',
+      prompt: '汇总',
+      cron: '0 9 * * 1-5',
+      bots: ['Claude', 'Codex'],
+      run_options: [{ bot: 'Codex', model: 'opus', effort: 'high' }],
+    }
+    const byLi = await w.call((await w.runOf(w.claude.id)).id, 'schedule_create', args)
+    expect(byLi).toMatchObject({ isError: true, text: expect.stringContaining('只有 Bot 主人或群管理员') })
+    const run = await w.runOf(w.claude.id)
+    await t.db.update(runs).set({ originUserId: w.wang.id }).where(eq(runs.id, run.id))
+    const res = await w.call(run.id, 'schedule_create', args)
+    expect(res.isError).toBe(false)
+    expect(res.text).toContain('Codex 使用：opus · high')
+    const [s] = await t.db.select().from(schedules)
+    expect(s!.runOptions).toEqual({ [w.codex.id]: { model: 'opus', effort: 'high' } })
+    const cleared = await w.call(run.id, 'schedule_update', { id: s!.id, run_options: [] })
+    expect(cleared.text).not.toContain('使用：')
   })
 
   it('defaults to the calling bot and reports mistakes as tool errors', async () => {

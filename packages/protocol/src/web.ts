@@ -15,6 +15,7 @@ import {
   MAX_QUESTIONS,
   Permission,
   Question,
+  RunConfigPick,
   RunStatus,
   Tier,
   TriggerScope,
@@ -478,12 +479,6 @@ export const EXTRA_DIRS_MAX = 10
 export const GroupBotExtraDirsReq = z.object({
   dirs: z.array(z.string().trim().min(1).max(1024)).max(EXTRA_DIRS_MAX),
 })
-/** A one-shot pick for one message; an absent field follows the defaults, null = the adapter's default. */
-export const RunConfigPick = z.object({
-  model: z.string().nullable().optional(),
-  effort: z.string().nullable().optional(),
-})
-export type RunConfigPick = z.infer<typeof RunConfigPick>
 
 /** GET /api/bots/owners: who the caller may create bots for, with their machines (self only for members). */
 export const BotOwnerDto = z.object({ id: z.string(), name: z.string(), machines: z.array(MachineDto) })

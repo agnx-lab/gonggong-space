@@ -1,6 +1,7 @@
 import {
   type CreateScheduleReq,
   type I18nText,
+  type RunConfigPick,
   SCHEDULE_MAX_PER_GROUP,
   type ScheduleDto,
   type UpdateScheduleReq,
@@ -11,6 +12,7 @@ import { groupMembers, runs, schedules, users } from '../../db/schema.js'
 import { type MessageKey, zh } from '../../i18n/index.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
+import { checkPick, isEmptyPick } from '../bots/config.js'
 import { activeBots } from '../groups/service.js'
 import { postMessage } from '../messages/service.js'
 import { nextFire, timingError } from './timing.js'
@@ -19,7 +21,7 @@ export type ScheduleRow = typeof schedules.$inferSelect
 /** Who changes a schedule: a member in the app, a bot during a run, or a sysadmin from the admin console. */
 export type Actor =
   | { userId: string }
-  | { botId: string; runId: string; botName: string }
+  | { botId: string; runId: string; botName: string; originUserId: string }
   | { sysadmin: string }
 
 const live = isNull(schedules.deletedAt)
@@ -45,6 +47,7 @@ export const scheduleDto = ({ s, ownerName, lastStatus }: Loaded, canManage: boo
   runAt: s.runAt?.toISOString() ?? null,
   timezone: s.timezone,
   botIds: s.botIds,
+  runOptions: s.runOptions,
   enabled: s.enabled,
   pausedReason: s.pausedReason ?? null,
   nextRunAt: s.nextRunAt?.toISOString() ?? null,
@@ -115,6 +118,29 @@ async function checkBots(ctx: Ctx, groupId: string, botIds: string[]) {
   return [...new Set(botIds)]
 }
 
+type Picks = Record<string, RunConfigPick>
+const samePick = (a: RunConfigPick, b: RunConfigPick | undefined) =>
+  a.model === b?.model && a.effort === b?.effort
+
+/** Picks of the candidates only; new or changed ones are checked as a message pick by whoever makes the change. */
+async function checkRunOptions(
+  ctx: Ctx,
+  groupId: string,
+  picks: Picks,
+  botIds: string[],
+  actor: Actor,
+  saved: Picks = {},
+) {
+  const by = 'userId' in actor ? actor.userId : 'sysadmin' in actor ? actor.sysadmin : actor.originUserId
+  const kept: Picks = {}
+  for (const id of botIds) {
+    const pick = picks[id]
+    if (!pick || isEmptyPick(pick)) continue
+    if (samePick(pick, saved[id]) || (await checkPick(ctx, { id: by }, groupId, id, pick))) kept[id] = pick
+  }
+  return kept
+}
+
 const actorAudit = (actor: Actor) =>
   'userId' in actor
     ? { actorUserId: actor.userId, by: 'user' }
@@ -148,6 +174,7 @@ export async function createSchedule(
   if ((n?.n ?? 0) >= SCHEDULE_MAX_PER_GROUP)
     fail('invalid', '每个群最多 {n} 个定时任务', { n: SCHEDULE_MAX_PER_GROUP })
   const botIds = await checkBots(ctx, groupId, req.botIds)
+  const runOptions = await checkRunOptions(ctx, groupId, req.runOptions, botIds, actor)
   const timing = {
     cron: req.cron ?? null,
     runAt: req.runAt ? new Date(req.runAt) : null,
@@ -167,6 +194,7 @@ export async function createSchedule(
       prompt: req.prompt,
       ...timing,
       botIds,
+      runOptions,
       nextRunAt: nextFire(timing, now),
       createdAt: now,
     })
@@ -204,12 +232,18 @@ export async function updateSchedule(ctx: Ctx, s: ScheduleRow, req: UpdateSchedu
     const error = timingError(next, now)
     if (error) invalid(error)
   }
+  const botIds = req.botIds ? await checkBots(ctx, s.groupId, req.botIds) : s.botIds
+  const runOptions =
+    req.botIds || req.runOptions
+      ? await checkRunOptions(ctx, s.groupId, req.runOptions ?? s.runOptions, botIds, actor, s.runOptions)
+      : s.runOptions
   const [row] = (await ctx.db
     .update(schedules)
     .set({
       ...(req.name !== undefined && { name: req.name }),
       ...(req.prompt !== undefined && { prompt: req.prompt }),
-      ...(req.botIds && { botIds: await checkBots(ctx, s.groupId, req.botIds) }),
+      botIds,
+      runOptions,
       ...next,
       enabled,
       nextRunAt: enabled ? nextFire(next, now) : null,
