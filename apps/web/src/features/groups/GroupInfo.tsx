@@ -39,6 +39,7 @@ import { RepoWorkspaceView } from '../repos/RepoWorkspaceView'
 import { effectiveTier, TIER_LABEL, TIERS } from '../runs/tier'
 import { SchedulesView } from '../schedules/SchedulesView'
 import { useSchedules } from '../schedules/store'
+import { GroupSecrets } from '../secrets/GroupSecrets'
 import { openSyncPanel, useSyncStatus } from '../sync/store'
 import { groupsApi, paramsSummary } from './api'
 import { GroupAvatar } from './GroupAvatar'
@@ -46,7 +47,16 @@ import { hideNotice, RemoveNoticeDialog } from './GroupNotice'
 import { BotPicker, MemberPicker } from './pickers'
 import './groups.css'
 
-export type SettingsTab = 'basic' | 'bots' | 'repo' | 'mode' | 'params' | 'mcp' | 'skill' | 'feishu'
+export type SettingsTab =
+  | 'basic'
+  | 'bots'
+  | 'repo'
+  | 'mode'
+  | 'params'
+  | 'mcp'
+  | 'skill'
+  | 'secrets'
+  | 'feishu'
 export type InfoView =
   | 'main'
   | 'members'
@@ -59,6 +69,7 @@ export type InfoView =
   | 'knowledge'
   | 'mcp'
   | 'skill'
+  | 'secrets'
 
 type GroupPrefs = Partial<Pick<GroupDto, 'muted' | 'pinned' | 'foldRuns'>>
 
@@ -161,6 +172,7 @@ export function GroupInfo({
     knowledge: t('知识库#kb'),
     mcp: 'MCP',
     skill: 'Skill',
+    secrets: t('密钥'),
   }[view]
   return (
     <InspectorPanel
@@ -198,6 +210,8 @@ export function GroupInfo({
         <KnowledgeView groupId={group.id} />
       ) : view === 'mcp' || view === 'skill' ? (
         <GroupConfigView groupId={group.id} kind={view} />
+      ) : view === 'secrets' ? (
+        <GroupSecrets group={group} editable={false} />
       ) : (
         <NoticeForm group={group} onSaved={() => setView('main')} />
       )}
@@ -446,6 +460,7 @@ function MainView({
               : [
                   manage('MCP', undefined, 'mcp', 'mcp'),
                   manage('Skill', undefined, 'skill', 'skill'),
+                  manage(t('密钥'), undefined, 'secrets', 'secrets'),
                   manage(t('飞书'), undefined, 'feishu'),
                 ]),
           ],

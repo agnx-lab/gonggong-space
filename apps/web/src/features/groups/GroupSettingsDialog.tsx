@@ -22,6 +22,7 @@ import { InheritedMcpList, McpLayerList, McpSaved, useMcpLayer } from '../config
 import { InheritedSkillList, SkillLayerList } from '../config/SkillLayer'
 import { GroupFeishuTab } from '../feishu/GroupFeishuTab'
 import { RepoWorkspaceView } from '../repos/RepoWorkspaceView'
+import { GroupSecrets } from '../secrets/GroupSecrets'
 import { SyncModeTab } from '../sync/SyncModeTab'
 import { groupsApi } from './api'
 import { GroupAvatar } from './GroupAvatar'
@@ -65,6 +66,7 @@ export function GroupSettingsDialog({
       : [
           { value: 'mcp' as const, label: 'MCP', icon: 'plug' as const },
           { value: 'skill' as const, label: 'Skill', icon: 'star' as const },
+          { value: 'secrets' as const, label: t('密钥'), icon: 'lock' as const },
           { value: 'feishu' as const, label: t('飞书'), icon: 'message' as const },
         ]),
   ]
@@ -154,6 +156,8 @@ export function GroupSettingsDialog({
               <SkillLayerList base={`/groups/${group.id}/skills`} tag={t('群层')} />
               <InheritedSkillList groupId={group.id} />
             </>
+          ) : tab === 'secrets' ? (
+            <GroupSecrets group={group} editable />
           ) : tab === 'feishu' ? (
             <GroupFeishuTab group={group} />
           ) : tab === 'mode' ? (

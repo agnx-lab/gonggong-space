@@ -29,6 +29,7 @@ import {
 import { ChangePasswordDialog } from '../auth/ChangePasswordPage'
 import { FeishuIdentityRow } from '../feishu/FeishuIdentityRow'
 import { NotificationSettings } from '../notifications/NotificationSettings'
+import { MySecrets } from '../secrets/MySecrets'
 import '../groups/groups.css'
 import { accountLabel, gitAccountsApi, useGitAccounts } from './api'
 import type { SettingsPage } from './store'
@@ -38,6 +39,7 @@ const PAGES: { value: SettingsPage; label: string; icon: IconName }[] = [
   { value: 'appearance', label: t('外观'), icon: 'appearance' },
   { value: 'notifications', label: t('通知'), icon: 'bell' },
   { value: 'git', label: t('Git 与仓库'), icon: 'git-branch' },
+  { value: 'secrets', label: t('我的密钥'), icon: 'lock' },
   { value: 'account', label: t('账户'), icon: 'person' },
 ]
 
@@ -93,6 +95,8 @@ export function SettingsDialog({ page: initial, onClose }: { page: SettingsPage;
             <NotificationSettings />
           ) : page === 'git' ? (
             <GitPage />
+          ) : page === 'secrets' ? (
+            <MySecrets />
           ) : (
             <AccountPage />
           )}

@@ -74,6 +74,25 @@ describe('run tab detail', () => {
     expect(span.textContent).toBe('10:00:01 – 10:03:20')
   })
 
+  it('lists the secrets injected into the run with their source, behind the info button', async () => {
+    serve(
+      detail(
+        run({
+          secrets: [
+            { name: 'FEISHU_DEVOPS_TOKEN', source: 'team' },
+            { name: 'GITHUB_TOKEN', source: 'personal' },
+          ],
+        }),
+      ),
+    )
+    render(<RunTab {...props} />)
+    await screen.findByTitle('开始 – 结束')
+    expect(screen.queryByText('本次注入的密钥')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '机器与会话' }))
+    const row = screen.getByText('本次注入的密钥').closest('.ui-group__row') as HTMLElement
+    expect(row.textContent).toContain('FEISHU_DEVOPS_TOKEN（团队）、GITHUB_TOKEN（个人）')
+  })
+
   it('shows a running run as started, still going', async () => {
     serve(detail(run({ status: 'running', endedAt: null })))
     render(<RunTab {...props} />)

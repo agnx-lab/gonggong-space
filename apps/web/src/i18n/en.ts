@@ -20,6 +20,7 @@ import repos from '../features/repos/en'
 import runs from '../features/runs/en'
 import schedules from '../features/schedules/en'
 import search from '../features/search/en'
+import secrets from '../features/secrets/en'
 import settings from '../features/settings/en'
 import sync from '../features/sync/en'
 import teams from '../features/teams/en'
@@ -55,6 +56,7 @@ export const en = {
   ...runs,
   ...schedules,
   ...search,
+  ...secrets,
   ...sync,
   ...teams,
   ...settings,

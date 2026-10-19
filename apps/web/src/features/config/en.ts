@@ -31,13 +31,10 @@ export default {
   '修改 MCP': 'Edit MCP server',
   '启用/停用 MCP': 'Enable/disable MCP server',
   '删除 MCP': 'Delete MCP server',
+  密钥列表: 'List secrets',
   请求填写密钥: 'Request secrets',
   已填写: 'Filled in',
-  填写密钥: 'Fill in secrets',
-  等待填写: 'Waiting',
-  '填写 MCP「{name}」的密钥': 'Secrets of MCP "{name}"',
-  '直接写入 MCP 配置，Bot 看不到，也不会出现在聊天记录和日志里。':
-    'Saved straight into the MCP config; the Bot never sees them and they stay out of the chat and the logs.',
+  '已停用，请改用密钥': 'Retired, use secrets instead',
   'Skill 版本历史': 'Skill version history',
   '回滚 Skill': 'Roll back skill',
   '、': ', ',
@@ -47,14 +44,13 @@ export default {
   群管理员在群设置中配置: 'Set by group admins in group settings',
   团队管理员在团队设置中配置: 'Set by team admins in team settings',
   指令: 'Instructions',
-  团队密钥: 'Team secrets',
+  密钥: 'Secrets',
   保存失败: 'Failed to save',
   '自定义 MCP {n} 个 · 已启用 {enabled} 个': '{n} custom MCP {n:server|servers} · {enabled} enabled',
   配置加载失败: 'Failed to load configuration',
   重试: 'Retry',
   '暂不支持 {type}': '{type} is not supported yet',
-  '目前只能配置 MCP 与 Skill。MCP 的环境变量以明文保存在配置中。':
-    'Only MCP and skills can be configured for now. MCP environment variables are stored in plain text.',
+  '目前只能配置 MCP、Skill 与密钥。': 'Only MCP, skills and secrets can be configured for now.',
   未保存: 'Unsaved',
   '删除 {name}': 'Delete {name}',
   '启用 {name}': 'Enable {name}',
@@ -97,11 +93,15 @@ export default {
   环境变量: 'Environment variables',
   '{n} 项': '{n} {n:item|items}',
   未设置: 'Not set',
-  '每行一个 KEY=VALUE；以明文保存，只在新建会话时经 ACP 注入。':
-    'One KEY=VALUE per line. Stored in plain text and injected via ACP only when a session starts.',
   请求头: 'Headers',
-  '每行一个 Key: Value；以明文保存，只在新建会话时经 ACP 注入。':
-    'One Key: Value per line. Stored in plain text and injected via ACP only when a session starts.',
+  '{key} 的值只能引用密钥：{ref}': 'The value of {key} can only reference a secret: {ref}',
+  '第 {n} 项的名称': 'Name of item {n}',
+  '第 {n} 项的值': 'Value of item {n}',
+  '选择或输入 {ref}': 'Pick or type {ref}',
+  '移除第 {n} 项': 'Remove item {n}',
+  '值只能引用密钥，运行时替换为实值；密钥在本层或团队、群设置的「密钥」里维护。':
+    'Values can only reference secrets, replaced with the real values at run time; manage secrets under "Secrets" of this layer or the team and group settings.',
+  添加一项: 'Add item',
 
   // Skills
   '说明这个 skill 做什么、什么时候使用': 'What this skill does and when to use it',

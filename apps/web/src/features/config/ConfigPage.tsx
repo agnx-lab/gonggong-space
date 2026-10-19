@@ -1,6 +1,14 @@
-import { GONGGONG_TOOLS, type InheritedMcpDto, type McpServer, type McpServerDto } from '@gonggong/protocol'
+import {
+  GONGGONG_TOOLS,
+  type InheritedMcpDto,
+  type McpServer,
+  type McpServerDto,
+  type SecretDto,
+} from '@gonggong/protocol'
 import { type CSSProperties, useCallback, useEffect, useId, useState } from 'react'
+import { useWorkspace } from '../../app/workspace'
 import { api, errorText } from '../../lib/api'
+import { useGet } from '../../lib/useGet'
 import {
   Alert,
   Button,
@@ -24,7 +32,9 @@ import {
   UnsupportedArt,
 } from '../../ui'
 import { AdminPage } from '../admin/AdminPage'
+import { SecretLayerList } from '../secrets/SecretLayer'
 import { InheritedList } from './InheritedList'
+import { type Pair, SECRET_REF, SecretPairs, secretRef } from './SecretPairs'
 import { SkillLayerList } from './SkillLayer'
 import './config.css'
 import { t } from '../../i18n'
@@ -48,7 +58,7 @@ const CTYPES: { value: CType; label: string }[] = [
   { value: 'mcp', label: 'MCP' },
   { value: 'skill', label: 'Skill' },
   { value: 'prompt', label: t('指令') },
-  { value: 'secret', label: t('团队密钥') },
+  { value: 'secret', label: t('密钥') },
 ]
 
 interface Item {
@@ -135,6 +145,8 @@ export function useMcpLayer(base: string) {
   }
 
   return {
+    /** Secrets of the same layer, which env / headers values reference. */
+    secretsBase: base.replace(/\/mcp$/, '/secrets'),
     items,
     edit,
     remove: (i: Item) => {
@@ -242,6 +254,7 @@ export function McpLayerList({ layer, tag }: { layer: McpLayer; tag: string }) {
       <Presence>
         {adding && items ? (
           <AddMcpDialog
+            secretsBase={layer.secretsBase}
             taken={items.map((i) => i.config.name)}
             onClose={() => setAdding(false)}
             onAdd={(config) => {
@@ -275,6 +288,7 @@ export function McpSaved({ force }: { force: boolean | null }) {
 export function ConfigPage() {
   const layer = useMcpLayer('/admin/mcp')
   const [ctype, setCtype] = useState<CType>('mcp')
+  const bots = useWorkspace((s) => s.bots)
   const { items, enabledNames } = layer
 
   return (
@@ -296,11 +310,13 @@ export function ConfigPage() {
         <div className="cfg__list">
           {ctype === 'skill' ? (
             <SkillLayerList base="/admin/skills" tag={t('平台层')} />
+          ) : ctype === 'secret' ? (
+            <SecretLayerList base="/admin/secrets" scope="platform" bots={bots} />
           ) : ctype !== 'mcp' ? (
             <EmptyState
               illustration={<UnsupportedArt />}
               title={t('暂不支持 {type}', { type: CTYPES.find((c) => c.value === ctype)?.label ?? '' })}
-              description={t('目前只能配置 MCP 与 Skill。MCP 的环境变量以明文保存在配置中。')}
+              description={t('目前只能配置 MCP、Skill 与密钥。')}
             />
           ) : (
             <McpLayerList layer={layer} tag={t('平台层')} />
@@ -360,29 +376,23 @@ export function ConfigPage() {
   )
 }
 
-/** `KEY=VALUE` / `Key: Value` lines → record, split at the first separator. */
-const pairs = (text: string, sep: string) =>
-  Object.fromEntries(
-    text
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.includes(sep))
-      .map((l) => [l.slice(0, l.indexOf(sep)).trim(), l.slice(l.indexOf(sep) + 1).trim()]),
-  )
-
 function AddMcpDialog({
+  secretsBase,
   taken,
   onClose,
   onAdd,
 }: {
+  secretsBase: string
   taken: string[]
   onClose: () => void
   onAdd: (c: McpServer) => void
 }) {
   const [transport, setTransport] = useState<McpServer['transport']>('stdio')
-  const [f, setF] = useState({ name: '', command: '', args: '', env: '', url: '', headers: '' })
+  const [f, setF] = useState({ name: '', command: '', args: '', url: '' })
+  const [pairs, setPairs] = useState<Pair[]>([])
   const [error, setError] = useState('')
   const formId = useId()
+  const { data: secrets } = useGet<SecretDto[]>(secretsBase)
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
 
   const submit = () => {
@@ -390,25 +400,30 @@ function AddMcpDialog({
     if (!name) return setError(t('请填写名称'))
     if (name === RESERVED) return setError(t('{name} 是系统内置 MCP 的名称', { name: RESERVED }))
     if (taken.includes(name)) return setError(t('MCP 名称已存在'))
+    const filled = pairs.map((p) => ({ key: p.key.trim(), value: p.value.trim() })).filter((p) => p.key)
+    const plain = filled.find((p) => !SECRET_REF.test(p.value))
+    if (plain)
+      return setError(t('{key} 的值只能引用密钥：{ref}', { key: plain.key, ref: secretRef(t('名称')) }))
+    const record = Object.fromEntries(filled.map((p) => [p.key, p.value]))
     if (transport === 'stdio') {
       if (!f.command.trim()) return setError(t('请填写命令'))
       const args = f.args
         .split('\n')
         .map((a) => a.trim())
         .filter(Boolean)
-      return onAdd({ transport, name, command: f.command.trim(), args, env: pairs(f.env, '=') })
+      return onAdd({ transport, name, command: f.command.trim(), args, env: record })
     }
     if (!/^https?:\/\//.test(f.url.trim())) return setError(t('URL 需以 http:// 或 https:// 开头'))
-    onAdd({ transport, name, url: f.url.trim(), headers: pairs(f.headers, ':') })
+    onAdd({ transport, name, url: f.url.trim(), headers: record })
   }
 
-  const lines = (text: string) => text.split('\n').filter((l) => l.trim()).length
+  const count = pairs.filter((p) => p.key.trim()).length
   return (
     <Dialog
       open
       title={t('添加 MCP')}
       message={t('保存后，相关 Bot 下一轮新会话生效。')}
-      width={520}
+      width={560}
       onClose={onClose}
       closeOnBackdrop={false}
       actions={[
@@ -473,39 +488,13 @@ function AddMcpDialog({
           </FormRow>
         )}
       </Form>
-      {transport === 'stdio' ? (
-        <Disclosure
-          variant="group"
-          title={t('环境变量')}
-          summary={lines(f.env) ? t('{n} 项', { n: lines(f.env) }) : t('未设置')}
-        >
-          <TextField
-            multiline
-            aria-label={t('环境变量')}
-            hint={t('每行一个 KEY=VALUE；以明文保存，只在新建会话时经 ACP 注入。')}
-            className="cfg__mono"
-            rows={3}
-            value={f.env}
-            onChange={set('env')}
-          />
-        </Disclosure>
-      ) : (
-        <Disclosure
-          variant="group"
-          title={t('请求头')}
-          summary={lines(f.headers) ? t('{n} 项', { n: lines(f.headers) }) : t('未设置')}
-        >
-          <TextField
-            multiline
-            aria-label={t('请求头')}
-            hint={t('每行一个 Key: Value；以明文保存，只在新建会话时经 ACP 注入。')}
-            className="cfg__mono"
-            rows={3}
-            value={f.headers}
-            onChange={set('headers')}
-          />
-        </Disclosure>
-      )}
+      <Disclosure
+        variant="group"
+        title={transport === 'stdio' ? t('环境变量') : t('请求头')}
+        summary={count ? t('{n} 项', { n: count }) : t('未设置')}
+      >
+        <SecretPairs pairs={pairs} secrets={secrets ?? []} onChange={setPairs} />
+      </Disclosure>
       {error ? <Alert variant="error" title={error} /> : null}
     </Dialog>
   )

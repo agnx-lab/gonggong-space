@@ -1,4 +1,4 @@
-import type { McpServerDto, UserDto } from '@gonggong/protocol'
+import type { McpServerDto, SecretDto, UserDto } from '@gonggong/protocol'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -34,6 +34,22 @@ const grafana: McpServerDto = {
   id: 'm2',
   enabled: false,
   config: { transport: 'http', name: 'grafana', url: 'https://mcp.corp/grafana', headers: {} },
+  updatedAt: '2026-09-23T01:00:00Z',
+}
+
+const secret: SecretDto = {
+  id: 's1',
+  scope: 'platform',
+  teamId: null,
+  groupId: null,
+  name: 'WIKI_TOKEN',
+  description: 'wiki 只读',
+  mode: 'shared',
+  botIds: null,
+  enabled: true,
+  expiresAt: null,
+  value: null,
+  personalFilled: [],
   updatedAt: '2026-09-23T01:00:00Z',
 }
 
@@ -126,9 +142,13 @@ describe('配置中心', () => {
       target: { value: '/opt/echo/server.js' },
     })
     fireEvent.click(within(dialog).getByRole('button', { name: /环境变量/ }))
-    fireEvent.change(within(dialog).getByLabelText('环境变量'), {
-      target: { value: 'A=1\nB=x=y' },
-    })
+    for (const [i, key] of ['A', 'B'].entries()) {
+      fireEvent.click(within(dialog).getByRole('button', { name: '添加一项' }))
+      fireEvent.change(within(dialog).getByLabelText(`第 ${i + 1} 项的名称`), { target: { value: key } })
+      fireEvent.change(within(dialog).getByLabelText(`第 ${i + 1} 项的值`), {
+        target: { value: `\${secret:${key}_KEY}` },
+      })
+    }
     fireEvent.click(within(dialog).getByRole('button', { name: '添加' }))
     expect(row('gonggong-echo').textContent).toContain('node /opt/echo/server.js · env A, B')
 
@@ -156,7 +176,7 @@ describe('配置中心', () => {
               name: 'gonggong-echo',
               command: 'node',
               args: ['/opt/echo/server.js'],
-              env: { A: '1', B: 'x=y' },
+              env: { A: `\${secret:A_KEY}`, B: `\${secret:B_KEY}` },
             },
           },
         },
@@ -188,6 +208,66 @@ describe('配置中心', () => {
     fireEvent.click(within(row('wiki-search')).getByRole('switch'))
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     expect(await screen.findByText('运行中的轮次不受影响；已有会话继续使用旧配置。')).toBeTruthy()
+  })
+
+  it("only takes secret references for env and headers, offering the layer's secrets", async () => {
+    const calls = mockApi({
+      'GET /admin/mcp': [],
+      'GET /admin/secrets': [secret],
+      'GET /bots': [],
+      'GET /machines': [],
+      'GET /notifications/unread': { n: 0 },
+      'POST /admin/mcp': (b: unknown) => ({ id: 'm3', updatedAt: '', ...(b as object) }),
+    })
+    renderConfig()
+    fireEvent.click(await screen.findByRole('button', { name: '添加 MCP…' }))
+    const dialog = await screen.findByRole('dialog', { name: '添加 MCP' })
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'HTTP' }))
+    fireEvent.change(within(dialog).getByLabelText('名称'), { target: { value: 'wiki' } })
+    fireEvent.change(within(dialog).getByLabelText('URL'), { target: { value: 'https://mcp.corp/wiki' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: /请求头/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '添加一项' }))
+    fireEvent.change(within(dialog).getByLabelText('第 1 项的名称'), { target: { value: 'Authorization' } })
+    const value = within(dialog).getByLabelText('第 1 项的值')
+    fireEvent.change(value, { target: { value: 'Bearer abc' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '添加' }))
+    expect(within(dialog).getByText(`Authorization 的值只能引用密钥：\${secret:名称}`)).toBeTruthy()
+    fireEvent.change(value, { target: { value: '' } })
+    fireEvent.mouseDown(await screen.findByRole('option', { name: /WIKI_TOKEN/ }))
+    expect((value as HTMLInputElement).value).toBe(`\${secret:WIKI_TOKEN}`)
+    fireEvent.click(within(dialog).getByRole('button', { name: '添加' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        path: '/admin/mcp',
+        body: {
+          enabled: true,
+          forceNewSession: false,
+          config: {
+            transport: 'http',
+            name: 'wiki',
+            url: 'https://mcp.corp/wiki',
+            headers: { Authorization: `\${secret:WIKI_TOKEN}` },
+          },
+        },
+      }),
+    )
+  })
+
+  it('manages platform secrets in the 密钥 tab', async () => {
+    mockApi({
+      'GET /admin/mcp': [],
+      'GET /admin/secrets': [secret],
+      'GET /bots': [],
+      'GET /machines': [],
+      'GET /notifications/unread': { n: 0 },
+    })
+    renderConfig()
+    fireEvent.click(await screen.findByRole('tab', { name: '密钥' }))
+    expect(await screen.findByText('WIKI_TOKEN')).toBeTruthy()
+    expect(row('WIKI_TOKEN').textContent).toContain('平台层')
+    expect(screen.getByRole('button', { name: '新建密钥…' })).toBeTruthy()
   })
 
   it('shows a failed load inline with one message and retries', async () => {
