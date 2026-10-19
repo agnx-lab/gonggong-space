@@ -215,6 +215,7 @@ export default {
   '修改 MCP': 'Edit MCP server',
   '启用/停用 MCP': 'Enable/disable MCP server',
   '删除 MCP': 'Delete MCP server',
+  密钥列表: 'List secrets',
   请求填写密钥: 'Request secrets',
   'Skill 版本历史': 'Skill version history',
   '回滚 Skill': 'Roll back skill',

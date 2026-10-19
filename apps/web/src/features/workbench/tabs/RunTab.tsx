@@ -53,6 +53,7 @@ import { ProcessView } from '../../runs/ProcessView'
 import { approvalText, buildSteps, questionText } from '../../runs/process'
 import { QuestionCard } from '../../runs/QuestionBlock'
 import type { Step } from '../../runs/steps'
+import { SOURCE_LABEL } from '../../secrets/api'
 import { openTab } from '../open'
 import type { TabMeta, TabProps } from '../types'
 import { locateFile } from './DiffTab'
@@ -373,6 +374,15 @@ export function RunTab({ tab, tabKey, active }: TabProps<'run'>) {
                 {detail.sessionId ? <SessionId id={detail.sessionId} /> : '—'}
               </span>
             </GroupRow>
+            {run.secrets?.length ? (
+              <GroupRow label={t('本次注入的密钥')}>
+                <span className="run-tab__val run-tab__mono">
+                  {run.secrets
+                    .map((s) => t('{name}（{source}）', { name: s.name, source: SOURCE_LABEL[s.source] }))
+                    .join(t('、'))}
+                </span>
+              </GroupRow>
+            ) : null}
           </GroupBox>
         ) : null}
         {more && detail?.settings ? <RunSettings settings={detail.settings} /> : null}

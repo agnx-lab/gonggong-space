@@ -45,6 +45,7 @@ import { GroupNotice } from '../groups/GroupNotice'
 import { PreviewTags } from '../previews/PreviewTags'
 import { ScheduleCard } from '../schedules/ScheduleCard'
 import { ScheduleTag } from '../schedules/ScheduleTag'
+import { SecretCard } from '../secrets/SecretCard'
 import { ConflictEvent } from '../sync/RunSyncLine'
 import { LinkedConflict, SyncBar, useLinkedSync } from '../sync/SyncBar'
 import { TakeoverDialog } from '../teams/TakeoverDialog'
@@ -417,6 +418,7 @@ export function ChatView({
       return <ScheduleCard scheduleId={m.scheduleId} groupId={m.groupId} fallback={eventText(m)} />
     if (m.syncConflict) return <ConflictEvent m={m} conflict={m.syncConflict} />
     if (m.mcpSecret) return <McpSecretCard m={m} card={m.mcpSecret} />
+    if (m.secretCard) return <SecretCard m={m} card={m.secretCard} />
     if (m.kind === 'event') return <EventRow m={m} />
     if (m.recalled) return <RecallRow m={m} mine={m.authorId === meId} />
     if (m.kind === 'bot') return <BotReply m={m} compact={compact} />

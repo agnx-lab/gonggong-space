@@ -32,6 +32,7 @@ import {
   TeamGroupsTab,
   TeamMcpTab,
   TeamParamsTab,
+  TeamSecretsTab,
   TeamSkillTab,
   TeamUsageTab,
 } from './TeamAdminTabs'
@@ -45,6 +46,7 @@ type Tab =
   | 'invites'
   | 'mcp'
   | 'skill'
+  | 'secrets'
   | 'params'
   | 'groups'
   | 'conversations'
@@ -84,6 +86,7 @@ export function TeamSettingsDialog({
           },
           { value: 'mcp', label: 'MCP', icon: 'plug', body: <TeamMcpTab team={team} /> },
           { value: 'skill', label: 'Skill', icon: 'star', body: <TeamSkillTab team={team} /> },
+          { value: 'secrets', label: t('密钥'), icon: 'lock', body: <TeamSecretsTab team={team} /> },
           {
             value: 'params',
             label: t('参数#settings'),

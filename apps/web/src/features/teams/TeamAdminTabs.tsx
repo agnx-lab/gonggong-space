@@ -8,6 +8,7 @@ import {
 } from '@gonggong/protocol'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
+import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { attempt } from '../../lib/errors'
 import { useGet } from '../../lib/useGet'
@@ -16,6 +17,7 @@ import { AuditPanel } from '../admin/AuditPage'
 import { McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
 import { SkillLayerList } from '../config/SkillLayer'
 import { ConversationStatsPanel } from '../conversation-stats/ConversationStatsPanel'
+import { SecretLayerList } from '../secrets/SecretLayer'
 import { UsagePanel } from '../usage/UsagePage'
 import { teamsApi } from './store'
 import { TakeoverDialog } from './TakeoverDialog'
@@ -31,6 +33,19 @@ export function TeamMcpTab({ team }: { team: TeamDto }) {
       </div>
       <McpLayerList layer={layer} tag={t('团队层')} />
       <McpSaved force={layer.savedForce} />
+    </>
+  )
+}
+
+/** 团队设置 · 密钥: the team layer, over the platform one and under each group's (plan 团队密钥 §9). */
+export function TeamSecretsTab({ team }: { team: TeamDto }) {
+  const bots = useWorkspace((s) => s.bots).filter((b) => b.teamId === team.id)
+  return (
+    <>
+      <div className="gs-note">
+        {t('对本团队所有群生效；Bot 运行时以同名环境变量注入。群管理员可在群设置中用同名密钥覆盖。')}
+      </div>
+      <SecretLayerList base={`/teams/${team.id}/secrets`} scope="team" bots={bots} />
     </>
   )
 }

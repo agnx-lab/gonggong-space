@@ -37,36 +37,19 @@ const m: MessageDto = {
 beforeEach(() => useSession.setState({ user: me, status: 'ready' }))
 afterEach(() => vi.unstubAllGlobals())
 
-describe('填写密钥 card', () => {
-  it('lets the person asked fill every key in password fields, posted straight to the server', async () => {
-    const calls = mockApi({ 'POST /mcp-secrets/r1': { ...card, filled: true } })
+describe('legacy MCP 填写密钥 card', () => {
+  it('is read-only now: no fill button, pointing to secrets instead', () => {
     render(<McpSecretCard m={m} card={card} />)
     expect(screen.getByTestId('mcp-secret-card').textContent).toContain(
       '填写 MCP「wiki」的密钥：TOKEN、REGION',
     )
-    fireEvent.click(screen.getByRole('button', { name: '填写密钥' }))
-    const dialog = await screen.findByRole('dialog', { name: '填写 MCP「wiki」的密钥' })
-    const save = within(dialog).getByRole('button', { name: '保存' })
-    const token = within(dialog).getByLabelText('TOKEN') as HTMLInputElement
-    expect(token.type).toBe('password')
-    fireEvent.change(token, { target: { value: 'sk-1' } })
-    expect((save as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.change(within(dialog).getByLabelText('REGION'), { target: { value: 'cn' } })
-    fireEvent.click(save)
-    await waitFor(() =>
-      expect(calls).toContainEqual({
-        method: 'POST',
-        path: '/mcp-secrets/r1',
-        body: { values: { TOKEN: 'sk-1', REGION: 'cn' } },
-      }),
-    )
-    expect(await screen.findByText('已填写')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '填写密钥' })).toBeNull()
+    expect(screen.getByText('已停用，请改用密钥')).toBeTruthy()
   })
 
-  it('only shows the state to everyone else', () => {
-    render(<McpSecretCard m={m} card={{ ...card, userId: 'u2' }} />)
-    expect(screen.queryByRole('button', { name: '填写密钥' })).toBeNull()
-    expect(screen.getByText('等待填写')).toBeTruthy()
+  it('still shows a filled card as filled', () => {
+    render(<McpSecretCard m={m} card={{ ...card, filled: true }} />)
+    expect(screen.getByText('已填写')).toBeTruthy()
   })
 })
 
