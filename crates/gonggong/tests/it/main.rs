@@ -12,6 +12,7 @@ mod git_identity;
 mod hosted;
 mod net;
 mod providers_run;
+mod secrets;
 mod service;
 mod skills;
 mod sync;

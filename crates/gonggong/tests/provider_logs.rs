@@ -37,20 +37,29 @@ async fn the_key_never_reaches_the_logs() {
     let mut r = rig(Duration::from_secs(60));
     let claude = r.add(AgentKind::Claude, "kimi-coding", true);
     r.add(AgentKind::Codex, "zhipu", true);
-    let quiet = |run_id: &str, kind: AgentKind, bot: &str| {
+    // Run secrets (plan 团队密钥 §4) go the same way: process env, never a log line.
+    let quiet = |run_id: &str, kind: AgentKind, bot: &str, secret: &str| {
         let s = start(run_id, kind);
         let bot = RunBot { id: bot.into(), ..s.bot.clone() };
-        RunStart { bot, prompt: RunPrompt { text: "mock:commands".into(), ..s.prompt.clone() }, ..s }
+        let env = SecretEnv([("GG_SECRET_TOKEN".to_string(), secret.to_string())].into());
+        RunStart { bot, env, prompt: RunPrompt { text: "mock:commands".into(), ..s.prompt.clone() }, ..s }
     };
+    let secrets = ["run-secret-alpha-4821", "run-secret-bravo-7395"];
     for (run_id, kind, bot) in [("r1", AgentKind::Claude, "b1"), ("r2", AgentKind::Codex, "b2")] {
-        r.run(quiet(run_id, kind, bot));
+        r.run(quiet(run_id, kind, bot, secrets[0]));
         assert_eq!(r.finish(run_id).await.reply, "ok");
     }
     // Editing the provider restarts the adapter: nothing on that path may print the key either.
     Store::update(r.home(), |s| s.edit(&claude, |p| p.base_url = "https://example.test/anthropic".into())).unwrap();
-    r.run(quiet("r3", AgentKind::Claude, "b1"));
+    r.run(quiet("r3", AgentKind::Claude, "b1", secrets[0]));
     assert_eq!(r.finish("r3").await.reply, "ok");
+    // So does a changed secret.
+    r.run(quiet("r4", AgentKind::Claude, "b1", secrets[1]));
+    assert_eq!(r.finish("r4").await.reply, "ok");
     let logs = String::from_utf8(logs.0.lock().unwrap().clone()).unwrap();
     assert!(logs.contains("session/new"), "trace-level JSON-RPC was captured");
     assert!(!logs.contains(KEY) && !logs.contains("0123456789"));
+    for s in secrets {
+        assert!(!logs.contains(s), "{s} leaked");
+    }
 }

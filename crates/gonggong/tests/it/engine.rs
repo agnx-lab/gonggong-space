@@ -66,6 +66,7 @@ fn start(run_id: &str, text: &str) -> RunStart {
         skills: vec![],
         command: None,
         sync: None,
+        env: Default::default(),
         prompt: RunPrompt {
             text: text.into(),
             triggered_by: "王磊".into(),

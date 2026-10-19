@@ -60,6 +60,7 @@ pub fn start(run_id: &str, kind: AgentKind) -> RunStart {
         skills: vec![],
         command: None,
         sync: None,
+        env: Default::default(),
         prompt: RunPrompt {
             text: "mock:echo".into(),
             triggered_by: "王磊".into(),

@@ -10,7 +10,7 @@ use crate::inject;
 use crate::local::{Decision, LocalSettings, Rules};
 use crate::protocol::{
     AgentCatalog, AgentCommand, AgentKind, Answer, ApprovalRequest, Attachment, Choice, DaemonToServer, McpServer,
-    ModelChoice, Question, RunDone, RunEvent, RunOutcome, RunStart, RunStatus, Tier, Usage, WorkspaceKind,
+    ModelChoice, Question, RunDone, RunEvent, RunOutcome, RunStart, RunStatus, SecretEnv, Tier, Usage, WorkspaceKind,
 };
 use crate::providers::{RunPlan, Selection, Store};
 use crate::replicas::SyncTurn;
@@ -34,6 +34,7 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, Handled, UntypedMessage};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -988,7 +989,9 @@ pub(crate) async fn run(
                 Err(_) => continue,
             },
         };
-        let result = match engine.adapter(&turn.req.start.bot, &turn.req.local, &turn.selection).await {
+        let s = &turn.req.start;
+        let _secrets = crate::logs::hold_secrets(s.env.0.values().cloned().collect());
+        let result = match engine.adapter(&s.bot, &turn.req.local, &turn.selection, &s.env).await {
             Ok(config) => connect(&engine, &shared, &ask, AcpAgent::new(config), turn, &mut rx, &mut resume).await,
             Err(e) => Err(format!("{e:#}")),
         };
@@ -1083,6 +1086,7 @@ async fn connect(
                 initial: HashMap::new(),
                 applied: HashMap::new(),
             };
+            let secrets = env_digest(&first.req.start.env);
             let mut turn = first;
             loop {
                 match engine.workspaces.occupy(&turn.req, shared).await {
@@ -1105,10 +1109,12 @@ async fn connect(
                         Ok(None) | Err(_) => return Ok(None),
                     }
                 };
-                // Claude only sees the plugin's skill list and its settings as they were when the process started.
+                // Claude only sees the plugin's skill list and its settings as they were when the process started;
+                // secrets are its process env.
                 if turn.selection != conv.selection
                     || turn.launch != conv.launch
                     || turn.skills.names != conv.skills.names
+                    || env_digest(&turn.req.start.env) != secrets
                 {
                     return Ok(Some(turn));
                 }
@@ -1116,6 +1122,11 @@ async fn connect(
         })
         .await
         .map_err(|e| describe(&e))
+}
+
+/// Tells the env an adapter process was started with apart without keeping its values.
+fn env_digest(env: &SecretEnv) -> [u8; 32] {
+    Sha256::digest(serde_json::to_vec(&env.0).expect("a string map serializes")).into()
 }
 
 /// The ACP session on one adapter connection.
