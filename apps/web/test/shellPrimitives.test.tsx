@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -105,6 +106,36 @@ describe('Menu', () => {
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     fireEvent.mouseDown(screen.getByRole('button', { name: '外部' }))
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  })
+
+  it('scrolls the checked item of a long menu into view on open', () => {
+    const scrolled: string[] = []
+    HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+      scrolled.push(this.textContent ?? '')
+    }
+    const many: MenuItem[] = Array.from({ length: 40 }, (_, i) => ({
+      label: `模型 ${i}`,
+      value: `m${i}`,
+      checked: i === 30,
+    }))
+    render(
+      <MenuButton aria-label="模型" items={many} placement="above" onSelect={() => {}}>
+        …
+      </MenuButton>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '模型' }))
+    expect(scrolled).toEqual(['模型 30'])
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  })
+
+  it('caps an anchored menu to the viewport so a long list scrolls instead of overflowing', () => {
+    const css = readFileSync('src/ui/menu.css', 'utf8')
+    const start = css.indexOf('.ui-menu--popover:not(:has(.ui-menu__subwrap)) {')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const rule = css.slice(start, css.indexOf('}', start))
+    expect(rule).toContain('max-height: min(60vh, 420px)')
+    expect(rule).toContain('overflow-y: auto')
+    expect(rule).toContain('overscroll-behavior: contain')
   })
 })
 

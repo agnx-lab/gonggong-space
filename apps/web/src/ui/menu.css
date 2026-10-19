@@ -126,6 +126,15 @@
   z-index: 20;
   transform-origin: top left;
 }
+/* A long menu scrolls within the viewport; one with submenus keeps overflow visible so they are not clipped. */
+.ui-menu--popover:not(:has(.ui-menu__subwrap)) {
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ui-menu--popover > * {
+  flex-shrink: 0;
+}
 .ui-menu--end {
   left: auto;
   right: 0;

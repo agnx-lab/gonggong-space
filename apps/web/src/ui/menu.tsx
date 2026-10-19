@@ -88,9 +88,13 @@ export function Menu({
   useEffect(() => {
     const menu = own.current
     if (!autoFocus || !menu) return
-    if (focusMenu) return menu.focus()
-    const list = ownItems(menu)
-    ;(list.find((el) => el.dataset.value === activeValue) ?? list[0] ?? menu).focus()
+    if (focusMenu) menu.focus()
+    else {
+      const list = ownItems(menu)
+      ;(list.find((el) => el.dataset.value === activeValue) ?? list[0] ?? menu).focus()
+    }
+    // A long capped menu opens on the current choice rather than its top.
+    menu.querySelector<HTMLElement>('[aria-checked="true"]')?.scrollIntoView?.({ block: 'nearest' })
   }, [])
 
   const setRef = (el: HTMLDivElement | null) => {

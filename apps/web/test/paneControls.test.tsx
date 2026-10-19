@@ -248,6 +248,27 @@ describe('PopUpButton', () => {
     expect(menu.classList.contains('ui-float--fixed')).toBe(true)
   })
 
+  it('keeps a scrolled long list in place when hovering re-renders it', () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ value: `m${i}`, label: `模型 ${i}` }))
+    render(<PopUpButton options={many} defaultValue="m0" />)
+    fireEvent.click(screen.getByRole('button', { name: '模型 0' }))
+    const menu = screen.getByRole('menu')
+    // Like a browser: dropping the height cap makes the list unscrollable, clamping scrollTop to 0.
+    let top = 0
+    let cap = menu.style.maxHeight
+    Object.defineProperty(menu, 'scrollTop', { get: () => top, set: (v: number) => (top = v) })
+    Object.defineProperty(menu.style, 'maxHeight', {
+      get: () => cap,
+      set: (v: string) => {
+        cap = v
+        if (!v) top = 0
+      },
+    })
+    menu.scrollTop = 300
+    fireEvent.mouseEnter(screen.getByRole('menuitemcheckbox', { name: '模型 30' }))
+    expect(menu.scrollTop).toBe(300)
+  })
+
   it('shows the placeholder when nothing is selected', () => {
     render(<PopUpButton options={options} value={null} placeholder="请选择" />)
     expect(screen.getByRole('button', { name: '请选择' })).toBeTruthy()

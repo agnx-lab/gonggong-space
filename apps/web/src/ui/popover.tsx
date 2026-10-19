@@ -93,6 +93,8 @@ export function useFixedPosition(
     if (!enabled || !el || !anchor.current) return
     const r = anchor.current.getBoundingClientRect()
     placed.current = { top: r.top, left: r.left }
+    // Clearing the cap clamps a scrolled list to the top; restore it after re-capping.
+    const scrolled = el.scrollTop
     if (list) {
       el.style.minWidth = `${r.width}px`
       el.style.maxHeight = ''
@@ -101,7 +103,10 @@ export function useFixedPosition(
     const room = { below: window.innerHeight - r.bottom - 2 * gap, above: r.top - 2 * gap }
     const below = h <= room.below || room.below >= room.above
     const height = list ? Math.min(h, below ? room.below : room.above) : h
-    if (list) el.style.maxHeight = `${height}px`
+    if (list) {
+      el.style.maxHeight = `${height}px`
+      el.scrollTop = scrolled
+    }
     el.style.top = `${below ? r.bottom + gap : Math.max(gap, r.top - gap - height)}px`
     el.style.left = `${Math.max(gap, Math.min(placement.endsWith('end') ? r.right - w : r.left, window.innerWidth - gap - w))}px`
   })
