@@ -122,6 +122,7 @@ fn start(run_id: &str, cwd: &Path, attachments: Vec<Attachment>, context: Vec<At
         skills: vec![],
         command: None,
         sync: None,
+        env: Default::default(),
         prompt: RunPrompt {
             text: "mock:echo 看图".into(),
             triggered_by: "王磊".into(),

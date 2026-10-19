@@ -2,10 +2,11 @@
 //! recent lines for the desktop 日志与诊断 page. `gg run` and the desktop app share `init`.
 use regex::Regex;
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
@@ -156,8 +157,9 @@ impl<S: Subscriber> Layer<S> for Sink {
         event.record(&mut fields);
         let level = LogLevel::of(meta.level());
         let now = chrono::Local::now();
+        let fields = mask_live(fields.0);
         let text =
-            format!("{} {:<5} {:<7} {}", now.format("%H:%M:%S"), level.tag(), short_target(meta.target()), fields.0);
+            format!("{} {:<5} {:<7} {}", now.format("%H:%M:%S"), level.tag(), short_target(meta.target()), fields);
         if let Some(file) = &self.file {
             let _ = file.make_writer().write_all(format!("{} {text}\n", now.format("%Y-%m-%d")).as_bytes());
         }
@@ -217,6 +219,36 @@ pub fn read_recent(home: &Path, max: LogLevel, limit: usize) -> Vec<LogLine> {
     out.truncate(limit);
     out.reverse();
     out
+}
+
+/// Run secrets (`run.start.env`) of the live adapter processes, by holder: in memory only, gone with the adapter.
+static LIVE_SECRETS: LazyLock<Mutex<HashMap<u64, Vec<String>>>> = LazyLock::new(Mutex::default);
+static NEXT_HOLDER: AtomicU64 = AtomicU64::new(0);
+
+/// Keeps `values` known as secrets (masked in the log sink and the diagnostics bundle) until dropped.
+pub struct SecretsHeld(u64);
+
+impl Drop for SecretsHeld {
+    fn drop(&mut self) {
+        LIVE_SECRETS.lock().unwrap().remove(&self.0);
+    }
+}
+
+pub fn hold_secrets(values: Vec<String>) -> SecretsHeld {
+    let id = NEXT_HOLDER.fetch_add(1, Ordering::Relaxed);
+    LIVE_SECRETS.lock().unwrap().insert(id, values);
+    SecretsHeld(id)
+}
+
+pub fn live_secrets() -> Vec<String> {
+    LIVE_SECRETS.lock().unwrap().values().flatten().cloned().collect()
+}
+
+fn mask_live(mut text: String) -> String {
+    for s in LIVE_SECRETS.lock().unwrap().values().flatten().filter(|s| !s.is_empty()) {
+        text = text.replace(s.as_str(), "[REDACTED]");
+    }
+    text
 }
 
 static SECRET_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
@@ -315,6 +347,24 @@ mod tests {
         assert_eq!(&got[0].text[8..], " INFO  git     fetch origin repo=pay");
         assert_eq!(got[1].level, LogLevel::Warn);
         assert!(got[1].text.ends_with("WARN  logs    disk low"), "{}", got[1].text);
+    }
+
+    #[test]
+    fn the_sink_masks_the_secrets_of_live_adapters_until_they_end() {
+        let logs = Logs::default();
+        let sink = Sink { logs: logs.clone(), file: None };
+        let subscriber = tracing_subscriber::registry().with(sink);
+        let held = hold_secrets(vec!["live-secret-31415926".into()]);
+        assert!(live_secrets().contains(&"live-secret-31415926".to_string()));
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::warn!("adapter said live-secret-31415926");
+            drop(held);
+            tracing::warn!("then live-secret-31415926");
+        });
+        let got: Vec<_> = logs.recent(LogLevel::Debug, 10, None).into_iter().map(|l| l.line.text).collect();
+        assert!(got[0].ends_with("adapter said [REDACTED]"), "{}", got[0]);
+        assert!(got[1].ends_with("then live-secret-31415926"), "gone with the adapter: {}", got[1]);
+        assert!(!live_secrets().contains(&"live-secret-31415926".to_string()));
     }
 
     #[test]

@@ -216,6 +216,7 @@ impl Rig {
             skills: vec![],
             command: None,
             sync: Some(sync),
+            env: Default::default(),
             prompt: RunPrompt {
                 text: text.into(),
                 triggered_by: "王磊".into(),

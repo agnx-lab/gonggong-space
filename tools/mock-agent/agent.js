@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Scriptable ACP agent for daemon tests. The prompt text picks the behaviour:
 //   "mock:echo"  reply with a JSON summary of what the agent received (pid, cwd, mode, system prompt, settings meta,
-//                provider env, MCP servers, prompt, blocks)
+//                provider env, GG_SECRET_* env, MCP servers, prompt, blocks)
 //   "mock:slow"  stream text until cancelled
 //   "mock:crash" stream one chunk, then exit with code 3
 //   "mock:commands" report available commands (compact, new), then reply "ok"
@@ -121,6 +121,7 @@ async function prompt({ sessionId, prompt: blocks }, client) {
           NO_PROXY: process.env.NO_PROXY ?? null,
           GG_EXTRA: process.env.GG_EXTRA ?? null,
         },
+        secretEnv: Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('GG_SECRET_'))),
         mcpServers: s.mcpServers,
         prompt: text,
         blocks: blocks.map((b) =>

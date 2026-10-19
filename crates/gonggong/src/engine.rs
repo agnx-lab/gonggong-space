@@ -15,7 +15,7 @@ use crate::local::LocalSettings;
 use crate::manage::Manage;
 use crate::protocol::{
     AgentCatalog, AgentKind, Approval, Attachment, DaemonToServer, DiffScope, RepoKind, RunBot, RunDone, RunOutcome,
-    RunStart, RunSyncDone, ServerToDaemon, ServiceInfo, SyncWaitIssue, Tier,
+    RunStart, RunSyncDone, SecretEnv, ServerToDaemon, ServiceInfo, SyncWaitIssue, Tier,
 };
 use crate::providers::{Selection, Store};
 use crate::replicas::{Init, Refusal, Replicas, sync_error};
@@ -195,7 +195,7 @@ impl Engine {
             agent_settings: Default::default(),
         };
         let official = Selection::Official(Store::load(&self.0.config.home)?.official(kind));
-        Ok(AcpAgent::new(self.0.adapter(&bot, &local, &official).await?))
+        Ok(AcpAgent::new(self.0.adapter(&bot, &local, &official, &SecretEnv::default()).await?))
     }
 }
 
@@ -590,15 +590,18 @@ impl Inner {
     }
 
     /// Launch config of the adapter for this bot, with the local agent CLI, per-process system prompt and the
-    /// provider (§4.4; Claude's settings file, written by the turn's plan, is named per session).
+    /// provider (§4.4; Claude's settings file, written by the turn's plan, is named per session). The run's
+    /// `secrets` go into the process env only: never a file.
     pub(crate) async fn adapter(
         &self,
         bot: &RunBot,
         local: &LocalSettings,
         selection: &Selection,
+        secrets: &SecretEnv,
     ) -> anyhow::Result<AcpAgentConfig> {
-        // First, so the variables set below win over the user's.
-        let env = Settings::load(&self.config.home)?.child_env();
+        // First, the run's secrets over the user's variables: the daemon's own, set below, win over both.
+        let mut env = Settings::load(&self.config.home)?.child_env();
+        env.extend(secrets.0.clone());
         let base = match &self.config.adapter_cmd {
             Some(cmd) => AcpAgent::from_str(cmd)?.into_config().envs(env),
             None => {

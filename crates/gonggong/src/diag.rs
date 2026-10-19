@@ -244,7 +244,9 @@ pub fn permission(kind: CheckKind, granted: Option<bool>) -> Check {
 /// Writes `dest` (.zip): redacted recent logs, the checks, versions, and config.json / local.json without
 /// credentials. Returns the entry names written.
 pub fn bundle(home: &Path, config: Option<&Config>, checks: &[Check], dest: &Path) -> anyhow::Result<Vec<String>> {
-    let secrets: Vec<&str> = config.map(|c| c.token.as_str()).into_iter().collect();
+    let live = logs::live_secrets();
+    let secrets: Vec<&str> =
+        config.map(|c| c.token.as_str()).into_iter().chain(live.iter().map(String::as_str)).collect();
     let mut files: Vec<(String, Vec<u8>)> = vec![];
     for path in logs::files(home) {
         let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -420,10 +422,12 @@ mod tests {
     fn the_bundle_holds_redacted_logs_checks_versions_and_config_without_the_token() {
         let home = tempfile::tempdir().unwrap();
         let token = "mt_Zq3v9Kx0aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX";
+        // A run secret a live adapter holds (desktop: the daemon runs in the exporting process).
+        let _held = logs::hold_secrets(vec!["run-secret-27182818".into()]);
         std::fs::create_dir_all(logs::dir(home.path())).unwrap();
         std::fs::write(
             logs::dir(home.path()).join("daemon.2026-09-23.log"),
-            format!("2026-09-23 10:00:00 INFO  service connected with {token}\n2026-09-23 10:00:01 WARN  git     https://bob:pw@git.corp/x\n"),
+            format!("2026-09-23 10:00:00 INFO  service connected with {token}\n2026-09-23 10:00:01 WARN  git     https://bob:pw@git.corp/x\n2026-09-23 10:00:02 WARN  session agent printed run-secret-27182818\n"),
         )
         .unwrap();
         std::fs::write(
@@ -449,7 +453,7 @@ mod tests {
             s
         };
         let all: String = names.iter().map(|n| read(n)).collect();
-        for leaked in [token, "bob:pw", "ghp_abc", "hunter22"] {
+        for leaked in [token, "bob:pw", "ghp_abc", "hunter22", "run-secret-27182818"] {
             assert!(!all.contains(leaked), "{leaked} leaked");
         }
         assert!(read("logs/daemon.2026-09-23.log").contains("WARN  git     https://[REDACTED]@git.corp/x"));
