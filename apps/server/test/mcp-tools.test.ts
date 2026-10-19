@@ -1,7 +1,7 @@
-import type { InheritedMcpDto, McpSecretCard, McpServer, McpServerDto, ToolCallRes } from '@gonggong/protocol'
+import type { InheritedMcpDto, McpServerDto, ToolCallRes } from '@gonggong/protocol'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { auditLogs, groupBots, mcpServers, messages, runs } from '../src/db/schema.js'
+import { auditLogs, groupBots, mcpServers, messages, runs, secrets } from '../src/db/schema.js'
 import { createMcp, enabledMcpServers } from '../src/modules/mcp/service.js'
 import { createTestApp, type TestApp } from './support/app.js'
 import { client } from './support/http.js'
@@ -139,91 +139,51 @@ describe('mcp tools', () => {
     expect((await (await w.as(outsider)).get(`/api/teams/${w.group.teamId}/mcp`)).status).toBe(404)
   })
 
-  it('takes secrets only as placeholders and masks them', async () => {
+  it('takes secrets only as references, defines missing ones and tells what this run lacks', async () => {
     const w = await world()
     const li = await w.runOf(w.li)
     expect(await li.call('mcp_create', { config: stdio('wiki', { TOKEN: 'sk-live-123' }) })).toMatchObject({
       isError: true,
-      text: '密钥不能明文写在对话里：TOKEN 请写成占位符 ${secret:名称}，再用 mcp_secret_request 让发起人在卡片里填写',
+      text: '密钥不能明文写在对话里：TOKEN 请写成 ${secret:名称} 引用密钥（名称用大写字母、数字和下划线，secret_list 列出已有的）',
     })
+    expect(
+      (await li.call('mcp_create', { config: stdio('wiki', { TOKEN: '${secret:token}' }) })).isError,
+    ).toBe(true)
     expect(await t.db.select().from(mcpServers)).toEqual([])
-    const made = await li.call('mcp_create', {
-      config: stdio('wiki', { TOKEN: '${secret:TOKEN}', REGION: '${secret:REGION}' }),
-    })
+    const made = await li.call('mcp_create', { config: stdio('wiki', { TOKEN: '${secret:WIKI_TOKEN}' }) })
     expect(made.text).toBe(
-      '已新建群层 MCP「wiki」，下一轮新会话生效；密钥待填写：TOKEN、REGION，请用 mcp_secret_request 请发起人填写',
+      '已新建群层 MCP「wiki」，下一轮新会话生效；缺密钥：WIKI_TOKEN，补齐前不会下发，请用 secret_request 请人填写',
     )
+    const [def] = await t.db.select().from(secrets)
+    expect(def).toMatchObject({
+      name: 'WIKI_TOKEN',
+      scope: 'group',
+      groupId: w.group.id,
+      mode: 'shared',
+      value: null,
+    })
     expect((await li.call('mcp_get', { name: 'wiki' })).text.split('\n')).toEqual([
       '「wiki」· 群层 · stdio · 已启用',
       '  启动：npx -y wiki-mcp',
-      '  env：TOKEN（待填写）、REGION（待填写）',
+      '  env：TOKEN → ${secret:WIKI_TOKEN}（缺值）',
     ])
-    const http = {
-      transport: 'http',
-      name: 'docs',
-      url: 'https://mcp.corp/docs',
-      headers: { Authorization: 'Bearer x' },
-    }
-    expect((await li.call('mcp_create', { config: http })).isError).toBe(true)
+    expect((await li.call('mcp_list')).text).toContain(
+      '- wiki · 群层 · stdio · 生效 · 缺密钥 WIKI_TOKEN（本轮不下发） · 可修改',
+    )
+
+    await (await w.as(w.li)).patch(`/api/secrets/${def!.id}`, { value: 'sk-live-123456' })
+    expect((await li.call('mcp_get', { name: 'wiki' })).text).toContain(
+      'TOKEN → ${secret:WIKI_TOKEN}（已就绪）',
+    )
+    expect((await li.call('mcp_list')).text).not.toContain('sk-live')
   })
 
-  it('collects secrets on a card only the originator fills; the values never reach the agent or the logs', async () => {
+  it('refuses the old MCP secret cards', async () => {
     const w = await world()
-    const li = await w.runOf(w.li)
-    await li.call('mcp_create', { config: stdio('wiki', { TOKEN: '${secret:TOKEN}' }) })
-    expect(await li.call('mcp_secret_request', { name: 'wiki', keys: ['NOPE'] })).toMatchObject({
-      isError: true,
-      text: '「wiki」的 env 里没有 NOPE，先用 mcp_update 加上（值写占位符 ${secret:名称}）',
+    const res = await (await w.as(w.li)).post('/api/mcp-secrets/00000000-0000-4000-8000-000000000000', {
+      values: { TOKEN: 'sk-live-123' },
     })
-    expect(
-      await (await w.runOf(w.zhao)).call('mcp_secret_request', { name: 'wiki', keys: ['TOKEN'] }),
-    ).toMatchObject({ isError: true })
-    const asked = await li.call('mcp_secret_request', {
-      name: 'wiki',
-      keys: ['TOKEN'],
-      forceNewSession: true,
-    })
-    expect(asked.text).toContain('已在群里发出填写密钥卡片（TOKEN）')
-
-    const [msg] = await t.db.select().from(messages).where(eq(messages.kind, 'event'))
-    expect(msg!.body).toBe('Claude 请 李建国 填写 MCP「wiki」的密钥：TOKEN')
-    const card = (msg!.meta as { mcpSecret: McpSecretCard }).mcpSecret
-    expect(card).toMatchObject({ name: 'wiki', keys: ['TOKEN'], userId: w.li.id, filled: false })
-
-    const url = `/api/mcp-secrets/${card.id}`
-    expect((await (await w.as(w.zhao)).post(url, { values: { TOKEN: 'sk-live-123' } })).status).toBe(403)
-    const li2 = await w.as(w.li)
-    expect((await li2.post(url, { values: {} })).status).toBe(400)
-    const filled = await li2.post<McpSecretCard>(url, { values: { TOKEN: 'sk-live-123' } })
-    expect(filled.body).toMatchObject({ filled: true })
-    expect((await li2.post(url, { values: { TOKEN: 'again' } })).status).toBe(409)
-
-    const [server] = await enabledMcpServers(t.db, w.group.id)
-    expect((server as Extract<McpServer, { transport: 'stdio' }>).env).toEqual({ TOKEN: 'sk-live-123' })
-    expect((await li.call('mcp_get', { name: 'wiki' })).text).toContain('TOKEN（已填写）')
-    const [after] = await t.db.select().from(messages).where(eq(messages.id, msg!.id))
-    expect((after!.meta as { mcpSecret: McpSecretCard }).mcpSecret.filled).toBe(true)
-    const everywhere = JSON.stringify([
-      await t.db.select().from(messages),
-      await t.db.select().from(auditLogs),
-      (await li.call('mcp_list')).text,
-    ])
-    expect(everywhere).not.toContain('sk-live-123')
-    const [set] = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'mcp.secret_set'))
-    expect(set!.detail).toMatchObject({ name: 'wiki', keys: ['TOKEN'], forceNewSession: true })
-    const [gb] = await t.db.select().from(groupBots).where(eq(groupBots.groupId, w.group.id))
-    expect(gb!.newSessionReason).toBe('config_changed')
-
-    expect(
-      (
-        await li.call('mcp_update', {
-          name: 'wiki',
-          config: stdio('wiki', { TOKEN: '${secret:TOKEN}', MORE: '${secret:MORE}' }),
-        })
-      ).text,
-    ).toBe('已修改群层 MCP「wiki」，下一轮新会话生效；密钥待填写：MORE，请用 mcp_secret_request 请发起人填写')
-    const [kept] = await enabledMcpServers(t.db, w.group.id)
-    expect((kept as Extract<McpServer, { transport: 'stdio' }>).env.TOKEN).toBe('sk-live-123')
+    expect(res).toMatchObject({ status: 409 })
   })
 
   it('turns an inherited server off for this group only, from the tool or the settings', async () => {
@@ -294,11 +254,22 @@ describe('group MCP for members', () => {
     ])
     expect(JSON.stringify([own.body, up.body])).not.toMatch(/sk-|npx|mcp\.corp/)
 
+    // The plain value became a group secret; a group admin sees the reference, never a team / platform config.
     const li = await w.as(w.li)
     expect((await li.get<McpServerDto[]>(base)).body[0]!.config).toEqual(
-      stdio('wiki', { TOKEN: 'sk-live-123' }),
+      stdio('wiki', { TOKEN: '${secret:MCP_WIKI_TOKEN}' }),
     )
-    expect((await li.get<InheritedMcpDto[]>(inherited)).body[0]!.config).toEqual(docs)
+    expect((await li.get<InheritedMcpDto[]>(inherited)).body[0]!.config).toEqual({
+      transport: 'http',
+      name: 'docs',
+      url: '',
+      headers: {},
+    })
+    expect((await (await w.as(w.root)).get<InheritedMcpDto[]>(inherited)).body[0]!.config).toEqual({
+      ...docs,
+      headers: { Authorization: '${secret:MCP_DOCS_AUTHORIZATION}' },
+    })
+    expect(JSON.stringify(await t.db.select().from(mcpServers))).not.toMatch(/sk-live|sk-hdr/)
 
     expect((await zhao.post(base, { enabled: true, config: stdio('x') })).status).toBe(403)
     expect((await zhao.patch(`${base}/${wiki.id}`, { enabled: true, config: stdio('wiki') })).status).toBe(

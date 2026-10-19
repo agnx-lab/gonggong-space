@@ -376,8 +376,32 @@ export const en = {
   仅发起人可以填写: 'Only the person who started the turn can fill these in',
   密钥已填写: 'The secrets are already filled in',
   请填写全部密钥: 'Fill in every secret',
-  'MCP 配置已变更，没有 {key}': 'The MCP config has changed and no longer has {key}',
   'MCP 名称已存在': 'An MCP with this name already exists',
+  '这张卡片已停用，请让 Bot 用 secret_request 重新发起':
+    'This card is no longer in use; ask the Bot to send a new one with secret_request',
+
+  // Secrets
+  密钥不存在: 'Secret not found',
+  密钥名称已存在: 'A secret with this name already exists',
+  '{name} 是系统保留的环境变量名，请换一个名称':
+    '{name} is a reserved environment variable; pick another name',
+  'personal 模式的密钥没有统一值': 'A personal secret has no shared value',
+  到期时间无效: 'Invalid expiry time',
+  请填写密钥: 'Fill in the secret',
+  '该密钥只用统一值，不能填写个人值': 'This secret only uses the shared value; it takes no personal value',
+  '密钥 {name} 的定义已删除或停用': 'The secret {name} was deleted or disabled',
+  '密钥 {name} 已改为每人自填': 'The secret {name} is now filled in by each member',
+  '密钥 {name} 已改为只用统一值': 'The secret {name} now only uses the shared value',
+  '仅密钥 {name} 所在层的管理员可以填写': 'Only an admin of the layer of {name} can fill it in',
+  '名称只能用大写字母、数字和下划线，以字母开头':
+    'Names may only use upper-case letters, digits and underscores, starting with a letter',
+  '密钥至少 8 个字符': 'A secret needs at least 8 characters',
+  '{verb}{layer}密钥 {name}': '{verb} {layer} secret {name}',
+  设置统一值: 'Set the shared value of',
+  清除统一值: 'Cleared the shared value of',
+  填写: 'Filled in',
+  请求填写: 'Requested',
+  个人: 'personal',
 
   // Skills
   'Skill 不存在': 'Skill not found',

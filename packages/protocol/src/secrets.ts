@@ -64,8 +64,16 @@ export const CreateSecretReq = z.object({
   value: SecretValue.optional(),
 })
 export type CreateSecretReq = z.infer<typeof CreateSecretReq>
-/** `value: null` clears the shared value; absent keeps it. */
-export const UpdateSecretReq = CreateSecretReq.omit({ value: true })
+/** Absent fields stay as they are (no defaults here); `value: null` clears the shared value. */
+export const UpdateSecretReq = z
+  .object({
+    name: SecretName,
+    description: z.string().max(500),
+    mode: SecretMode,
+    botIds: z.array(z.string()).nullable(),
+    enabled: z.boolean(),
+    expiresAt: z.string().nullable(),
+  })
   .partial()
   .extend({ value: SecretValue.nullable().optional() })
 export type UpdateSecretReq = z.infer<typeof UpdateSecretReq>
@@ -109,7 +117,11 @@ export const SecretCard = z.object({
 })
 export type SecretCard = z.infer<typeof SecretCard>
 /** POST /api/secret-requests/:id */
-export const FillSecretReq = z.object({ values: z.record(SecretName, SecretValue) })
+export const FillSecretReq = z.object({
+  values: z.record(SecretName, SecretValue),
+  /** `origin` cards: as SetMySecretReq; absent keeps an existing value's setting (false for a new one). */
+  allowForeignMachines: z.boolean().optional(),
+})
 export type FillSecretReq = z.infer<typeof FillSecretReq>
 
 /** A secret injected into a run (run detail): never the value. */

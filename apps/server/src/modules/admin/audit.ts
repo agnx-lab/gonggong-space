@@ -34,6 +34,15 @@ const QUESTION: Record<string, MessageKey> = {
 }
 const MCP: Record<string, MessageKey> = { 'mcp.create': '添加', 'mcp.update': '修改', 'mcp.delete': '删除' }
 const LAYER: Record<string, MessageKey> = { platform: '平台层', team: '团队层', group: '群层' }
+const SECRET: Record<string, MessageKey> = {
+  'secret.define': '添加',
+  'secret.update': '修改',
+  'secret.delete': '删除',
+  'secret.set': '设置统一值',
+  'secret.clear': '清除统一值',
+  'secret.fill': '填写',
+  'secret.request': '请求填写',
+}
 const ROLE: Record<string, MessageKey> = { sysadmin: '系统管理员', member: '普通成员' }
 const TOOL: Record<string, string> = { node: 'Node.js', claude: 'Claude Code', codex: 'Codex' }
 const PROVIDERS: Record<string, MessageKey> = {
@@ -132,6 +141,12 @@ export function summarize(row: Pick<Row, 'category' | 'action'>, d: Detail, n: N
           state: { key: d.enabled === false ? '停用' : '启用' },
           name: str(d.name),
           forced: { key: d.forceNewSession ? '已勾选' : '未勾选' },
+        })
+      if (row.action in SECRET)
+        return t('{verb}{layer}密钥 {name}', {
+          verb: { key: SECRET[row.action] as MessageKey },
+          layer: { key: str(d.layer) === 'personal' ? '个人' : (LAYER[str(d.layer)] ?? '平台层') },
+          name: Array.isArray(d.names) ? ids(d.names).join('、') : str(d.name),
         })
       switch (row.action) {
         case 'bot.create':

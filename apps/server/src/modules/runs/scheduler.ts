@@ -21,8 +21,10 @@ import { runTier } from '../bots/tier.js'
 import { boundChat } from '../feishu/mirror.js'
 import { effectiveParams } from '../groups/params.js'
 import { knowledgeContext } from '../knowledge/context.js'
+import { substitute } from '../mcp/secrets.js'
 import { enabledMcpServers } from '../mcp/service.js'
 import type { MessageMeta } from '../messages/service.js'
+import { resolveSecrets } from '../secrets/resolve.js'
 import { enabledSkills } from '../skills/service.js'
 import { runSyncStart } from '../sync/store.js'
 import { sendDueInits, syncHeld, syncOutdated } from '../sync/switch.js'
@@ -112,7 +114,7 @@ export async function schedule(ctx: Ctx, botId: string) {
       }
       if (machineId && busy < bot.concurrency) {
         const at = ctx.now()
-        const start = await buildRunStart(tx, bot, run, !unsynced)
+        const start = await buildRunStart(tx, bot, run, !unsynced, at)
         if (start.settled) out.push(start.settled)
         // Marked running inside the transaction, sent only after it committed: a fast run.done then finds the
         // committed running row, and a rollback never leaves a daemon executing a run the server has queued.
@@ -125,6 +127,7 @@ export async function schedule(ctx: Ctx, botId: string) {
             // A requeued turn's waiting reason is over.
             sync: null,
             ...start.config,
+            secrets: start.secrets,
             // Known up front so the live round already starts its own session; run.done may refine it.
             newSessionReason: start.msg.resumeSessionId ? null : (start.msg.newSessionReason ?? 'first'),
           })
@@ -185,42 +188,44 @@ export async function schedule(ctx: Ctx, botId: string) {
 const branchHint = (base: string) =>
   `本群开启了「禁止直推基准分支」：不要直接提交或推送到基准分支 ${base}。当前在 ${base} 上时，改代码前先新建一个分支（名字不限）；已经在其他分支上就直接在该分支开发、提交并推送，不用另建分支。需要合并时告诉触发人发起合并请求。推送到 ${base} 需要 Bot 主人审批。`
 
-async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
+async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean, now: Date) {
   // Reads issued together are pipelined on the transaction's connection: one round trip per batch, not per read.
-  const [[trigger], [group], [gb], [repo], [owner], params, catalog, mcpServers, skills] = await Promise.all([
-    tx
-      .select({
-        seq: messages.seq,
-        body: messages.body,
-        meta: messages.meta,
-        at: messages.createdAt,
-        author: users.name,
-        bot: bots.name,
-      })
-      .from(messages)
-      .leftJoin(users, eq(users.id, messages.authorUserId))
-      .leftJoin(bots, eq(bots.id, messages.authorBotId))
-      .where(eq(messages.id, run.triggerMessageId)),
-    tx
-      .select({ name: groups.name, kind: groups.kind, protectBase: groups.protectBase })
-      .from(groups)
-      .where(eq(groups.id, run.groupId)),
-    tx
-      .select()
-      .from(groupBots)
-      .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, bot.id))),
-    tx
-      .select()
-      .from(groupRepos)
-      .where(eq(groupRepos.groupId, run.groupId))
-      .orderBy(asc(groupRepos.createdAt))
-      .limit(1),
-    tx.select({ protocol: users.gitProtocol }).from(users).where(eq(users.id, bot.ownerId)),
-    effectiveParams(tx, run.groupId),
-    botCatalog(tx, bot),
-    enabledMcpServers(tx, run.groupId),
-    enabledSkills(tx, run.groupId),
-  ])
+  const [[trigger], [group], [gb], [repo], [owner], params, catalog, mcpServers, skills, secrets] =
+    await Promise.all([
+      tx
+        .select({
+          seq: messages.seq,
+          body: messages.body,
+          meta: messages.meta,
+          at: messages.createdAt,
+          author: users.name,
+          bot: bots.name,
+        })
+        .from(messages)
+        .leftJoin(users, eq(users.id, messages.authorUserId))
+        .leftJoin(bots, eq(bots.id, messages.authorBotId))
+        .where(eq(messages.id, run.triggerMessageId)),
+      tx
+        .select({ name: groups.name, kind: groups.kind, protectBase: groups.protectBase })
+        .from(groups)
+        .where(eq(groups.id, run.groupId)),
+      tx
+        .select()
+        .from(groupBots)
+        .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, bot.id))),
+      tx
+        .select()
+        .from(groupRepos)
+        .where(eq(groupRepos.groupId, run.groupId))
+        .orderBy(asc(groupRepos.createdAt))
+        .limit(1),
+      tx.select({ protocol: users.gitProtocol }).from(users).where(eq(users.id, bot.ownerId)),
+      effectiveParams(tx, run.groupId),
+      botCatalog(tx, bot),
+      enabledMcpServers(tx, run.groupId),
+      enabledSkills(tx, run.groupId),
+      resolveSecrets(tx, { groupId: run.groupId, botId: bot.id, originUserId: run.originUserId }, now),
+    ])
   if (!trigger || !gb || !group) throw new Error(`run ${run.id} lost its trigger message or group membership`)
   const meta = trigger.meta as MessageMeta
   const at = trigger.at.toISOString()
@@ -311,12 +316,20 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
       attachments: meta.attachments ?? [],
       quote: quoteOf(meta),
     },
-    mcpServers,
+    // A server missing a secret's value is left out of this run (plan 团队密钥-方案 §8).
+    mcpServers: mcpServers.flatMap((c) => substitute(c, secrets.env) ?? []),
     skills: skills.map(({ name, versionId, digest }) => ({ name, versionId, digest })),
     command,
     sync,
+    env: secrets.env,
   }
-  return { msg, config, triggerSeq: command ? 0 : trigger.seq, settled: interrupted?.settled }
+  return {
+    msg,
+    config,
+    secrets: secrets.secrets,
+    triggerSeq: command ? 0 : trigger.seq,
+    settled: interrupted?.settled,
+  }
 }
 
 /** A relay hop whose previous hop's changes did not make it into a version is told so (F10); the chain goes on. */

@@ -35,7 +35,9 @@ describe('global MCP servers', () => {
 
     const created = await api.post<McpServerDto>('/api/admin/mcp', { enabled: true, config: echo })
     expect(created.status).toBe(201)
-    expect(created.body).toMatchObject({ enabled: true, config: echo })
+    // Plain env values become secrets of the layer; the config only references them.
+    const stored = { ...echo, env: { WIKI_TOKEN: '${secret:MCP_GONGGONG_ECHO_WIKI_TOKEN}' } }
+    expect(created.body).toMatchObject({ enabled: true, config: stored })
     expect(
       (await api.post('/api/admin/mcp', { enabled: false, config: { ...wiki, name: 'gonggong-echo' } })).body,
     ).toMatchObject({ error: 'conflict' })
@@ -47,7 +49,7 @@ describe('global MCP servers', () => {
     )
 
     const id = created.body.id
-    const updated = await api.patch<McpServerDto>(`/api/admin/mcp/${id}`, { enabled: false, config: echo })
+    const updated = await api.patch<McpServerDto>(`/api/admin/mcp/${id}`, { enabled: false, config: stored })
     expect(updated.body.enabled).toBe(false)
     expect((await api.get<McpServerDto[]>('/api/admin/mcp')).body.map((s) => s.config.name)).toEqual([
       'gonggong-echo',
@@ -58,11 +60,13 @@ describe('global MCP servers', () => {
 
     const log = await t.db.select().from(auditLogs).where(eq(auditLogs.actorUserId, user.id))
     expect(log.map((l) => [l.category, l.action])).toEqual([
+      ['admin', 'secret.define'],
+      ['admin', 'secret.set'],
       ['admin', 'mcp.create'],
       ['admin', 'mcp.update'],
       ['admin', 'mcp.delete'],
     ])
-    expect(log[0]!.detail).toMatchObject({ name: 'gonggong-echo', enabled: true, forceNewSession: false })
+    expect(log[2]!.detail).toMatchObject({ name: 'gonggong-echo', enabled: true, forceNewSession: false })
   })
 
   it('forcing a new session marks every bot for a config_changed session; running turns keep going', async () => {

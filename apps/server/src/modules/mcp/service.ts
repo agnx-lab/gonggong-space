@@ -7,6 +7,7 @@ import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { keptIn, setInherited as setOverride, turnedOff } from '../../lib/group-overrides.js'
 import { publishBotState, RESET_SESSION } from '../workspaces/state.js'
+import { externalize } from './secrets.js'
 
 export type McpRow = typeof mcpServers.$inferSelect
 export type Scope = 'platform' | 'team' | 'group'
@@ -156,7 +157,13 @@ export async function findMcp(ctx: Ctx, l: Layer, where: SQL) {
 type Save = { enabled: boolean; config: McpServer }
 
 export async function createMcp(ctx: Ctx, l: Layer, s: Save, actorId: string, force: boolean, extra?: Extra) {
-  const config = validConfig(s.config)
+  const valid = validConfig(s.config)
+  const [exists] = await ctx.db
+    .select({ id: mcpServers.id })
+    .from(mcpServers)
+    .where(and(inLayer(l), eq(mcpServers.name, valid.name)))
+  if (exists) return fail('conflict', 'MCP 名称已存在')
+  const config = await externalize(ctx, l, valid, actorId)
   const [row] = await ctx.db
     .insert(mcpServers)
     .values({ ...l, name: config.name, enabled: s.enabled, config, updatedAt: ctx.now() })
@@ -176,12 +183,18 @@ export async function updateMcp(
   force: boolean,
   extra?: Extra,
 ) {
-  const config = validConfig(s.config)
+  const valid = validConfig(s.config)
   const [taken] = await ctx.db
     .select({ id: mcpServers.id })
     .from(mcpServers)
-    .where(and(inLayer(l), eq(mcpServers.name, config.name), ne(mcpServers.id, id)))
+    .where(and(inLayer(l), eq(mcpServers.name, valid.name), ne(mcpServers.id, id)))
   if (taken) return fail('conflict', 'MCP 名称已存在')
+  const [current] = await ctx.db
+    .select({ id: mcpServers.id })
+    .from(mcpServers)
+    .where(and(inLayer(l), eq(mcpServers.id, id)))
+  if (!current) return fail('not_found', 'MCP 不存在')
+  const config = await externalize(ctx, l, valid, actorId)
   const [row] = await ctx.db
     .update(mcpServers)
     .set({ name: config.name, enabled: s.enabled, config, updatedAt: ctx.now() })

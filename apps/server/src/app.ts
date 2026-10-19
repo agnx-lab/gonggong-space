@@ -43,6 +43,7 @@ import { liveRoutes, routeLiveKitUpgrades } from './modules/live/routes.js'
 import { startLiveEngine } from './modules/live/service.js'
 import { machineRoutes } from './modules/machines/routes.js'
 import { mcpRoutes } from './modules/mcp/routes.js'
+import { migrateMcpSecrets } from './modules/mcp/secrets.js'
 import { messageRoutes } from './modules/messages/routes.js'
 import { notificationRoutes } from './modules/notifications/routes.js'
 import { startPreviewEngine } from './modules/previews/engine.js'
@@ -67,6 +68,7 @@ import { stopRoutes } from './modules/runs/stop-routes.js'
 import { startScheduleEngine } from './modules/schedules/engine.js'
 import { scheduleRoutes } from './modules/schedules/routes.js'
 import { searchRoutes } from './modules/search/routes.js'
+import { secretRoutes } from './modules/secrets/routes.js'
 import { skillRoutes } from './modules/skills/routes.js'
 import { startSyncEngine } from './modules/sync/engine.js'
 import { syncRoutes } from './modules/sync/routes.js'
@@ -179,7 +181,9 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   app.addHook('onClose', await startFeishu(ctx))
   // Base-branch mirrors serve both the @ file candidates and ⌘K file search.
   const mirrors = new Mirrors(join(process.env.GONGGONG_DATA_DIR ?? '.gonggong-dev/data', 'mirrors'), ctx.now)
+  await migrateMcpSecrets(ctx)
   await app.register(mcpRoutes(ctx))
+  await app.register(secretRoutes(ctx))
   await app.register(skillRoutes(ctx))
   await app.register(agentToolRoutes(ctx))
   await app.register(searchRoutes(ctx, mirrors))

@@ -1,20 +1,14 @@
-import {
-  FillMcpSecretReq,
-  type InheritedMcpDto,
-  type McpServerDto,
-  SaveMcpReq,
-  ToggleInheritedReq,
-} from '@gonggong/protocol'
+import { type InheritedMcpDto, type McpServerDto, SaveMcpReq, ToggleInheritedReq } from '@gonggong/protocol'
 import { asc } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { Ctx } from '../../context.js'
 import { mcpServers } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
+import { isLayerAdmin } from '../agent-tools/layers.js'
 import { requireSysadmin, requireUser } from '../auth/session.js'
 import { requireAdmin, requireMember } from '../groups/service.js'
 import { requireTeam } from '../teams/service.js'
-import { fillSecrets } from './secrets.js'
 import {
   createMcp,
   deleteMcp,
@@ -72,10 +66,15 @@ function inheritedRoutes(ctx: Ctx, app: FastifyInstance) {
       enabledInGroup,
     }))
 
+  // Full configs only for admins of the row's own layer: a group admin is not one of the team's or the platform's.
   app.get<P>('/api/groups/:id/inherited-mcp', async (req) => {
     const me = await requireUser(ctx, req)
-    const { group, member } = await requireMember(ctx, req.params.id, me.id)
-    return (await list(group.id)).map((s) => readable(s, member.isAdmin))
+    const { group } = await requireMember(ctx, req.params.id, me.id)
+    const admin = {
+      platform: await isLayerAdmin(ctx, me.id, { scope: 'platform', teamId: null, groupId: null }),
+      team: await isLayerAdmin(ctx, me.id, { scope: 'team', teamId: group.teamId, groupId: null }),
+    }
+    return (await list(group.id)).map((s) => readable(s, admin[s.scope as 'platform' | 'team']))
   })
 
   app.put<P>('/api/groups/:id/inherited-mcp/:name', async (req) => {
@@ -127,10 +126,10 @@ export function mcpRoutes(ctx: Ctx) {
   return async (app: FastifyInstance) => {
     eachLayer(ctx, 'mcp', (base, authorize) => layerRoutes(ctx, app, base, authorize))
     inheritedRoutes(ctx, app)
-    app.post<{ Params: { id: string } }>('/api/mcp-secrets/:id', async (req) => {
-      const me = await requireUser(ctx, req)
-      const { values } = FillMcpSecretReq.parse(req.body)
-      return fillSecrets(ctx, me.id, idParam(req.params.id, '密钥请求不存在'), values)
+    // Cards from before secrets are read-only: the values now go into secret definitions (secret_request).
+    app.post('/api/mcp-secrets/:id', async (req) => {
+      await requireUser(ctx, req)
+      return fail('conflict', '这张卡片已停用，请让 Bot 用 secret_request 重新发起')
     })
   }
 }

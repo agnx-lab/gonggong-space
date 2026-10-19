@@ -12,6 +12,7 @@ import { notify, resolveNotifications } from '../notifications/notify.js'
 import { approvalDto, publishRun } from '../runs/dto.js'
 import { redact } from '../runs/redact.js'
 import { runStep } from '../runs/step.js'
+import { runRedactors } from '../secrets/resolve.js'
 
 type Approval = typeof approvals.$inferSelect
 type Settled = 'approved' | 'rejected' | 'expired'
@@ -44,7 +45,8 @@ export async function timeoutMin(ctx: Ctx, group: typeof groups.$inferSelect) {
 
 /** A live run's permission request from the machine running it: store it, await the owner, notify them. */
 export async function onApprovalRequest(ctx: Ctx, machineId: string, raw: ApprovalRequest) {
-  const req = { ...raw, title: redact(raw.title), detail: redact(raw.detail) }
+  const r = (await runRedactors(ctx, raw.runId)).redact
+  const req = { ...raw, title: r(raw.title), detail: r(raw.detail) }
   const [row] = await ctx.db
     .select({ run: runs, bot: bots, group: groups })
     .from(runs)

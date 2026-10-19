@@ -15,6 +15,7 @@ import { FILE_OVERHEAD, openFile, sealStream } from '../../lib/seal.js'
 import { sysParams } from '../admin/params.js'
 import { requireUser } from '../auth/session.js'
 import { requireMember, requireReader } from '../groups/service.js'
+import { groupRedactor } from '../secrets/resolve.js'
 import { type AttachmentRow, dataDir, inlineType, safeName, type Upload, uploadDto } from './service.js'
 
 async function findAttachment(ctx: Ctx, id: string) {
@@ -75,7 +76,7 @@ export function attachmentRoutes(ctx: Ctx) {
           id,
           uploaderId: me.id,
           groupId,
-          name: safeName(part.filename),
+          name: safeName(part.filename, await groupRedactor(ctx, groupId)),
           size: (await stat(path)).size - FILE_OVERHEAD,
           mime: part.mimetype || 'application/octet-stream',
           storageKey,

@@ -28,10 +28,13 @@ import { activeBots } from '../groups/service.js'
 import type { MessageMeta } from '../messages/service.js'
 import { closeOwnPreview, exposeGui, exposePreview } from '../previews/service.js'
 import { answerText } from '../questions/dto.js'
+import { redactDeep } from '../runs/redact.js'
+import { runRedactors } from '../secrets/resolve.js'
 import { listFeishuMessages } from './feishu.js'
 import { kbCreate, kbDelete, kbGet, kbList, kbSearch, kbUpdate } from './knowledge.js'
-import { mcpCreate, mcpDelete, mcpGet, mcpList, mcpSecretRequest, mcpToggle, mcpUpdate } from './mcp.js'
+import { mcpCreate, mcpDelete, mcpGet, mcpList, mcpToggle, mcpUpdate } from './mcp.js'
 import { scheduleCreate, scheduleDelete, scheduleList, scheduleUpdate } from './schedules.js'
+import { secretList, secretRequest } from './secrets.js'
 import {
   listSkillVersions,
   skillCreate,
@@ -412,7 +415,8 @@ const TOOLS: { [N in GonggongToolName]: (ctx: Ctx, s: Scope, a: Args<N>) => Prom
   mcp_update: (ctx, s, a) => mcpUpdate(ctx, s.run, a),
   mcp_toggle: (ctx, s, a) => mcpToggle(ctx, s.run, a),
   mcp_delete: (ctx, s, a) => mcpDelete(ctx, s.run, a),
-  mcp_secret_request: (ctx, s, a) => mcpSecretRequest(ctx, s.run, a),
+  secret_list: (ctx, s) => secretList(ctx, s.run),
+  secret_request: (ctx, s, a) => secretRequest(ctx, s.run, a),
 }
 
 export async function callTool(
@@ -424,5 +428,7 @@ export async function callTool(
   const parsed = GONGGONG_TOOLS[name].input.safeParse(args ?? {})
   if (!parsed.success) return refuse(`参数无效：${z.prettifyError(parsed.error)}`)
   const tool = TOOLS[name] as (ctx: Ctx, s: Scope, a: unknown) => Promise<ToolOutput>
-  return tool(ctx, await scopeOf(ctx, run), parsed.data)
+  // What the agent writes (messages, hand-offs, knowledge, skill files, prompts, titles) never stores a known value.
+  const masked = redactDeep(parsed.data, (await runRedactors(ctx, run.id)).mask)
+  return tool(ctx, await scopeOf(ctx, run), masked)
 }

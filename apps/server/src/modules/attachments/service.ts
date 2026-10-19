@@ -16,8 +16,8 @@ export const dataDir = () => resolve(process.env.GONGGONG_DATA_DIR ?? '.gonggong
 
 /** Base name only: the daemon writes it under `.gonggong/attachments/<messageId>/`. Names are shown to the group, so
  * secrets in them are masked like run output. */
-export function safeName(raw: string) {
-  const base = redact(raw.split(/[/\\]/).pop() ?? '')
+export function safeName(raw: string, r: (text: string) => string = redact) {
+  const base = r(raw.split(/[/\\]/).pop() ?? '')
     .replace(/[\p{Cc}]/gu, '')
     .trim()
   return (base === '.' || base === '..' ? '' : base).slice(0, 200) || 'file'

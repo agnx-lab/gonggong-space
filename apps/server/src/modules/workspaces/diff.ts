@@ -10,7 +10,7 @@ import { idParam } from '../../lib/ids.js'
 import { open } from '../../lib/seal.js'
 import { requireUser } from '../auth/session.js'
 import { activeBots, requireMember } from '../groups/service.js'
-import { redact } from '../runs/redact.js'
+import { groupRedactor, runRedactors } from '../secrets/resolve.js'
 import { currentRepo, onlineMachine } from './provision.js'
 
 /** Large repos take a while to write a tree and diff it. */
@@ -75,6 +75,10 @@ export function workspaceDiffRoutes(ctx: Ctx) {
           (await ctx.hub.request(machineId, ask, 'workspace.diff.result', DIFF_TIMEOUT_MS)) ??
           fail('conflict', OFFLINE)
         if (res.error) throw new HttpError('conflict', res.error)
+        const redact =
+          scope === 'turn' && runId
+            ? (await runRedactors(ctx, runId)).redact
+            : await groupRedactor(ctx, group.id)
         return {
           scope,
           patch: res.patch && redact(res.patch),

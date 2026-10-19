@@ -32,6 +32,7 @@ import { recallMessage } from '../messages/recall.js'
 import { type MessageMeta, type MessageRow, messageDto, publishMessage } from '../messages/service.js'
 import { answerQuestions } from '../questions/service.js'
 import { rerunFor, triggerRuns } from '../runs/trigger.js'
+import { groupRedactor } from '../secrets/resolve.js'
 import { approvalCard, type CardValue, formAnswers, noticeCard, questionCard } from './cards.js'
 import { credsOf, type FeishuAppRow, type FeishuInbound, onFeishu } from './gateway.js'
 import { publicUrl } from './identity.js'
@@ -126,7 +127,7 @@ async function fetchFiles(
       id,
       uploaderId: o.uploaderId,
       groupId: o.groupId,
-      name: safeName(f.name),
+      name: safeName(f.name, await groupRedactor(ctx, o.groupId)),
       size: (await stat(path)).size - FILE_OVERHEAD,
       mime: mimeOf(data, f),
       storageKey,

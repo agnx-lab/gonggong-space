@@ -4,14 +4,7 @@ import type { z } from 'zod'
 import type { Ctx } from '../../context.js'
 import { mcpServers } from '../../db/schema.js'
 import { keptIn } from '../../lib/group-overrides.js'
-import {
-  describeMasked,
-  keepSecrets,
-  pendingSecrets,
-  plainSecrets,
-  requestSecrets,
-  secretsOf,
-} from '../mcp/secrets.js'
+import { describeMasked, missingRefs, nonRefs } from '../mcp/secrets.js'
 import {
   createMcp,
   deleteMcp,
@@ -27,6 +20,7 @@ import {
   updateMcp,
   visibleIn,
 } from '../mcp/service.js'
+import { resolveSecrets } from '../secrets/resolve.js'
 import { canEdit, editable, LAYER, layerOf, type Run } from './layers.js'
 import { asTool, refuse, type ToolOutput } from './service.js'
 
@@ -52,21 +46,24 @@ async function named(ctx: Ctx, l: Layer, name: string) {
   )
 }
 
-/** Secrets only as placeholders: a value in plain text would end up in the chat, the prompt and the logs. */
-function placeholdersOnly(c: McpServer) {
-  const plain = plainSecrets(c)
+/** Secrets only as references: a value in plain text would end up in the chat, the prompt and the logs. */
+function refsOnly(c: McpServer) {
+  const plain = nonRefs(c)
   if (plain.length)
     refuse(
-      `密钥不能明文写在对话里：${plain.join('、')} 请写成占位符 \${secret:名称}，再用 mcp_secret_request 让发起人在卡片里填写`,
+      `密钥不能明文写在对话里：${plain.join('、')} 请写成 \${secret:名称} 引用密钥（名称用大写字母、数字和下划线，secret_list 列出已有的）`,
     )
 }
+
+/** Values this run would get, for what is ready or missing. */
+const envOf = async (ctx: Ctx, run: Run) => (await resolveSecrets(ctx.db, run, ctx.now())).env
 
 const audited = (run: Run) => ({ botId: run.botId, runId: run.id })
 const effect = (force?: boolean) => (force ? '相关 Bot 下一轮开新会话生效' : '下一轮新会话生效')
 
-const pendingNote = (c: McpServer) => {
-  const keys = pendingSecrets(c)
-  return keys.length ? `；密钥待填写：${keys.join('、')}，请用 mcp_secret_request 请发起人填写` : ''
+const pendingNote = (c: McpServer, env: Record<string, string>) => {
+  const names = missingRefs(c, env)
+  return names.length ? `；缺密钥：${names.join('、')}，补齐前不会下发，请用 secret_request 请人填写` : ''
 }
 
 const visible = (ctx: Ctx, run: Run) => ctx.db.select().from(mcpServers).where(visibleIn(ctx.db, run.groupId))
@@ -77,6 +74,7 @@ export async function mcpList(ctx: Ctx, run: Run): Promise<ToolOutput> {
   const off = await mcpTurnedOff(ctx.db, run.groupId)
   const winner = new Map(mergeMcp(rows.filter((r) => r.enabled && keptIn(off)(r))).map((r) => [r.name, r]))
   const edit = await editable(ctx, run)
+  const env = await envOf(ctx, run)
   const lines = rows
     .sort((a, b) => a.name.localeCompare(b.name) || RANK[b.scope as Scope] - RANK[a.scope as Scope])
     .flatMap((r) => {
@@ -91,7 +89,12 @@ export async function mcpList(ctx: Ctx, run: Run): Promise<ToolOutput> {
             : '生效'
       const right = edit[scope] ? '可修改' : scope !== 'group' && edit.group ? '本群可开关' : '发起人无权修改'
       const c = r.config as McpServer
-      return [`- ${r.name} · ${LAYER[scope]} · ${c.transport} · ${state} · ${right}`, ...describeMasked(c)]
+      const missing = missingRefs(c, env)
+      const lack = missing.length ? ` · 缺密钥 ${missing.join('、')}（本轮不下发）` : ''
+      return [
+        `- ${r.name} · ${LAYER[scope]} · ${c.transport} · ${state}${lack} · ${right}`,
+        ...describeMasked(c, env),
+      ]
     })
   return {
     text: [`本群可见的 MCP（${rows.length} 个，同名时群层覆盖团队层、团队层覆盖平台层）：`, ...lines].join(
@@ -116,7 +119,7 @@ export async function mcpGet(ctx: Ctx, run: Run, a: Args<'mcp_get'>): Promise<To
   return {
     text: [
       `「${row.name}」· ${LAYER[row.scope as Scope]} · ${c.transport} · ${row.enabled ? '已启用' : '已停用'}`,
-      ...describeMasked(c),
+      ...describeMasked(c, await envOf(ctx, run)),
     ].join('\n'),
     groups: [],
   }
@@ -124,7 +127,7 @@ export async function mcpGet(ctx: Ctx, run: Run, a: Args<'mcp_get'>): Promise<To
 
 export async function mcpCreate(ctx: Ctx, run: Run, a: Args<'mcp_create'>): Promise<ToolOutput> {
   const l = await writable(ctx, run, a.layer)
-  placeholdersOnly(a.config)
+  refsOnly(a.config)
   const force = a.forceNewSession ?? false
   const row = await asTool(() =>
     createMcp(
@@ -137,7 +140,7 @@ export async function mcpCreate(ctx: Ctx, run: Run, a: Args<'mcp_create'>): Prom
     ),
   )
   return {
-    text: `已新建${LAYER[l.scope]} MCP「${row.name}」，${effect(force)}${pendingNote(row.config as McpServer)}`,
+    text: `已新建${LAYER[l.scope]} MCP「${row.name}」，${effect(force)}${pendingNote(row.config as McpServer, await envOf(ctx, run))}`,
     groups: [],
   }
 }
@@ -145,8 +148,8 @@ export async function mcpCreate(ctx: Ctx, run: Run, a: Args<'mcp_create'>): Prom
 export async function mcpUpdate(ctx: Ctx, run: Run, a: Args<'mcp_update'>): Promise<ToolOutput> {
   const l = await writable(ctx, run, a.layer)
   const current = await named(ctx, l, a.name)
-  placeholdersOnly(a.config)
-  const config = keepSecrets(a.config, current.config as McpServer)
+  refsOnly(a.config)
+  const config = a.config
   const force = a.forceNewSession ?? false
   const row = await asTool(() =>
     updateMcp(
@@ -161,7 +164,7 @@ export async function mcpUpdate(ctx: Ctx, run: Run, a: Args<'mcp_update'>): Prom
   )
   const renamed = row.name === a.name ? '' : `（原名「${a.name}」）`
   return {
-    text: `已修改${LAYER[l.scope]} MCP「${row.name}」${renamed}，${effect(force)}${pendingNote(config)}`,
+    text: `已修改${LAYER[l.scope]} MCP「${row.name}」${renamed}，${effect(force)}${pendingNote(row.config as McpServer, await envOf(ctx, run))}`,
     groups: [],
   }
 }
@@ -202,28 +205,4 @@ export async function mcpDelete(ctx: Ctx, run: Run, a: Args<'mcp_delete'>): Prom
   const force = a.forceNewSession ?? false
   await deleteMcp(ctx, l, current.id, run.originUserId, force, audited(run))
   return { text: `已删除${LAYER[l.scope]} MCP「${a.name}」，${effect(force)}`, groups: [] }
-}
-
-export async function mcpSecretRequest(
-  ctx: Ctx,
-  run: Run,
-  a: Args<'mcp_secret_request'>,
-): Promise<ToolOutput> {
-  const l = await writable(ctx, run, a.layer)
-  const current = await named(ctx, l, a.name)
-  const c = current.config as McpServer
-  const field = c.transport === 'stdio' ? 'env' : 'headers'
-  const missing = a.keys.filter((k) => !(k in secretsOf(c)))
-  if (missing.length)
-    refuse(
-      `「${a.name}」的 ${field} 里没有 ${missing.join('、')}，先用 mcp_update 加上（值写占位符 \${secret:名称}）`,
-    )
-  const keys = [...new Set(a.keys)]
-  await requestSecrets(ctx, run, current, keys, a.forceNewSession ?? false)
-  return {
-    text:
-      `已在群里发出填写密钥卡片（${keys.join('、')}），等发起人填写；填写后直接写入配置，${effect(a.forceNewSession)}。` +
-      '你看不到密钥，也不要在对话里索要；之后可用 mcp_get 查看是否已填写。',
-    groups: [],
-  }
 }

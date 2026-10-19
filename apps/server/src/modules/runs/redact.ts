@@ -45,14 +45,24 @@ export function redactor(values: string[]) {
   }
 }
 
-/** Known secret values come from GONGGONG_REDACT_VALUES (comma list) until team secrets exist (P3). */
-export const redact = redactor((process.env.GONGGONG_REDACT_VALUES ?? '').split(','))
+const ENV_VALUES = (process.env.GONGGONG_REDACT_VALUES ?? '').split(',')
+
+/** Masks only common token formats and GONGGONG_REDACT_VALUES (comma list): for text not tied to a group. */
+export const redact = redactor(ENV_VALUES)
+/** Run output of a group also masks its known secret values (plan 团队密钥-方案 §6). */
+export const redactWith = (values: string[]) => redactor([...ENV_VALUES, ...values])
+
+/** Only the known values: for what an agent writes on purpose (skill files, prompts), where the formats are content. */
+export function maskKnown(values: string[]) {
+  const known = [...new Set(values)].filter(Boolean).sort((a, b) => b.length - a.length)
+  return (text: string) => known.reduce((out, v) => out.split(v).join(MASK), text)
+}
 
 /** Redacts every string inside a JSON value. */
-export function redactDeep<T>(value: T): T {
-  if (typeof value === 'string') return redact(value) as T
-  if (Array.isArray(value)) return value.map(redactDeep) as T
+export function redactDeep<T>(value: T, r: (text: string) => string = redact): T {
+  if (typeof value === 'string') return r(value) as T
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, r)) as T
   if (value && typeof value === 'object')
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactDeep(v)])) as T
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactDeep(v, r)])) as T
   return value
 }

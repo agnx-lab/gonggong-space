@@ -12,10 +12,11 @@ import { memberMentions, notifyMentions } from '../messages/mentions.js'
 import { authorName, memberIds, messageDto, postEvent, publishMessage } from '../messages/service.js'
 import { onQuestionAsk, onQuestionWithdraw, voidQuestions } from '../questions/service.js'
 import { settleSchedule } from '../schedules/engine.js'
+import { forgetRedactors, runRedactors } from '../secrets/resolve.js'
 import { pauseStopped, requeueRun } from '../sync/resolve.js'
 import { publishBotState, updateContextUsage } from '../workspaces/state.js'
 import { cardColumns, publishRun, publishStep, type RunRow } from './dto.js'
-import { redact, redactDeep } from './redact.js'
+import { redactDeep } from './redact.js'
 import { schedule } from './scheduler.js'
 import { sealEvent } from './sealed.js'
 import { runStep } from './step.js'
@@ -181,7 +182,7 @@ async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent
     return
   }
   await pushDelta(ctx, run, await closeStream(runId))
-  const event = redactDeep(raw)
+  const event = redactDeep(raw, (await runRedactors(ctx, runId)).redact)
   await ctx.db.insert(runEvents).values({ runId, kind: event.kind, payload: sealEvent(event) })
   // Updates of one tool call repeat its title: only a changed step is pushed.
   const setChanged = (set: Partial<RunRow>, changed: SQL) =>
@@ -292,6 +293,7 @@ async function onSessionConfig(
     await publishRun(ctx, row)
 }
 
+type Redact = (text: string) => string
 type Stream = Extract<RunEvent, { kind: 'text' | 'thought' }>
 /** A stream row; no `id` until it was first stored. */
 type Segment = {
@@ -310,6 +312,8 @@ type Segment = {
 type Open = {
   ctx: Ctx
   runId: string
+  /** The run's redaction (its known secret values). */
+  redact: Redact
   seg?: Segment
   timer?: NodeJS.Timeout
   write: Promise<void>
@@ -355,7 +359,7 @@ function save(st: Open, seg: Segment) {
   const job = st.write.then(async () => {
     const plain = seg.plain
     if (!plain || seg.saved === plain.length) return
-    seg.id = await writeSegment(st.ctx, st.runId, { ...seg, plain })
+    seg.id = await writeSegment(st.ctx, st.runId, { ...seg, plain }, st.redact)
     seg.saved = plain.length
   })
   st.write = job.catch(() => {})
@@ -384,7 +388,7 @@ const isToken = (code: number) => code > 32 && code < 127
 const live = ({ kind, agentId }: Segment) => kind === 'text' && !agentId
 
 /** Redacted text of `seg.plain` up to `end` that viewers have not received yet. */
-function unsent(seg: Segment, end: number) {
+function unsent(seg: Segment, end: number, redact: Redact) {
   if (end === seg.upto) return ''
   seg.upto = end
   const text = redact(seg.plain.slice(0, end)).slice(seg.sent)
@@ -397,10 +401,10 @@ function unsent(seg: Segment, end: number) {
  * must never start going out before the rest of it arrives: the trailing token, an open private key block and
  * a value inside an unclosed quote wait for more text.
  */
-function settled(plain: string) {
+function settled(plain: string, redact: Redact) {
   let end = Math.min(OPEN_KEY.exec(plain)?.index ?? plain.length, HEADER.exec(plain)?.index ?? plain.length)
   while (end > 0 && isToken(plain.charCodeAt(end - 1))) end--
-  while (end > 0 && !closed(plain.slice(0, end))) {
+  while (end > 0 && !closed(plain.slice(0, end), redact)) {
     while (end > 0 && !isToken(plain.charCodeAt(end - 1))) end--
     while (end > 0 && isToken(plain.charCodeAt(end - 1))) end--
   }
@@ -408,7 +412,7 @@ function settled(plain: string) {
 }
 
 /** Quotes and labels do not span lines, so the last two lines tell whether a continuation could rewrite `text`. */
-function closed(text: string) {
+function closed(text: string, redact: Redact) {
   const last = text.lastIndexOf('\n')
   const tail = text.slice(last < 0 ? 0 : text.lastIndexOf('\n', last - 1) + 1)
   const masked = redact(tail)
@@ -431,7 +435,8 @@ const segment = (kind: Stream['kind'], agentId: string | undefined, plain: strin
 async function appendStream(ctx: Ctx, runId: string, { kind, delta, agentId }: Stream) {
   let st = streams.get(runId)
   if (!st) {
-    st = { ctx, runId, seg: await lastSegment(ctx, runId), write: Promise.resolve() }
+    const { redact } = await runRedactors(ctx, runId)
+    st = { ctx, runId, redact, seg: await lastSegment(ctx, runId), write: Promise.resolve() }
     streams.set(runId, st)
   }
   const prev = st.seg
@@ -442,7 +447,7 @@ async function appendStream(ctx: Ctx, runId: string, { kind, delta, agentId }: S
     seg.plain += delta
   } else {
     if (prev) {
-      if (live(prev)) out += unsent(prev, prev.plain.length)
+      if (live(prev)) out += unsent(prev, prev.plain.length, st.redact)
       await save(st, prev)
     }
     seg = segment(kind, agentId, delta)
@@ -451,12 +456,12 @@ async function appendStream(ctx: Ctx, runId: string, { kind, delta, agentId }: S
   if (cut) {
     const rest = seg.plain.slice(cut)
     seg.plain = seg.plain.slice(0, cut)
-    if (live(seg)) out += unsent(seg, cut)
+    if (live(seg)) out += unsent(seg, cut, st.redact)
     await save(st, seg)
     seg = segment(kind, agentId, rest)
   }
   st.seg = seg
-  if (live(seg)) out += unsent(seg, settled(seg.plain))
+  if (live(seg)) out += unsent(seg, settled(seg.plain, st.redact), st.redact)
   saveLater(st)
   return out
 }
@@ -468,13 +473,13 @@ async function appendStream(ctx: Ctx, runId: string, { kind, delta, agentId }: S
 async function closeStream(runId: string) {
   const st = streams.get(runId)
   const seg = st?.seg
-  const out = seg && live(seg) ? unsent(seg, seg.plain.length) : ''
+  const out = st && seg && live(seg) ? unsent(seg, seg.plain.length, st.redact) : ''
   await flushStream(runId)
   if (st) st.seg = undefined
   return out
 }
 
-async function writeSegment(ctx: Ctx, runId: string, { id, kind, agentId, plain }: Segment) {
+async function writeSegment(ctx: Ctx, runId: string, { id, kind, agentId, plain }: Segment, redact: Redact) {
   const payload = { kind, delta: seal(redact(plain)), agentId }
   if (id !== undefined) {
     await ctx.db.update(runEvents).set({ payload }).where(eq(runEvents.id, id))
@@ -528,6 +533,7 @@ async function onDone(ctx: Ctx, machineId: string, done: RunDone) {
   if (!ended) return
   if (done.sync?.outcome === 'stopped') await pauseStopped(ctx, ended, done.sync.files)
   await finalize(ctx, ended)
+  forgetRedactors(done.runId)
 }
 
 /**
@@ -537,6 +543,7 @@ async function onDone(ctx: Ctx, machineId: string, done: RunDone) {
  */
 async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
   const stopped = await stoppedDone(ctx, owned, done)
+  const { redact } = await runRedactors(ctx, owned.id)
   const reply = done.reply.trim() ? redact(done.reply) : null
   const userMentions = reply ? await memberMentions(ctx, owned.groupId, reply, { skipCode: true }) : []
   const ended = await ctx.db.transaction(async (tx) => {

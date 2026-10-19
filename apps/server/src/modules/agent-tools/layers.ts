@@ -23,12 +23,16 @@ export async function layerOf(ctx: Ctx, run: Run, scope: Scope = 'group'): Promi
 }
 
 /** Whether the run's originator may change the layer on the web (as `eachLayer`). */
-export async function canEdit(ctx: Ctx, run: Run, l: Layer) {
+export const canEdit = (ctx: Ctx, run: Run, l: Layer) =>
+  isLayerAdmin(ctx, run.originUserId, { ...l, groupId: l.scope === 'group' ? run.groupId : l.groupId })
+
+/** Sysadmin for platform, team owner / admin for a team, group admin for a group. */
+export async function isLayerAdmin(ctx: Ctx, userId: string, l: Layer) {
   try {
-    if (l.scope === 'group') await requireAdmin(ctx, run.groupId, run.originUserId)
-    else if (l.scope === 'team') await requireTeam(ctx, run.originUserId, l.teamId!, 'admin')
+    if (l.scope === 'group') await requireAdmin(ctx, l.groupId!, userId)
+    else if (l.scope === 'team') await requireTeam(ctx, userId, l.teamId!, 'admin')
     else {
-      const [u] = await ctx.db.select().from(users).where(eq(users.id, run.originUserId))
+      const [u] = await ctx.db.select().from(users).where(eq(users.id, userId))
       return u?.role === 'sysadmin' && !u.disabledAt
     }
     return true

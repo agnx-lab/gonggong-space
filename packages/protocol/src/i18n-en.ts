@@ -265,6 +265,8 @@ export const protocolEn = {
     'Scheduled task "{name}": the model set for {bot} is no longer available ({pick}), running with the defaults this time',
   '{bot} 请 {user} 填写 MCP「{name}」的密钥：{keys}':
     '{bot} asks {user} to fill in the secrets of MCP "{name}": {keys}',
+  '{bot} 请 {user} 填写自己的密钥：{names}': '{bot} asks {user} to fill in their own secrets: {names}',
+  '{bot} 请管理员填写密钥：{names}': '{bot} asks an admin to fill in the secrets: {names}',
   '{who} 新建了知识库条目「{title}」': '{who} added the knowledge entry "{title}"',
   '{who} 更新了知识库条目「{title}」': '{who} updated the knowledge entry "{title}"',
   '{who} 删除了知识库条目「{title}」': '{who} deleted the knowledge entry "{title}"',
