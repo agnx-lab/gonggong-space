@@ -83,8 +83,8 @@ function FillDialog({ card, onClose, onDone }: { card: Card; onClose: () => void
       title={t('填写密钥')}
       message={
         card.audience === 'origin'
-          ? t('填写你自己的值，加密保存；Bot 看不到明文，也不会出现在聊天记录和日志里。')
-          : t('填写统一值，对该层所有可用的 Bot 生效；Bot 看不到明文，也不会出现在聊天记录和日志里。')
+          ? t('填写你自己的值，加密保存；Bot 运行时以环境变量使用，值不会出现在聊天记录和日志里。')
+          : t('填写统一值，对该层所有可用的 Bot 生效；Bot 运行时以环境变量使用，值不会出现在聊天记录和日志里。')
       }
       onClose={onClose}
       closeOnBackdrop={false}

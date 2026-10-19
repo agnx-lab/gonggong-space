@@ -9,7 +9,7 @@ const composer = '输入消息，@ 触发 Bot 或引用文件，/ 查看命令'
 // Scripted agent: `mock:tool` calls a gonggong tool, `mock:echo` replies with the MCP servers its session got.
 const MOCK = `${process.execPath} ${join(ROOT, 'tools/mock-agent/agent.js')}`
 
-test('a group admin has a bot add a group MCP, fills its secret on the card, and the next turn gets it', async ({
+test('a group admin has a bot add a group MCP, fills its secret on the card, and the next turn gets it resolved', async ({
   page,
 }) => {
   test.setTimeout(4 * 60_000)
@@ -52,20 +52,20 @@ test('a group admin has a bot add a group MCP, fills its secret on the card, and
       env: { WIKI_TOKEN: '${secret:WIKI_TOKEN}' },
     }
     await turn(tool('mcp_create', { config }), 1)
-    await turn(tool('mcp_secret_request', { name: 'wiki', keys: ['WIKI_TOKEN'], forceNewSession: true }), 2)
+    await turn(tool('secret_request', { names: ['WIKI_TOKEN'], forceNewSession: true }), 2)
 
-    await test.step('the originator fills the secret on the card', async () => {
-      const card = page.getByTestId('mcp-secret-card')
-      await expect(card).toContainText('填写 MCP「wiki」的密钥：WIKI_TOKEN')
+    await test.step('the group admin fills the shared secret on the card', async () => {
+      const card = page.getByTestId('secret-card')
+      await expect(card).toContainText('WIKI_TOKEN')
       await card.getByRole('button', { name: '填写密钥' }).click()
-      const dialog = page.getByRole('dialog', { name: '填写 MCP「wiki」的密钥' })
+      const dialog = page.getByRole('dialog', { name: '填写密钥' })
       await dialog.getByLabel('WIKI_TOKEN').fill('wk-secret-42')
       await dialog.getByRole('button', { name: '保存' }).click()
       await expect(dialog).toBeHidden()
       await expect(card.getByText('已填写')).toBeVisible()
     })
 
-    await test.step('the next turn starts a session with the server and its secret; the chat never shows it', async () => {
+    await test.step('the next turn gets the MCP server with the secret resolved; the chat only ever shows it masked', async () => {
       await turn(`@${botName} mock:echo`, 3)
       const timeline = await api.call<TimelineDto>('get', `/api/groups/${group.id}/timeline`)
       const reply = timeline.messages.filter((x: MessageDto) => x.kind === 'bot').at(-1)!
@@ -73,9 +73,8 @@ test('a group admin has a bot add a group MCP, fills its secret on the card, and
         mcpServers: { name: string; env?: { name: string; value: string }[] }[]
       }
       const wiki = got.mcpServers.find((s) => s.name === 'wiki')
-      expect(wiki?.env).toEqual([{ name: 'WIKI_TOKEN', value: 'wk-secret-42' }])
-      const shown = timeline.messages.filter((x: MessageDto) => x.kind !== 'bot' || x.id !== reply.id)
-      expect(JSON.stringify(shown)).not.toContain('wk-secret-42')
+      expect(wiki?.env).toEqual([{ name: 'WIKI_TOKEN', value: '[已脱敏]' }])
+      expect(JSON.stringify(timeline.messages)).not.toContain('wk-secret-42')
     })
   } finally {
     m.stop()

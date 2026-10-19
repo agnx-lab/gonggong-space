@@ -93,10 +93,10 @@ export default {
   '至少 8 个字符': 'At least 8 characters',
   填写密钥: 'Fill in secrets',
   等待填写: 'Waiting',
-  '填写你自己的值，加密保存；Bot 看不到明文，也不会出现在聊天记录和日志里。':
-    'Fill in your own values. They are stored encrypted; the bot never sees them and they stay out of chat history and logs.',
-  '填写统一值，对该层所有可用的 Bot 生效；Bot 看不到明文，也不会出现在聊天记录和日志里。':
-    "Fill in the shared values for the layer's bots. The bot never sees them and they stay out of chat history and logs.",
+  '填写你自己的值，加密保存；Bot 运行时以环境变量使用，值不会出现在聊天记录和日志里。':
+    'Fill in your own values. They are stored encrypted; bots use them as environment variables, and the values stay out of chat history and logs.',
+  '填写统一值，对该层所有可用的 Bot 生效；Bot 运行时以环境变量使用，值不会出现在聊天记录和日志里。':
+    "Fill in the shared values for the layer's bots. Bots use them as environment variables, and the values stay out of chat history and logs.",
   本次注入的密钥: 'Secrets injected',
   '{name}（{source}）': '{name} ({source})',
 } as const
