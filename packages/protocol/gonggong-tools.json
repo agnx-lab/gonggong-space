@@ -705,6 +705,147 @@
     }
   },
   {
+    "name": "kb_list",
+    "title": "知识库条目列表",
+    "description": "本群知识库的条目：标题、id、版本、标签、是否置顶（不含正文）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tag": {
+          "type": "string",
+          "description": "只看带该标签的条目"
+        }
+      }
+    }
+  },
+  {
+    "name": "kb_get",
+    "title": "读取知识库条目",
+    "description": "读取知识库条目的全文与当前版本号。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "条目 id（kb_list / kb_search 列出）"
+        }
+      },
+      "required": ["id"]
+    }
+  },
+  {
+    "name": "kb_search",
+    "title": "检索知识库",
+    "description": "按关键词检索本群知识库（标题、正文、标签），返回命中条目与片段。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "关键词，匹配标题、正文与标签"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "最多返回几条，默认 10"
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "kb_create",
+    "title": "新建知识库条目",
+    "description": "在本群知识库新建一条 Markdown 条目，本群所有 Bot 都能读到。用来记下值得长期记住的本群事实（约定、环境、决策、踩过的坑）；先用 kb_search 查有没有相关条目，有就用 kb_update 补充，不要重复新建。不要写入密钥、密码。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "标题，一眼能看出讲什么"
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "Markdown 正文，写清事实本身，不写聊天过程"
+        },
+        "tags": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          },
+          "description": "标签，如 约定、环境、部署；修改时给完整列表"
+        }
+      },
+      "required": ["title", "body"]
+    }
+  },
+  {
+    "name": "kb_update",
+    "title": "修改知识库条目",
+    "description": "修改知识库条目（只给要改的字段），每次修改生成新版本，群成员可回滚。base_version 填你 kb_get 读到的版本；条目已被别人改过时修改失败，按提示重新读取、合并后再改。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "条目 id（kb_list / kb_search 列出）"
+        },
+        "base_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "你读到的版本号（kb_get 返回）；条目已被改过时修改失败"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "标题，一眼能看出讲什么"
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "完整的新正文（整体替换）"
+        },
+        "tags": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          },
+          "description": "标签，如 约定、环境、部署；修改时给完整列表"
+        }
+      },
+      "required": ["id", "base_version"]
+    }
+  },
+  {
+    "name": "kb_delete",
+    "title": "删除知识库条目",
+    "description": "删除知识库条目。需要发起本轮的人是本群管理员；内容过时优先用 kb_update 修正。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "条目 id（kb_list / kb_search 列出）"
+        }
+      },
+      "required": ["id"]
+    }
+  },
+  {
     "name": "mcp_list",
     "title": "MCP 列表",
     "description": "本群可见的 MCP（平台、团队、群三层，含已停用和本群已关闭的）：名称、层级、类型、启动命令或地址、是否生效（同名时下层覆盖上层）、发起人能否修改；密钥只显示是否已填写。",

@@ -148,17 +148,17 @@ afterEach(() => vi.unstubAllGlobals())
 describe('更多 menu', () => {
   it('offers 撤回 and 删除 on my own messages, after 复制链接', async () => {
     renderChat([msg({ seq: 1, body: '我的消息' })])
-    expect(await openMore('我的消息')).toEqual(['复制链接', '编辑', '撤回', '删除'])
+    expect(await openMore('我的消息')).toEqual(['复制链接', '存入知识库', '编辑', '撤回', '删除'])
   })
 
   it('hides 撤回 once my message is older than 24 hours', async () => {
     renderChat([msg({ seq: 1, body: '旧消息', createdAt: new Date(Date.now() - 25 * HOUR).toISOString() })])
-    expect(await openMore('旧消息')).toEqual(['复制链接', '删除'])
+    expect(await openMore('旧消息')).toEqual(['复制链接', '存入知识库', '删除'])
   })
 
   it("offers neither on other members' messages", async () => {
     renderChat([msg({ seq: 1, authorId: 'u2', authorName: '李建国', body: '别人的' })])
-    expect(await openMore('别人的')).toEqual(['复制链接'])
+    expect(await openMore('别人的')).toEqual(['复制链接', '存入知识库'])
   })
 })
 

@@ -1251,6 +1251,67 @@ export const InheritedSkillDto = z.object({
 export type InheritedSkillDto = z.infer<typeof InheritedSkillDto>
 export const ToggleInheritedReq = z.object({ enabled: z.boolean() })
 
+// ── Group knowledge base (群知识库): markdown entries every bot of the group reads, versioned ────
+export const KNOWLEDGE_MAX_ENTRIES = 200
+export const KNOWLEDGE_TITLE_MAX = 100
+export const KNOWLEDGE_BODY_MAX = 20000
+export const KNOWLEDGE_TAGS_MAX = 10
+/** Who made a change: a member, or a bot through the gonggong kb_* tools. */
+export const KnowledgeAuthor = z.object({ kind: z.enum(['user', 'bot']), id: z.string(), name: z.string() })
+export type KnowledgeAuthor = z.infer<typeof KnowledgeAuthor>
+const KnowledgeTags = z.array(z.string().trim().min(1).max(30)).max(KNOWLEDGE_TAGS_MAX)
+/** A list row; `excerpt` is the head of the body (GET the entry for all of it). */
+export const KnowledgeEntryDto = z.object({
+  id: z.string(),
+  title: z.string(),
+  excerpt: z.string(),
+  tags: z.array(z.string()),
+  pinned: z.boolean(),
+  version: z.number().int(),
+  updatedBy: KnowledgeAuthor.nullable(),
+  updatedAt: z.string(),
+})
+export type KnowledgeEntryDto = z.infer<typeof KnowledgeEntryDto>
+export const KnowledgeDetailDto = KnowledgeEntryDto.omit({ excerpt: true }).extend({ body: z.string() })
+export type KnowledgeDetailDto = z.infer<typeof KnowledgeDetailDto>
+/** GET /api/groups/:id/knowledge[?q=]: pinned first, then most recently updated. `canManage`: may pin and delete. */
+export const GroupKnowledgeDto = z.object({ entries: z.array(KnowledgeEntryDto), canManage: z.boolean() })
+export type GroupKnowledgeDto = z.infer<typeof GroupKnowledgeDto>
+export const KnowledgeVersionDto = z.object({
+  version: z.number().int(),
+  title: z.string(),
+  body: z.string(),
+  tags: z.array(z.string()),
+  action: z.enum(['create', 'update', 'rollback']),
+  by: KnowledgeAuthor.nullable(),
+  at: z.string(),
+  current: z.boolean(),
+})
+export type KnowledgeVersionDto = z.infer<typeof KnowledgeVersionDto>
+/** POST /api/groups/:id/knowledge. `pinned` needs a group admin. */
+export const CreateKnowledgeReq = z.object({
+  title: z.string().trim().min(1).max(KNOWLEDGE_TITLE_MAX),
+  body: z.string().max(KNOWLEDGE_BODY_MAX),
+  tags: KnowledgeTags.default([]),
+  pinned: z.boolean().optional(),
+})
+export type CreateKnowledgeReq = z.infer<typeof CreateKnowledgeReq>
+/**
+ * PATCH /api/knowledge/:id. `baseVersion`: the version edited; a newer current version → 409 conflict. Changing only
+ * `pinned` (group admins) skips that check and keeps the version.
+ */
+export const UpdateKnowledgeReq = z.object({
+  baseVersion: z.number().int(),
+  title: z.string().trim().min(1).max(KNOWLEDGE_TITLE_MAX).optional(),
+  body: z.string().max(KNOWLEDGE_BODY_MAX).optional(),
+  tags: KnowledgeTags.optional(),
+  pinned: z.boolean().optional(),
+})
+export type UpdateKnowledgeReq = z.infer<typeof UpdateKnowledgeReq>
+/** POST /api/knowledge/:id/rollback: the old version's content becomes a new version. */
+export const RollbackKnowledgeReq = z.object({ version: z.number().int() })
+export type RollbackKnowledgeReq = z.infer<typeof RollbackKnowledgeReq>
+
 // ── Search (⌘K, plan D9) ────────────────────────────────────────────────────
 export const SearchQuery = z.object({ q: z.string().min(1).max(200), tab: z.enum(['msg', 'file', 'run']) })
 export const SearchResultDto = z.object({
@@ -1688,6 +1749,8 @@ export const WebEvent = z.discriminatedUnion('t', [
   /** The group's previews or services changed; replaces both lists (`canManage` is per receiving user). */
   GroupPreviewsDto.extend({ t: z.literal('group.previews'), groupId: z.string() }),
   GroupSchedulesDto.extend({ t: z.literal('group.schedules'), groupId: z.string() }),
+  /** The group's knowledge base changed (`entryId` when one entry did); clients refetch what they show. */
+  z.object({ t: z.literal('group.knowledge'), groupId: z.string(), entryId: z.string().optional() }),
   /** Force groups: the replicas' sync status changed; replaces it. */
   SyncStatusDto.extend({ t: z.literal('group.sync') }),
   z.object({ t: z.literal('message.new'), message: MessageDto }),

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { SkillFile } from './daemon.js'
 import { GONGGONG_TOOL_TITLES } from './tool-titles.js'
-import { SKILL_MAX_FILES } from './web.js'
+import { KNOWLEDGE_BODY_MAX, KNOWLEDGE_TAGS_MAX, KNOWLEDGE_TITLE_MAX, SKILL_MAX_FILES } from './web.js'
 
 /**
  * Tools of the built-in `gonggong` MCP server answered by the server (the daemon forwards them; `ask_group_members`
@@ -223,6 +223,29 @@ export const SkillRollbackArgs = z.object({
   version: z.number().int().min(1).describe('skill_versions 列出的版本号；当前版本切回该版本，不新增版本'),
 })
 
+const kbId = z.string().describe('条目 id（kb_list / kb_search 列出）')
+const kbTitle = z.string().trim().min(1).max(KNOWLEDGE_TITLE_MAX).describe('标题，一眼能看出讲什么')
+const kbBody = z.string().max(KNOWLEDGE_BODY_MAX).describe('Markdown 正文，写清事实本身，不写聊天过程')
+const kbTags = z
+  .array(z.string().trim().min(1).max(30))
+  .max(KNOWLEDGE_TAGS_MAX)
+  .describe('标签，如 约定、环境、部署；修改时给完整列表')
+export const KbListArgs = z.object({ tag: z.string().describe('只看带该标签的条目').optional() })
+export const KbGetArgs = z.object({ id: kbId })
+export const KbSearchArgs = z.object({
+  query: z.string().min(1).max(200).describe('关键词，匹配标题、正文与标签'),
+  limit: z.number().int().min(1).max(50).describe('最多返回几条，默认 10').optional(),
+})
+export const KbCreateArgs = z.object({ title: kbTitle, body: kbBody, tags: kbTags.optional() })
+export const KbUpdateArgs = z.object({
+  id: kbId,
+  base_version: z.number().int().min(1).describe('你读到的版本号（kb_get 返回）；条目已被改过时修改失败'),
+  title: kbTitle.optional(),
+  body: kbBody.describe('完整的新正文（整体替换）').optional(),
+  tags: kbTags.optional(),
+})
+export const KbDeleteArgs = z.object({ id: kbId })
+
 const mcpName = z.string().min(1).max(64).describe('MCP 名称（mcp_list 可查）')
 const mcpLayer = z
   .enum(['platform', 'team', 'group'])
@@ -433,6 +456,40 @@ export const GONGGONG_TOOLS = {
     title: GONGGONG_TOOL_TITLES.skill_rollback,
     description: `把 Skill 回滚到某个历史版本。${SKILL_WRITE}`,
     input: SkillRollbackArgs,
+  },
+  kb_list: {
+    title: GONGGONG_TOOL_TITLES.kb_list,
+    description: '本群知识库的条目：标题、id、版本、标签、是否置顶（不含正文）。',
+    input: KbListArgs,
+  },
+  kb_get: {
+    title: GONGGONG_TOOL_TITLES.kb_get,
+    description: '读取知识库条目的全文与当前版本号。',
+    input: KbGetArgs,
+  },
+  kb_search: {
+    title: GONGGONG_TOOL_TITLES.kb_search,
+    description: '按关键词检索本群知识库（标题、正文、标签），返回命中条目与片段。',
+    input: KbSearchArgs,
+  },
+  kb_create: {
+    title: GONGGONG_TOOL_TITLES.kb_create,
+    description:
+      '在本群知识库新建一条 Markdown 条目，本群所有 Bot 都能读到。用来记下值得长期记住的本群事实（约定、环境、决策、踩过的坑）；' +
+      '先用 kb_search 查有没有相关条目，有就用 kb_update 补充，不要重复新建。不要写入密钥、密码。',
+    input: KbCreateArgs,
+  },
+  kb_update: {
+    title: GONGGONG_TOOL_TITLES.kb_update,
+    description:
+      '修改知识库条目（只给要改的字段），每次修改生成新版本，群成员可回滚。base_version 填你 kb_get 读到的版本；' +
+      '条目已被别人改过时修改失败，按提示重新读取、合并后再改。',
+    input: KbUpdateArgs,
+  },
+  kb_delete: {
+    title: GONGGONG_TOOL_TITLES.kb_delete,
+    description: '删除知识库条目。需要发起本轮的人是本群管理员；内容过时优先用 kb_update 修正。',
+    input: KbDeleteArgs,
   },
   mcp_list: {
     title: GONGGONG_TOOL_TITLES.mcp_list,

@@ -20,6 +20,7 @@ import { gitIdentity } from '../bots/git.js'
 import { runTier } from '../bots/tier.js'
 import { boundChat } from '../feishu/mirror.js'
 import { effectiveParams } from '../groups/params.js'
+import { knowledgeContext } from '../knowledge/context.js'
 import { enabledMcpServers } from '../mcp/service.js'
 import type { MessageMeta } from '../messages/service.js'
 import { enabledSkills } from '../skills/service.js'
@@ -76,7 +77,13 @@ export async function schedule(ctx: Ctx, botId: string) {
     const groupQueue = new Map<string, number>()
     let position = 0
     const out: RunRow[] = []
-    const dispatches: { run: RunRow; machineId: string; msg: RunStart; triggerSeq: number }[] = []
+    const dispatches: {
+      run: RunRow
+      machineId: string
+      msg: RunStart
+      triggerSeq: number
+      knowledgeAt: Date | null
+    }[] = []
     const setRun = async (id: string, patch: Partial<RunRow>) =>
       out.push(...(await tx.update(runs).set(patch).where(eq(runs.id, id)).returning()))
     for (const { run, meta } of waiting) {
@@ -104,6 +111,7 @@ export async function schedule(ctx: Ctx, botId: string) {
         continue
       }
       if (machineId && busy < bot.concurrency) {
+        const at = ctx.now()
         const start = await buildRunStart(tx, bot, run, !unsynced)
         if (start.settled) out.push(start.settled)
         // Marked running inside the transaction, sent only after it committed: a fast run.done then finds the
@@ -126,7 +134,14 @@ export async function schedule(ctx: Ctx, botId: string) {
           busy += 1
           busyGroups.add(run.groupId)
           out.push(running)
-          dispatches.push({ run: running, machineId, msg: start.msg, triggerSeq: start.triggerSeq })
+          dispatches.push({
+            run: running,
+            machineId,
+            msg: start.msg,
+            triggerSeq: start.triggerSeq,
+            // An agent command got no knowledge base either.
+            knowledgeAt: start.msg.command ? null : at,
+          })
         }
         continue
       }
@@ -138,7 +153,7 @@ export async function schedule(ctx: Ctx, botId: string) {
     return { out, dispatches }
   })
   const unsent = new Map<string, RunRow>()
-  for (const { run, machineId, msg, triggerSeq } of changed.dispatches) {
+  for (const { run, machineId, msg, triggerSeq, knowledgeAt } of changed.dispatches) {
     if (ctx.hub.send(machineId, msg)) {
       // After the send: a cursor advanced for a start that never went out would drop that context for good.
       await ctx.db
@@ -146,6 +161,7 @@ export async function schedule(ctx: Ctx, botId: string) {
         .set({
           contextSeq: sql`greatest(${groupBots.contextSeq}, ${triggerSeq})`,
           newSessionReason: null,
+          ...(knowledgeAt && { knowledgeAt }),
         })
         .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, botId)))
     } else {
@@ -218,7 +234,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
   )
   // A /new request wins over any session id a still-running turn reported after the request.
   const resumeSessionId = gb.newSessionReason ? null : gb.sessionId
-  const [recent, replay, interrupted, feishu, relay, scheduled, tier, sync] = await Promise.all([
+  const [recent, replay, interrupted, feishu, relay, scheduled, tier, sync, kb] = await Promise.all([
     // Older messages stay out of the prompt; the agent reads them with the gonggong tools (plan C1).
     command ? null : contextMessages(tx, since, params.contextInlineTokens),
     resumeSessionId && !command
@@ -235,12 +251,17 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
     meta.scheduleOf ? scheduleNote(tx, meta.scheduleOf, at) : null,
     runTier(tx, (gb.tier ?? bot.tier) as Tier),
     synced ? runSyncStart(tx, run.groupId, bot.id, meta.syncResolve?.decisions ?? null) : null,
+    // A resumed session that already got the knowledge base only hears what changed since.
+    command ? null : knowledgeContext(tx, run.groupId, bot.id, resumeSessionId ? gb.knowledgeAt : null),
   ])
   const context = recent?.kept.reverse() ?? []
   const fallbackContext = replay?.kept.reverse() ?? []
   const omitted = !recent || recent.complete ? 0 : (await countContext(tx, since)) - context.length
   const config = resolveConfig(catalog, meta.runOptions?.[bot.id], gb, bot)
   const note = [...(interrupted ? [interrupted.note] : []), ...relay, ...(scheduled ? [scheduled] : [])]
+  const kbNote = (body: string | null | undefined): ContextMessage[] =>
+    body ? [{ seq: 0, author: '共工空间', kind: 'user', body, at, attachments: [] }] : []
+  const kbNow = kbNote(resumeSessionId && gb.knowledgeAt ? kb?.changes : kb?.full)
   const protectBase = group.protectBase && !!repo
   const msg: RunStart = {
     t: 'run.start',
@@ -284,9 +305,9 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
     prompt: {
       text: trigger.body,
       triggeredBy: trigger.author ?? trigger.bot ?? '',
-      context: [...context, ...note],
+      context: [...kbNow, ...context, ...note],
       omitted,
-      fallbackContext: resumeSessionId ? [...fallbackContext, ...note] : [],
+      fallbackContext: resumeSessionId ? [...kbNote(kb?.full), ...fallbackContext, ...note] : [],
       attachments: meta.attachments ?? [],
       quote: quoteOf(meta),
     },

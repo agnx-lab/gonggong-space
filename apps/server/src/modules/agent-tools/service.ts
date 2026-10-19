@@ -29,6 +29,7 @@ import type { MessageMeta } from '../messages/service.js'
 import { closeOwnPreview, exposeGui, exposePreview } from '../previews/service.js'
 import { answerText } from '../questions/dto.js'
 import { listFeishuMessages } from './feishu.js'
+import { kbCreate, kbDelete, kbGet, kbList, kbSearch, kbUpdate } from './knowledge.js'
 import { mcpCreate, mcpDelete, mcpGet, mcpList, mcpSecretRequest, mcpToggle, mcpUpdate } from './mcp.js'
 import { scheduleCreate, scheduleDelete, scheduleList, scheduleUpdate } from './schedules.js'
 import {
@@ -399,6 +400,12 @@ const TOOLS: { [N in GonggongToolName]: (ctx: Ctx, s: Scope, a: Args<N>) => Prom
   skill_toggle: (ctx, s, a) => skillToggle(ctx, s.run, a),
   skill_versions: (ctx, s, a) => listSkillVersions(ctx, s.run, a),
   skill_rollback: (ctx, s, a) => skillRollback(ctx, s.run, a),
+  kb_list: (ctx, s, a) => kbList(ctx, s.run, a),
+  kb_get: (ctx, s, a) => kbGet(ctx, s.run, a),
+  kb_search: (ctx, s, a) => kbSearch(ctx, s.run, a),
+  kb_create: (ctx, s, a) => kbCreate(ctx, s.run, a),
+  kb_update: (ctx, s, a) => kbUpdate(ctx, s.run, a),
+  kb_delete: (ctx, s, a) => kbDelete(ctx, s.run, a),
   mcp_list: (ctx, s) => mcpList(ctx, s.run),
   mcp_get: (ctx, s, a) => mcpGet(ctx, s.run, a),
   mcp_create: (ctx, s, a) => mcpCreate(ctx, s.run, a),

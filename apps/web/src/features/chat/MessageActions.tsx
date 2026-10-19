@@ -1,4 +1,10 @@
-import { type BranchMessageRes, type MessageDto, RECALL_WINDOW_MS, type RunDto } from '@gonggong/protocol'
+import {
+  type BranchMessageRes,
+  KNOWLEDGE_TITLE_MAX,
+  type MessageDto,
+  RECALL_WINDOW_MS,
+  type RunDto,
+} from '@gonggong/protocol'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ApiError, api } from '../../lib/api'
@@ -6,6 +12,7 @@ import { copyWithToast } from '../../lib/clipboard'
 import { toastError } from '../../lib/errors'
 import { Button, ContextMenu, Dialog, Icon, MenuButton, type MenuItem, Presence, toast } from '../../ui'
 import { attachmentUrl } from '../attachments/api'
+import { KnowledgeEditor } from '../knowledge/KnowledgeEditor'
 import { ReactionPicker } from '../reactions'
 import { keepRecalled, type RecalledDraft } from './recalled'
 import { applyLocal } from './useTimeline'
@@ -100,6 +107,12 @@ function DeleteDialog({ message, onClose }: { message: MessageDto; onClose: () =
     </Dialog>
   )
 }
+
+/** 存入知识库: the first line as the title, the whole text plus where it came from as the body. */
+const knowledgeDraft = (m: MessageDto) => ({
+  title: (m.body.trim().split('\n')[0] ?? '').trim().slice(0, KNOWLEDGE_TITLE_MAX),
+  body: `${m.body.trim()}\n\n${t('来源：#{seq} {name}', { seq: m.seq, name: m.authorName })}`,
+})
 
 /** The text selected within `host`, if any. */
 function selectedIn(host: Element | null | undefined) {
@@ -199,6 +212,7 @@ export interface ActionTarget {
 function useMessageMenu(target: ActionTarget) {
   const [picking, setPicking] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const navigate = useNavigate()
   const bar = useRef<HTMLDivElement>(null)
   // Tapping 复制 or opening the menu may clear the selection before the click lands, so it is read first.
@@ -211,8 +225,10 @@ function useMessageMenu(target: ActionTarget) {
   // Commands are not editable (the server refuses them too).
   const editable = recallable && !!target.onEdit && !!mine?.body && !mine.body.trimStart().startsWith('/')
   const branchable = !!target.branchable && !!target.message
+  const savable = !!target.copyText?.trim() && !!target.message && target.message.kind !== 'event'
   const more: MenuItem[] = [
     { value: 'link', label: t('复制链接'), icon: 'link' },
+    ...(savable ? [{ value: 'knowledge', label: t('存入知识库'), icon: 'archive' as const }] : []),
     ...(branchable ? [{ value: 'branch', label: t('分支到新聊天'), icon: 'git-branch' as const }] : []),
     ...(editable ? [{ value: 'edit', label: t('编辑'), icon: 'textformat' as const }] : []),
     ...(mine && recallable ? [{ value: 'recall', label: t('撤回'), icon: 'undo' as const }] : []),
@@ -235,14 +251,26 @@ function useMessageMenu(target: ActionTarget) {
     } else if (value === 'link') void copyWithToast(target.link, t('链接已复制'))
     else if (value === 'branch' && target.message)
       void branch(target.message, (groupId) => navigate(`/g/${groupId}`))
+    else if (value === 'knowledge') setSaving(true)
     else if (value === 'edit') target.onEdit?.()
     else if (value === 'recall' && mine) void recall(mine, target.startedRuns?.() ?? [])
     else if (value === 'delete') setDeleting(true)
   }
   const dialog = (
-    <Presence>
-      {mine && deleting ? <DeleteDialog message={mine} onClose={() => setDeleting(false)} /> : null}
-    </Presence>
+    <>
+      <Presence>
+        {mine && deleting ? <DeleteDialog message={mine} onClose={() => setDeleting(false)} /> : null}
+      </Presence>
+      <Presence>
+        {saving && target.message ? (
+          <KnowledgeEditor
+            groupId={target.message.groupId}
+            draft={knowledgeDraft(target.message)}
+            onClose={() => setSaving(false)}
+          />
+        ) : null}
+      </Presence>
+    </>
   )
   return { target, picking, setPicking, more, all, select, dialog, bar, keepSelection }
 }

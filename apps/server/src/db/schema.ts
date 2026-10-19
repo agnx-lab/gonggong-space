@@ -437,6 +437,8 @@ export const groupBots = pgTable(
     agentCommands: jsonb('agent_commands').notNull().default([]),
     /** Absolute paths on the owner's machine the session also works in (ACP additionalDirectories); set by the owner. */
     extraDirs: jsonb('extra_dirs').$type<string[]>().notNull().default([]),
+    /** When this bot last got the group knowledge base in a run.start; later changes go to its resumed session. */
+    knowledgeAt: ts('knowledge_at'),
     removedAt: ts('removed_at'),
     addedAt: createdAt(),
   },
@@ -952,6 +954,51 @@ export const schedules = pgTable(
     deletedAt: ts('deleted_at'),
   },
   (t) => [index('schedules_due').on(t.nextRunAt), index('schedules_group').on(t.groupId)],
+)
+
+/** Group knowledge base (群知识库): markdown entries every bot of the group reads; members and bots maintain them. */
+export const groupKnowledge = pgTable(
+  'group_knowledge',
+  {
+    id: id(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    pinned: boolean('pinned').notNull().default(false),
+    /** Bumped by content changes only (title / body / tags), not by pinning. */
+    version: integer('version').notNull().default(1),
+    updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
+    updatedByBotId: uuid('updated_by_bot_id').references(() => bots.id),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Deleted: kept with its versions, out of every list. */
+    archivedAt: ts('archived_at'),
+  },
+  (t) => [index('group_knowledge_group').on(t.groupId, t.updatedAt)],
+)
+
+/** Every content version of an entry; rolling back copies an old one into a new version. */
+export const groupKnowledgeVersions = pgTable(
+  'group_knowledge_versions',
+  {
+    id: id(),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => groupKnowledge.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    tags: jsonb('tags').$type<string[]>().notNull(),
+    /** 'create' | 'update' | 'rollback' */
+    action: text('action').notNull(),
+    byUserId: uuid('by_user_id').references(() => users.id),
+    byBotId: uuid('by_bot_id').references(() => bots.id),
+    createdAt: createdAt(),
+  },
+  (t) => [unique().on(t.entryId, t.version)],
 )
 
 // ── Force sync (plan 强制同步) ───────────────────────────────────────────────

@@ -265,6 +265,13 @@ export const protocolEn = {
     'Scheduled task "{name}": the model set for {bot} is no longer available ({pick}), running with the defaults this time',
   '{bot} 请 {user} 填写 MCP「{name}」的密钥：{keys}':
     '{bot} asks {user} to fill in the secrets of MCP "{name}": {keys}',
+  '{who} 新建了知识库条目「{title}」': '{who} added the knowledge entry "{title}"',
+  '{who} 更新了知识库条目「{title}」': '{who} updated the knowledge entry "{title}"',
+  '{who} 删除了知识库条目「{title}」': '{who} deleted the knowledge entry "{title}"',
+  '{who} 将知识库条目「{title}」回滚到 v{version}':
+    '{who} rolled the knowledge entry "{title}" back to v{version}',
+  '{who} 置顶了知识库条目「{title}」': '{who} pinned the knowledge entry "{title}"',
+  '{who} 取消置顶了知识库条目「{title}」': '{who} unpinned the knowledge entry "{title}"',
   '定时任务「{name}」已停用：{reason}': 'Scheduled task "{name}" was turned off: {reason}',
   仅一次的任务已执行: 'it was a one-off and has run',
   '连续 {n} 次失败': 'it failed {n} times in a row',

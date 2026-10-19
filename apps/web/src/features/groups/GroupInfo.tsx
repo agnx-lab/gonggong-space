@@ -31,6 +31,7 @@ import { BotDialog } from '../bots/lazy'
 import { AGENT_LABEL, PRESENCE, TRIGGER_SCOPE_LABEL } from '../bots/model'
 import { ShareRequestAction } from '../bots/ShareRequest'
 import { GroupConfigView } from '../config/GroupConfigView'
+import { KnowledgeView } from '../knowledge/KnowledgeView'
 import { PreviewsView } from '../previews/PreviewsView'
 import { usePreviews } from '../previews/store'
 import { repoPath } from '../repos/RepoPicker'
@@ -55,6 +56,7 @@ export type InfoView =
   | 'notices'
   | 'previews'
   | 'schedules'
+  | 'knowledge'
   | 'mcp'
   | 'skill'
 
@@ -156,6 +158,7 @@ export function GroupInfo({
     notices: t('群公告'),
     previews: t('预览与服务'),
     schedules: t('定时任务'),
+    knowledge: t('知识库#kb'),
     mcp: 'MCP',
     skill: 'Skill',
   }[view]
@@ -191,6 +194,8 @@ export function GroupInfo({
         <PreviewsView groupId={group.id} onOpen={onClose} />
       ) : view === 'schedules' ? (
         <SchedulesView groupId={group.id} />
+      ) : view === 'knowledge' ? (
+        <KnowledgeView groupId={group.id} />
       ) : view === 'mcp' || view === 'skill' ? (
         <GroupConfigView groupId={group.id} kind={view} />
       ) : (
@@ -383,6 +388,7 @@ function MainView({
               value: schedules ? t('{n} 个', { n: schedules.length }) : undefined,
               onClick: () => setView('schedules'),
             },
+            { label: t('知识库#kb'), onClick: () => setView('knowledge') },
             ...(dm
               ? []
               : [

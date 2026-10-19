@@ -38,6 +38,7 @@ import { feishuRoutes } from './modules/feishu/routes.js'
 import { gitAccountRoutes } from './modules/git-accounts/routes.js'
 import { groupRoutes } from './modules/groups/routes.js'
 import { groupSettingsRoutes } from './modules/groups/settings.js'
+import { knowledgeRoutes } from './modules/knowledge/routes.js'
 import { liveRoutes, routeLiveKitUpgrades } from './modules/live/routes.js'
 import { startLiveEngine } from './modules/live/service.js'
 import { machineRoutes } from './modules/machines/routes.js'
@@ -133,6 +134,7 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   const stopScheduleEngine = startScheduleEngine(ctx)
   app.addHook('onClose', stopScheduleEngine)
   await app.register(scheduleRoutes(ctx))
+  await app.register(knowledgeRoutes(ctx))
   app.addHook('onClose', startSyncEngine(ctx))
   await app.register(syncRoutes(ctx))
   const stopWorkspaceEngine = startWorkspaceEngine(ctx)
