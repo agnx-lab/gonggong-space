@@ -121,7 +121,9 @@ async function prompt({ sessionId, prompt: blocks }, client) {
           NO_PROXY: process.env.NO_PROXY ?? null,
           GG_EXTRA: process.env.GG_EXTRA ?? null,
         },
-        secretEnv: Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('GG_SECRET_'))),
+        secretEnv: Object.fromEntries(
+          Object.entries(process.env).filter(([k]) => k.startsWith('GG_SECRET_')),
+        ),
         mcpServers: s.mcpServers,
         prompt: text,
         blocks: blocks.map((b) =>
