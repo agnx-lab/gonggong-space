@@ -207,6 +207,33 @@ describe('git status bar', () => {
     ).toBe(true)
   })
 
+  it('opens the files of any bound workspace, without a repo or outside partition groups; changes stay hidden', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              state('b1', { state: 'ready', workspace: 'cd', git: null }),
+              state('b2', { state: 'ready', git: null }),
+              state('b3', { state: 'unbound', git: null }),
+            ]),
+          ),
+      ),
+    )
+    useWorkbench.setState({ groupId: 'g1', benches: {} })
+    render(<GitBar group={group({ mode: 'force', repo: null, botIds: ['b1', 'b2', 'b3'] })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '浏览 小王的 Claude 的文件' }))
+    const tabs = () => useWorkbench.getState().benches.g1?.tabs
+    expect(tabs()).toEqual([{ kind: 'files', botId: 'b1', dir: '', selected: null }])
+    fireEvent.click(screen.getByRole('button', { name: '浏览 老李的 Codex 的文件' }))
+    expect(tabs()?.at(-1)).toEqual({ kind: 'files', botId: 'b2', dir: '', selected: null })
+    expect(
+      (screen.getByRole('button', { name: '浏览 阿杰的 Claude 的文件' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect(screen.queryByRole('button', { name: /的改动$/ })).toBeNull()
+  })
+
   it('shows 待创建 before the daemon reports and follows realtime updates', async () => {
     vi.stubGlobal(
       'fetch',

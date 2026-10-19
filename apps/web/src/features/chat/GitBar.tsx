@@ -237,21 +237,14 @@ function Item({
       <span className="git-bar__actions">
         <Location name={name} s={s} repo={repo} machine={machine} />
         {showGit ? (
-          <>
-            <Action
-              icon="git-branch"
-              label={t('查看 {name} 的改动', { name })}
-              title={t('改动')}
-              onClick={diff}
-            />
-            <Action
-              icon="folder"
-              label={t('浏览 {name} 的文件', { name })}
-              title={t('文件')}
-              onClick={files}
-            />
-          </>
+          <Action
+            icon="git-branch"
+            label={t('查看 {name} 的改动', { name })}
+            title={t('改动')}
+            onClick={diff}
+          />
         ) : null}
+        <Action icon="folder" label={t('浏览 {name} 的文件', { name })} title={t('文件')} onClick={files} />
       </span>
     </div>
   )
