@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.4 — 2026-10-19
+
+- 上下文与压缩：圆环按 Claude Code 实际压缩点（窗口 − 输出预留 − 13k）标记与变色，关闭自动压缩时提示停下点；压缩开始/结束上报，群里显示「已自动压缩 167k → 12k」，运行过程可看压缩摘要；压缩可附保留重点；上下文占用不再计入用量；桌面端工作区与概览显示占用圆环 / Context & compaction: the ring marks and colours by where Claude Code really compacts (or where it stops when auto-compaction is off); compactions are reported in the group and the run process with their summary; manual compaction takes instructions; occupancy no longer counts as usage; context rings in the desktop app
+- 群聊上下文按 token 预算附带（默认 8000，恢复失败补送 16000），不再限条数 / Group context is attached within a token budget instead of a message count
+- 群知识库：群内 markdown 条目所有 Bot 可读，成员手动维护、Bot 用 kb_* 工具维护，版本历史与回滚，管理员置顶/删除，消息「存入知识库」 / Group knowledge base: markdown entries every Bot of the group reads, maintained by members and Bots (kb_* tools), versioned with rollback, pinned by admins, "Save to knowledge base" on messages
+- 运行详情：过程带时间点、可按失败/需处理/命令筛选，命令输出可搜可复制；直接审批与回答提问；失败原因横幅（含桌面端）与「重新运行」 / Run details: timestamps, filters, searchable output, approve and answer in place, failure banners (desktop too) and Re-run
+- 定时任务可按候选 Bot 选模型与思考程度；群已读时清掉对应「被 @」通知；搜索、未读、实时推送与 daemon 多项性能优化 / Per-Bot model and effort for scheduled tasks; reading a group clears its mention notifications; many performance improvements
+
 ## v0.3.3 — 2026-10-17
 
 - Agent 设置：供应商常用配置改为控件（上下文窗口按模型带出、自动压缩、输出上限、思考、beta、工具搜索、API 超时）；机器级「Agent 设置」（语言、思考、署名、git 指令、自动记忆、自动压缩、Bash 超时、非必要流量、继承本机 CLI 配置），Bot 可覆盖语言/思考/署名；每项标来源，下一轮生效；圆环标压缩点、运行详情显示设置来源、`gg agents settings`、环境变量密钥打码 / Agent settings: provider controls (context window from the model, auto-compact, output limit, thinking, betas, tool search, API timeout); per-machine Agent settings with per-Bot overrides; sources shown, applied from the next turn; compaction point on the context ring, settings in run details, `gg agents settings`, masked secrets
