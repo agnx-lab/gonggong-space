@@ -415,6 +415,91 @@ describe('run engine', () => {
     expect(gb?.contextUsage).toEqual(context)
   })
 
+  it('writes and publishes the context occupancy only when it changed', async () => {
+    const w = await world()
+    const web = watch(w.bob.id)
+    const d = await daemon(w.token)
+    await w.mention('hi')
+    const { runId } = await d.next()
+    const usage = (context: { used: number; size: number }) =>
+      d.send({ t: 'run.event', runId, event: { kind: 'usage', usage: { costUsd: 0.01 }, context } })
+    usage({ used: 1000, size: 200000 })
+    usage({ used: 1000, size: 200000 })
+    usage({ used: 2000, size: 200000 })
+    await web.until((e) => e.t === 'group.botState' && e.state.context?.used === 2000)
+    const states = web.seen.flatMap((e) =>
+      e.t === 'group.botState' && e.state.context ? [e.state.context.used] : [],
+    )
+    expect(states).toEqual([1000, 2000])
+  })
+
+  it('shows a compaction on the run card, in the group and on the context meter', async () => {
+    const w = await world()
+    const web = watch(w.bob.id)
+    const d = await daemon(w.token)
+    await w.mention('hi')
+    const { runId } = await d.next()
+    const compaction = (o: Record<string, unknown>) =>
+      d.send({ t: 'run.event', runId, event: { kind: 'compaction', compactionId: 'c1', ...o } })
+    d.send({
+      t: 'run.event',
+      runId,
+      event: { kind: 'usage', usage: {}, context: { used: 167000, size: 200000, compactAt: 180000 } },
+    })
+    compaction({ status: 'running' })
+    const step = await web.until<Extract<WebEvent, { t: 'run.step' }>>(
+      (e) => e.t === 'run.step' && e.step === '正在压缩上下文',
+    )
+    expect(step.stepI18n).toEqual({ key: '正在压缩上下文' })
+
+    compaction({
+      status: 'completed',
+      trigger: 'auto',
+      preTokens: 167000,
+      postTokens: 21000,
+      summary: '保留了 password=hunter2 的配置',
+    })
+    const msg = await web.until<Extract<WebEvent, { t: 'message.new' }>>(
+      (e) => e.t === 'message.new' && e.message.kind === 'event',
+    )
+    expect(msg.message.body).toBe('小王的 Claude 已自动压缩上下文：167k → 21k')
+    expect(msg.message.i18n).toEqual({
+      key: '{bot} 已自动压缩上下文：{pre} → {post}',
+      params: { bot: '小王的 Claude', pre: '167k', post: '21k' },
+    })
+    await web.until((e) => e.t === 'run.step' && e.runId === runId && e.step === '')
+    const meter = await web.until<Extract<WebEvent, { t: 'group.botState' }>>(
+      (e) => e.t === 'group.botState' && e.state.context?.used === 21000,
+    )
+    expect(meter.state.context).toEqual({ used: 21000, size: 200000, compactAt: 180000 })
+
+    compaction({ compactionId: 'c2', status: 'running' })
+    compaction({ compactionId: 'c2', status: 'failed', trigger: 'manual', error: 'token=abc123 已过期' })
+    const failed = await web.until<Extract<WebEvent, { t: 'message.new' }>>(
+      (e) => e.t === 'message.new' && e.message.body.includes('压缩上下文失败'),
+    )
+    expect(failed.message.body).toBe('小王的 Claude 压缩上下文失败：token=[已脱敏] 已过期')
+
+    const res = await t.app.inject({
+      url: `/api/runs/${runId}`,
+      headers: { cookie: await t.seed.cookie(w.alice.id) },
+    })
+    const stored = res
+      .json()
+      .events.map((e: { event: { kind: string } }) => e.event)
+      .filter((e: { kind: string }) => e.kind === 'compaction')
+    expect(stored).toHaveLength(4)
+    expect(stored[1]).toMatchObject({ status: 'completed', summary: '保留了 password=[已脱敏] 的配置' })
+    expect(stored[3]).toMatchObject({ status: 'failed', error: 'token=[已脱敏] 已过期' })
+    const [sealed] = await t.db
+      .select()
+      .from(runEvents)
+      .where(and(eq(runEvents.runId, runId), eq(runEvents.kind, 'compaction')))
+      .orderBy(asc(runEvents.id))
+      .offset(1)
+    expect(JSON.stringify(sealed?.payload)).not.toContain('保留了')
+  })
+
   it('marks a failed agent run as interrupted with the error', async () => {
     const w = await world()
     const web = watch(w.alice.id)

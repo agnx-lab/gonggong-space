@@ -21,6 +21,7 @@ export type Family =
   | 'task'
   | 'delegate'
   | 'mcp'
+  | 'compaction'
   | 'other'
 export type Bucket = 'file' | 'search' | 'list' | 'probe'
 
@@ -197,6 +198,8 @@ export function classify(s: Step, root: string | null): Action {
       return { ...base, family: 'subagent', verb: s.title ?? s.label, target: s.body }
     case 'task':
       return { ...base, family: 'task', verb: s.label, target: s.title }
+    case 'compaction':
+      return { ...base, family: 'compaction', verb: s.label, target: s.mono }
     case 'mcp':
       return { ...base, family: 'mcp', verb: s.failed ? failedOf(s.title) : (s.title ?? ''), target: s.mono }
     default: {
@@ -227,9 +230,9 @@ const named = (title?: string) => (title && !PLACEHOLDER.test(title) ? title : u
 const rel = (s: Step, root: string | null) =>
   s.mono && s.mono !== s.title ? relative(s.mono, root) : named(s.title)
 
-/** Text, approvals, the context, subagents and background tasks stay on their own lines; everything else between
- * them is one segment. */
-const BOUNDARY = new Set<Family>(['text', 'approval', 'context', 'subagent', 'task'])
+/** Text, approvals, the context, subagents, background tasks and compactions stay on their own lines; everything
+ * else between them is one segment. */
+const BOUNDARY = new Set<Family>(['text', 'approval', 'context', 'subagent', 'task', 'compaction'])
 /** Carried along inside a segment but not counted as its calls. */
 const PASSIVE = new Set<Family>(['thought', 'status'])
 

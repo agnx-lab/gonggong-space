@@ -18,18 +18,18 @@ use crate::service::Outbox;
 use crate::skills;
 use crate::t;
 use crate::turn::{
-    ExtUpdate, TaskSnap, Turn, auto_allow, auto_review_failure, client_meta, compose_prompt, mode_for, session_failure,
-    sync_hint, system_prompt, wire_options,
+    CompactPolicy, ExtUpdate, TaskSnap, Turn, auto_allow, auto_review_failure, client_capabilities, compose_prompt,
+    mode_for, session_failure, sync_hint, system_prompt, wire_options,
 };
 use crate::workspace;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    self as acp, CancelNotification, ClientCapabilities, EnvVariable, ForkSessionRequest, HttpHeader,
-    InitializeRequest, InitializeResponse, LoadSessionRequest, McpServerHttp, McpServerStdio, Meta, NewSessionRequest,
-    PermissionOption, PermissionOptionId, PermissionOptionKind, PromptRequest, PromptResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest,
-    SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionModeState, SessionNotification, SessionUpdate,
+    self as acp, CancelNotification, EnvVariable, ForkSessionRequest, HttpHeader, InitializeRequest,
+    InitializeResponse, LoadSessionRequest, McpServerHttp, McpServerStdio, Meta, NewSessionRequest, PermissionOption,
+    PermissionOptionId, PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOptions,
+    SessionConfigValueId, SessionId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason, Usage as AcpUsage,
 };
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, Handled, UntypedMessage};
@@ -107,7 +107,7 @@ async fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Plann
         }
     };
     if let Some(l) = &launch {
-        shared.set_compact_window(l.snapshot.auto_compact_window);
+        shared.set_compact(l.compact);
     }
     Some(Planned { req, selection, removed, skills: skills::Installed::default(), launch })
 }
@@ -480,9 +480,9 @@ impl Shared {
         true
     }
 
-    fn set_compact_window(&self, window: Option<u64>) {
+    fn set_compact(&self, policy: CompactPolicy) {
         if let Some(a) = self.0.lock().unwrap().active.as_mut() {
-            a.turn.compact_window = window;
+            a.turn.compact = Some(policy);
         }
     }
 
@@ -852,8 +852,7 @@ pub(crate) async fn probe(agent: AcpAgent, cwd: &std::path::Path) -> Result<Agen
     Client
         .builder()
         .connect_with(agent, async |cx: ConnectionTo<Agent>| {
-            let init = InitializeRequest::new(ProtocolVersion::V1)
-                .client_capabilities(ClientCapabilities::new().meta(client_meta()));
+            let init = InitializeRequest::new(ProtocolVersion::V1).client_capabilities(client_capabilities());
             cx.send_request(init).block_task().await?;
             let res = cx.send_request(NewSessionRequest::new(cwd)).block_task().await?;
             let options = res.config_options.unwrap_or_default();
@@ -885,8 +884,7 @@ pub(crate) async fn fork(agent: AcpAgent, cwd: &std::path::Path, session: &str) 
     let forked = Client
         .builder()
         .connect_with(agent, async |cx: ConnectionTo<Agent>| {
-            let init = InitializeRequest::new(ProtocolVersion::V1)
-                .client_capabilities(ClientCapabilities::new().meta(client_meta()));
+            let init = InitializeRequest::new(ProtocolVersion::V1).client_capabilities(client_capabilities());
             let init = cx.send_request(init).block_task().await?;
             if init.agent_capabilities.session_capabilities.fork.is_none() {
                 return Ok(None);
@@ -1057,7 +1055,7 @@ async fn connect(
             let init = cx
                 .send_request(
                     InitializeRequest::new(ProtocolVersion::V1)
-                        .client_capabilities(ClientCapabilities::new().meta(client_meta())),
+                        .client_capabilities(client_capabilities()),
                 )
                 .block_task()
                 .await?;
@@ -1472,6 +1470,7 @@ mod tests {
                 from_cli: vec![],
                 from_bot: vec![],
             },
+            compact: crate::turn::CompactPolicy { window: None, max_output: None, pct: None, enabled: true },
         }
     }
 

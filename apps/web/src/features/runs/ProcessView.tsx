@@ -281,10 +281,13 @@ const ACTION_ICON: Record<string, IconName> = {
   task: 'bolt',
   delegate: 'bot',
   mcp: 'plug',
+  compaction: 'archive',
   other: 'gear',
 }
 
 const OUT_LINES = 6
+/** Families whose one-line target is prose, not code. */
+const PROSE = new Set<string>(['thought', 'status', 'compaction'])
 /** Paths show as their file name (Codex app); the full path stays in the tooltip. */
 const FILE_TARGET = (a: Action) => a.family === 'edit' || (a.family === 'explore' && a.bucket === 'file')
 
@@ -365,9 +368,7 @@ function ActionRow({
         <span
           className={cx(
             'act-row__target',
-            FILE_TARGET(a)
-              ? 'act-row__target--file'
-              : a.family !== 'thought' && a.family !== 'status' && 'act-row__target--mono',
+            FILE_TARGET(a) ? 'act-row__target--file' : !PROSE.has(a.family) && 'act-row__target--mono',
           )}
           title={a.target ?? s.mono}
         >
@@ -420,7 +421,9 @@ function ActionRow({
         row
       )}
       {open && mcp ? <McpDetail call={mcp} /> : null}
-      {open && out ? <Output text={out} mono={a.family !== 'thought' && !task} /> : null}
+      {open && out ? (
+        <Output text={out} mono={a.family !== 'thought' && a.family !== 'compaction' && !task} />
+      ) : null}
     </li>
   )
 }

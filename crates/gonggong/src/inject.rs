@@ -3,11 +3,13 @@
 //! the adapter's env only. The official login gets only its extra variables and proxy, the same way. Keys go to the 0600 file or the child's env, never to
 //! argv, logs or errors.
 use crate::agent_settings::{
-    self, AUTO_COMPACT, AgentSettings, CONTEXT_WINDOW, CliSettingsSnapshot, Layer, RunSettingsSnapshot, Target,
+    self, AUTO_COMPACT, AgentSettings, CONTEXT_WINDOW, CliSettingsSnapshot, Layer, MAX_OUTPUT, RunSettingsSnapshot,
+    Target,
 };
 use crate::protocol::{AgentKind, RunBot};
 use crate::providers::{self, API_KEY, AUTH_TOKEN, OFFICIAL, Provider, Selection, Store};
 use crate::t;
+use crate::turn::CompactPolicy;
 use anyhow::{Result, bail};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -51,6 +53,8 @@ pub struct ClaudeLaunch {
     pub inherit_cli: bool,
     /// Display only: it follows the CLI's config, which the user may edit any time.
     pub snapshot: RunSettingsSnapshot,
+    /// For the context meter; like the snapshot, a guess at what the CLI's config says.
+    pub compact: CompactPolicy,
 }
 
 impl PartialEq for ClaudeLaunch {
@@ -130,6 +134,25 @@ impl ClaudeLaunch {
             let ours = env.get(key).and_then(Value::as_str);
             ours.or_else(|| cli?.values.get(id).map(String::as_str)).and_then(|v| v.parse().ok())
         };
+        let var = |key: &str| {
+            let ours = env.get(key).and_then(Value::as_str).map(String::from);
+            ours.or_else(|| cli?.compact_env.get(key).cloned())
+        };
+        let truthy = |key: &str| {
+            var(key).is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        };
+        let setting = match top.get("autoCompactEnabled") {
+            Some(v) => v.as_bool(),
+            None => cli.and_then(|c| c.values.get("autoCompact")).map(|v| v == "true"),
+        };
+        let compact = CompactPolicy {
+            window: number(AUTO_COMPACT, "autoCompactWindow"),
+            max_output: number(MAX_OUTPUT, "maxOutputTokens"),
+            pct: var("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
+                .and_then(|v| v.trim().parse().ok())
+                .filter(|p: &f64| *p > 0.0 && *p <= 100.0),
+            enabled: setting != Some(false) && !truthy("DISABLE_AUTO_COMPACT") && !truthy("DISABLE_COMPACT"),
+        };
         let snapshot = RunSettingsSnapshot {
             provider: match selection {
                 Selection::Provider(p) => Some(p.name.clone()),
@@ -142,16 +165,11 @@ impl ClaudeLaunch {
             from_bot,
         };
         top.insert("env".into(), Value::Object(env));
-        Ok(ClaudeLaunch { file: file.map(|f| (f, Value::Object(top))), inherit_cli, snapshot })
+        Ok(ClaudeLaunch { file: file.map(|f| (f, Value::Object(top))), inherit_cli, snapshot, compact })
     }
 
     pub fn settings_path(&self) -> Option<&Path> {
         self.file.as_ref().map(|(path, _)| path.as_path())
-    }
-
-    /// Tokens at which Claude Code compacts, when the run sets (or inherits) an auto-compact window.
-    pub fn compact_at(&self, window: u64) -> Option<u64> {
-        self.snapshot.auto_compact_window.map(|w| w.min(window))
     }
 
     /// Writes the settings file (0600, atomic) unless it is current; either way its mtime marks it in use for
@@ -406,6 +424,7 @@ mod tests {
             hooks: 0,
             permission_rules: 0,
             version: None,
+            compact_env: Default::default(),
         };
         let a = ClaudeLaunch::new(home.path(), &p, &d, &bot(None, &[]), Some(&cli("english"))).unwrap();
         let b = ClaudeLaunch::new(home.path(), &p, &d, &bot(None, &[]), None).unwrap();
@@ -498,10 +517,8 @@ mod tests {
             launch(home.path(), &Selection::Provider(Box::new(p.clone())), &none, &bot(Some("kimi-for-coding"), &[]));
         assert_eq!(read(l.settings_path().unwrap())["env"][CONTEXT_WINDOW], "262144", "from the preset's modelContext");
         assert_ne!(l.settings_path(), Some(claude_settings_path(home.path(), "kimi-1", None).as_path()));
-        assert_eq!(
-            (l.snapshot.context_window, l.snapshot.auto_compact_window, l.compact_at(262144)),
-            (Some(262144), None, None)
-        );
+        assert_eq!((l.snapshot.context_window, l.snapshot.auto_compact_window), (Some(262144), None));
+        assert_eq!(l.compact.point(262144), (Some(229144), None), "compacts at the model's window by default");
         let other = launch(home.path(), &Selection::Provider(Box::new(p)), &none, &bot(Some("k3"), &[]));
         assert_eq!(other.snapshot.context_window, None, "no window known for that model");
         assert_ne!(other.settings_path(), l.settings_path(), "another model, another file");
@@ -519,18 +536,59 @@ mod tests {
             hooks: 0,
             permission_rules: 0,
             version: None,
+            compact_env: Default::default(),
         };
         let p = Selection::Provider(Box::new(custom()));
         let d = defaults(&[("thinking", "false")], true);
         let l = ClaudeLaunch::new(home.path(), &p, &d, &bot(None, &[]), Some(&cli)).unwrap();
         assert_eq!(l.snapshot.from_cli, vec!["autoCompactWindow", "language", "CLAUDE_CODE_EFFORT_LEVEL"]);
-        assert_eq!(
-            (l.snapshot.auto_compact_window, l.compact_at(150000), l.compact_at(262144)),
-            (Some(180000), Some(150000), Some(180000))
-        );
+        assert_eq!(l.snapshot.auto_compact_window, Some(180000));
+        assert_eq!((l.compact.point(150000).0, l.compact.point(262144).0), (Some(117000), Some(147000)));
         let isolated = ClaudeLaunch::new(home.path(), &p, &defaults(&[], false), &bot(None, &[]), Some(&cli)).unwrap();
         assert!(isolated.snapshot.from_cli.is_empty() && isolated.snapshot.auto_compact_window.is_none());
         assert_ne!(isolated, l);
+    }
+
+    #[test]
+    fn the_compact_policy_follows_settings_env_and_the_cli() {
+        let home = tempfile::tempdir().unwrap();
+        let mut p = custom();
+        let cli = |values: &[(&str, &str)], env: &[(&str, &str)]| CliSettingsSnapshot {
+            values: values.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            conflicts: vec![],
+            hooks: 0,
+            permission_rules: 0,
+            version: None,
+            compact_env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        };
+        let policy = |p: &Provider, d: &AgentSettings, c: Option<&CliSettingsSnapshot>| {
+            ClaudeLaunch::new(home.path(), &Selection::Provider(Box::new(p.clone())), d, &bot(None, &[]), c)
+                .unwrap()
+                .compact
+        };
+        let none = defaults(&[], true);
+        assert_eq!(policy(&p, &none, None), CompactPolicy { window: None, max_output: None, pct: None, enabled: true });
+        assert!(!policy(&p, &defaults(&[("autoCompact", "false")], true), None).enabled, "the agent setting");
+        assert!(!policy(&p, &none, Some(&cli(&[("autoCompact", "false")], &[]))).enabled, "inherited from the CLI");
+        assert!(
+            policy(&p, &defaults(&[("autoCompact", "true")], true), Some(&cli(&[("autoCompact", "false")], &[])))
+                .enabled
+        );
+        assert!(!policy(&p, &none, Some(&cli(&[], &[("DISABLE_COMPACT", "true")]))).enabled, "the CLI's env");
+        assert!(
+            policy(&p, &defaults(&[], false), Some(&cli(&[], &[("DISABLE_COMPACT", "1")]))).enabled,
+            "not inherited"
+        );
+        let pct =
+            policy(&p, &none, Some(&cli(&[("maxOutputTokens", "8000")], &[("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "75")])));
+        assert_eq!((pct.max_output, pct.pct), (Some(8000), Some(75.0)));
+        p.env.insert("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), "150".into());
+        p.env.insert("DISABLE_AUTO_COMPACT".into(), "0".into());
+        p.env.insert(AUTO_COMPACT.into(), "180000".into());
+        let from_provider = policy(&p, &none, None);
+        assert_eq!((from_provider.window, from_provider.pct, from_provider.enabled), (Some(180000), None, true));
+        p.env.insert("DISABLE_AUTO_COMPACT".into(), "1".into());
+        assert!(!policy(&p, &none, None).enabled, "the provider's env");
     }
 
     #[test]

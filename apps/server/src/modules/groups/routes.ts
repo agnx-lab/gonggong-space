@@ -34,6 +34,7 @@ import { recordRepo } from '../repos/service.js'
 import { leaveReplica } from '../sync/switch.js'
 import { currentTeam } from '../teams/service.js'
 import { joinWorkspace } from '../workspaces/provision.js'
+import { RESET_SESSION } from '../workspaces/state.js'
 import { activeUsers, assertBindable, createGroup, liveBots, uniq } from './create.js'
 import {
   activeBots,
@@ -213,7 +214,7 @@ export function groupRoutes(ctx: Ctx) {
               workspaceError: null,
               workspaceReason: null,
               gitStatus: null,
-              sessionId: null,
+              ...RESET_SESSION,
             })
             .where(and(eq(groupBots.groupId, group.id), ne(groupBots.workspaceKind, 'cd')))
             .returning({ botId: groupBots.botId })
@@ -246,7 +247,7 @@ export function groupRoutes(ctx: Ctx) {
             workspaceError: null,
             workspaceReason: null,
             gitStatus: null,
-            sessionId: null,
+            ...RESET_SESSION,
           })
           .where(eq(groupBots.groupId, group.id))
       })

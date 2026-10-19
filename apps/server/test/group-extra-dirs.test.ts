@@ -63,13 +63,14 @@ describe('additional directories of a bot in a group', () => {
     expect((await w.setDirs(w.owners, w.g1.id, ['sdk'])).status).toBe(400)
     await t.db
       .update(groupBots)
-      .set({ sessionId: 'sess-1' })
+      .set({ sessionId: 'sess-1', contextUsage: { used: 9000, size: 200000 } })
       .where(and(eq(groupBots.groupId, w.g1.id), eq(groupBots.botId, w.bot.id)))
 
     const dirs = ['/Users/wl/sdk/', '/Users/wl/sdk', 'C:\\work\\docs']
     expect((await w.setDirs(w.owners, w.g1.id, dirs)).status).toBe(204)
     const states = await w.owners.get<GroupBotStateDto[]>(`/api/groups/${w.g1.id}/bot-states`)
     expect(states.body[0]!.extraDirs).toEqual(['/Users/wl/sdk', 'C:\\work\\docs'])
+    expect(states.body[0]!.context).toBeNull()
     const events = await t.db.select().from(messages).where(eq(messages.groupId, w.g1.id))
     expect(events.map((m) => m.body)).toContain(
       '王磊 将 cc 在本群的附加目录设为 /Users/wl/sdk、C:\\work\\docs',

@@ -8,7 +8,7 @@ name = "gg"
 path = "src/main.rs"
 
 [dependencies]
-agent-client-protocol = { version = "2.2.0", features = ["unstable_end_turn_token_usage", "unstable_session_fork"] }
+agent-client-protocol = { version = "2.2.0", features = ["unstable_end_turn_token_usage", "unstable_session_compaction", "unstable_session_fork"] }
 anyhow.workspace = true
 aws-lc-rs = { version = "1.18.1", default-features = false, features = ["aws-lc-sys", "prebuilt-nasm"] }
 base64 = "0.23.1"

@@ -391,14 +391,28 @@ describe('rebinding the repo', () => {
     const cd = await a.next()
     a.send(reply(cd, { path: '/src/pay', git: { ...git, workspace: 'cd' } }))
     await until(async () => (await w.stateOf(g.id)).workspace === 'cd')
+    const context = { used: 9000, size: 200000 }
+    await t.db
+      .update(groupBots)
+      .set({ sessionId: 's1', contextUsage: context })
+      .where(eq(groupBots.groupId, g.id))
 
     const res = await w.asAlice.patch<GroupDto>(`/api/groups/${g.id}/repo`, { url: '', branch: '' })
     expect(res.status).toBe(200)
     expect(res.body.repo).toBeNull()
     expect(await t.db.select().from(groupRepos).where(eq(groupRepos.groupId, g.id))).toEqual([])
-    expect(await w.stateOf(g.id)).toMatchObject({ workspace: 'cd', state: 'ready', path: '/src/pay' })
+    expect(await w.stateOf(g.id)).toMatchObject({
+      workspace: 'cd',
+      state: 'ready',
+      path: '/src/pay',
+      context,
+    })
     // Bob's machine is offline: his bot moves to its default directory, checked once it is back.
-    expect(await w.stateOf(g.id, w.bobBot.id)).toMatchObject({ workspace: 'cd', state: 'pending' })
+    expect(await w.stateOf(g.id, w.bobBot.id)).toMatchObject({
+      workspace: 'cd',
+      state: 'pending',
+      context: null,
+    })
     expect(await w.bodies(g.id)).toContain('群解绑仓库 · 各 Bot 改用默认工作区或本机目录，托管克隆保留在本机')
     expect((await w.asAlice.patch(`/api/groups/${g.id}/repo`, { url: '', branch: '' })).status).toBe(200)
   })
@@ -433,9 +447,14 @@ describe('rebinding the repo', () => {
     expect(res.body.repo).toEqual({ url: other.url, branch: 'main' })
     const now = await w.repoOf(g.id)
     expect(now.id).not.toBe(old.id)
-    expect(await w.stateOf(g.id)).toMatchObject({ state: 'cloning', workspace: 'managed', git: null })
+    expect(await w.stateOf(g.id)).toMatchObject({
+      state: 'cloning',
+      workspace: 'managed',
+      git: null,
+      context: null,
+    })
     const [row] = await t.db.select().from(groupBots).where(eq(groupBots.groupId, g.id))
-    expect(row).toMatchObject({ cdPath: null, sessionId: null })
+    expect(row).toMatchObject({ cdPath: null, sessionId: null, contextUsage: null })
 
     const rebuild = await joinEnsure(d, g.id)
     expect(rebuild).toMatchObject({ repo: { id: now.id, url: other.url } })
@@ -464,7 +483,12 @@ describe('rebinding the repo', () => {
 async function updateCd(groupId: string, botId: string) {
   await t.db
     .update(groupBots)
-    .set({ workspaceKind: 'cd', cdPath: '/elsewhere', sessionId: 's1' })
+    .set({
+      workspaceKind: 'cd',
+      cdPath: '/elsewhere',
+      sessionId: 's1',
+      contextUsage: { used: 9000, size: 200000 },
+    })
     .where(and(eq(groupBots.groupId, groupId), eq(groupBots.botId, botId)))
 }
 

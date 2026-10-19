@@ -30,6 +30,33 @@ const steps: Step[] = [
 
 const rows = () => screen.getByRole('list', { name: '运行过程' }).querySelectorAll(':scope > li').length
 
+describe('compaction row', () => {
+  it('stands on its own line with the summary one click away', () => {
+    const compaction: Step = {
+      key: 'k1',
+      kind: 'compaction',
+      label: '已自动压缩上下文',
+      mono: '167k → 12k',
+      out: '保留了接口设计',
+      at,
+    }
+    render(
+      <ProcessView
+        steps={[cmd('c1', 'make build'), compaction, cmd('c2', 'make test')]}
+        root={null}
+        live={false}
+        startedAt={at}
+        workedMs={null}
+      />,
+    )
+    const row = screen.getByRole('button', { name: /已自动压缩上下文/ })
+    expect(row.textContent).toContain('167k → 12k')
+    expect(screen.queryByText('保留了接口设计')).toBeNull()
+    fireEvent.click(row)
+    expect(screen.getByText('保留了接口设计')).toBeTruthy()
+  })
+})
+
 describe('process filters', () => {
   it('narrows the process to failures, requests or commands', () => {
     render(<ProcessView steps={steps} root={null} live={false} startedAt={at} workedMs={1000} filterable />)

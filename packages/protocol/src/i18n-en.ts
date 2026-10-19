@@ -68,6 +68,12 @@ export const protocolEn = {
   没有运行中的轮次: 'No turns are running',
   '/new 需要同时 @ 一个 Bot，如 /new @{bot}': '/new needs a Bot mention, e.g. /new @{bot}',
   '{bot} 下一轮将开新会话': '{bot} will start a new session next turn',
+  '{bot} 已自动压缩上下文：{pre} → {post}': '{bot} compacted its context automatically: {pre} → {post}',
+  '{bot} 已压缩上下文：{pre} → {post}': '{bot} compacted its context: {pre} → {post}',
+  '{bot} 已自动压缩上下文': '{bot} compacted its context automatically',
+  '{bot} 已压缩上下文': '{bot} compacted its context',
+  '{bot} 压缩上下文失败：{error}': '{bot} failed to compact its context: {error}',
+  正在压缩上下文: 'Compacting context',
   '/cd 仅分区模式可用；强制同步群里非托管工作区的 Bot 为「不参与」':
     '/cd is only available in partition mode; in force-sync groups, Bots without a managed workspace sit out',
   '/cd 需要 @ 一个 Bot，如 /cd @{bot} /本机/绝对路径，或 /cd @{bot} --reset 回到托管':

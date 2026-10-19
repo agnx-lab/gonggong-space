@@ -5,7 +5,7 @@ import {
   type RepoAccessReason,
   type Tier,
 } from '@gonggong/protocol'
-import { and, eq, isNotNull, isNull, ne, or } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, ne, or, type SQL, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import { groupBots, groupRepos } from '../../db/schema.js'
 import { memberIds } from '../messages/service.js'
@@ -68,6 +68,25 @@ export async function updateBotState(
     .returning()
   if (!row) return null
   return publishBotState(ctx, row)
+}
+
+/** Ends a (group, bot)'s session: the next turn opens a new one, so the old context occupancy no longer applies. */
+export const RESET_SESSION = { sessionId: null, contextUsage: null } as const
+
+/** Context occupancy arrives with every usage report: written and pushed only when it changed. */
+export async function updateContextUsage(ctx: Ctx, groupId: string, botId: string, value: SQL) {
+  const [row] = await ctx.db
+    .update(groupBots)
+    .set({ contextUsage: value })
+    .where(
+      and(
+        eq(groupBots.groupId, groupId),
+        eq(groupBots.botId, botId),
+        sql`${groupBots.contextUsage} is distinct from ${value}`,
+      ),
+    )
+    .returning()
+  if (row) await publishBotState(ctx, row)
 }
 
 export async function publishBotState(ctx: Ctx, row: Row) {

@@ -43,11 +43,13 @@ export const Usage = z.object({
 export type Usage = z.infer<typeof Usage>
 
 /** Context window occupancy of an ACP session (usage_update): tokens in context now vs the model's window. */
-/** `compactAt`: tokens at which auto-compaction runs, when the daemon knows it. */
+/** `compactAt`: tokens at which the agent compacts by itself, when the daemon knows it. */
+/** `blockAt`: auto-compaction is off; the agent stops here until compacted by hand (/compact or /new). */
 export const ContextUsage = z.object({
   used: z.number().int(),
   size: z.number().int(),
   compactAt: z.number().int().optional(),
+  blockAt: z.number().int().optional(),
 })
 export type ContextUsage = z.infer<typeof ContextUsage>
 

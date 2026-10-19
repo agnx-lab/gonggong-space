@@ -9,11 +9,11 @@ import { publishBot } from '../bots/dto.js'
 import { mirrorDelta, mirrorRun } from '../feishu/mirror.js'
 import { requeueAppends } from '../messages/append.js'
 import { memberMentions, notifyMentions } from '../messages/mentions.js'
-import { authorName, memberIds, messageDto, publishMessage } from '../messages/service.js'
+import { authorName, memberIds, messageDto, postEvent, publishMessage } from '../messages/service.js'
 import { onQuestionAsk, onQuestionWithdraw, voidQuestions } from '../questions/service.js'
 import { settleSchedule } from '../schedules/engine.js'
 import { pauseStopped, requeueRun } from '../sync/resolve.js'
-import { publishBotState, updateBotState } from '../workspaces/state.js'
+import { publishBotState, updateContextUsage } from '../workspaces/state.js'
 import { cardColumns, publishRun, publishStep, type RunRow } from './dto.js'
 import { redact, redactDeep } from './redact.js'
 import { schedule } from './scheduler.js'
@@ -194,21 +194,26 @@ async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent
   const updated =
     step !== undefined
       ? setChanged({ step }, sql`${runs.step} is distinct from ${step}`)
-      : event.kind === 'usage'
-        ? setChanged(
-            { usage: event.usage },
-            sql`${runs.usage} is distinct from ${JSON.stringify(event.usage)}::jsonb`,
-          )
-        : []
+      : event.kind === 'compaction'
+        ? event.status === 'running'
+          ? setChanged(COMPACTING, sql`${runs.step} is distinct from ${COMPACTING.step}`)
+          : setChanged({ step: '', stepI18n: null }, eq(runs.step, COMPACTING.step))
+        : event.kind === 'usage'
+          ? setChanged(
+              { usage: event.usage },
+              sql`${runs.usage} is distinct from ${JSON.stringify(event.usage)}::jsonb`,
+            )
+          : []
   let card = false
   for (const row of await updated) {
     await publishStep(ctx, row)
     // The Feishu card shows the step, not the usage.
-    if (step !== undefined) await mirrorRun(ctx, row)
+    if (event.kind !== 'usage') await mirrorRun(ctx, row)
     card = true
   }
   if (event.kind === 'usage' && event.context)
-    await updateBotState(ctx, run.groupId, run.botId, { contextUsage: event.context })
+    await updateContextUsage(ctx, run.groupId, run.botId, sql`${JSON.stringify(event.context)}::jsonb`)
+  if (event.kind === 'compaction') await onCompaction(ctx, run, event)
   if (event.kind === 'subagent' || event.kind === 'task') {
     const [field, id] = event.kind === 'subagent' ? ['subagents', event.agentId] : ['tasks', event.taskId]
     const delegation = sql`jsonb_set(${runs.delegation}, ${`{${field}}`}::text[], coalesce(${runs.delegation} -> ${field}, '{}') || jsonb_build_object(${id}::text, ${event.state}::text))`
@@ -226,6 +231,43 @@ async function onEvent(ctx: Ctx, machineId: string, runId: string, raw: RunEvent
       await memberIds(ctx, run.groupId),
       { t: 'run.progress', runId, groupId: run.groupId, botId: run.botId },
       run.groupId,
+    )
+}
+
+const COMPACTING = runStep('正在压缩上下文')
+
+/** Token counts as the clients show them: 950, 167k, 1.2M. */
+const fmtTokens = (n: number) =>
+  n >= 999_500 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
+
+/** A finished compaction is told to the group; the meter drops to what is left right away. */
+async function onCompaction(ctx: Ctx, run: Owner, e: Extract<RunEvent, { kind: 'compaction' }>) {
+  if (e.status !== 'completed' && e.status !== 'failed') return
+  const [bot] = await ctx.db.select({ name: bots.name }).from(bots).where(eq(bots.id, run.botId))
+  const name = bot?.name ?? ''
+  if (e.status === 'failed') {
+    await postEvent(ctx, run.groupId, '{bot} 压缩上下文失败：{error}', {
+      bot: name,
+      error: e.error ?? { key: '未知错误' },
+    })
+    return
+  }
+  const auto = e.trigger === 'auto'
+  if (e.preTokens !== undefined && e.postTokens !== undefined)
+    await postEvent(
+      ctx,
+      run.groupId,
+      auto ? '{bot} 已自动压缩上下文：{pre} → {post}' : '{bot} 已压缩上下文：{pre} → {post}',
+      { bot: name, pre: fmtTokens(e.preTokens), post: fmtTokens(e.postTokens) },
+    )
+  else
+    await postEvent(ctx, run.groupId, auto ? '{bot} 已自动压缩上下文' : '{bot} 已压缩上下文', { bot: name })
+  if (e.postTokens !== undefined)
+    await updateContextUsage(
+      ctx,
+      run.groupId,
+      run.botId,
+      sql`jsonb_set(${groupBots.contextUsage}, '{used}', to_jsonb(${e.postTokens}::int))`,
     )
 }
 

@@ -414,6 +414,10 @@
   stroke: var(--content-bg);
   stroke-width: 0.8;
 }
+/* Auto-compaction is off: the agent stops at this point. */
+.ctx-meter circle.ctx-meter__mark--block {
+  fill: var(--tint-red-text);
+}
 .ctx-meter[data-level="warning"] {
   color: var(--tint-orange-text);
 }

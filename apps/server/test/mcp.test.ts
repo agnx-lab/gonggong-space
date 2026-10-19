@@ -1,4 +1,4 @@
-import { type McpServerDto, PROTOCOL_VERSION, type RunStart } from '@gonggong/protocol'
+import { type McpServerDto, PROTOCOL_VERSION, type RunStart, type WebEvent } from '@gonggong/protocol'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { auditLogs, groupBots, messages } from '../src/db/schema.js'
@@ -72,7 +72,9 @@ describe('global MCP servers', () => {
     const other = await t.seed.bot({ ownerId: owner.id })
     const g1 = await t.seed.group({ createdBy: owner.id, botIds: [bot.id, other.id] })
     const g2 = await t.seed.group({ createdBy: owner.id, botIds: [bot.id] })
-    await t.db.update(groupBots).set({ sessionId: 'sess-1' })
+    await t.db.update(groupBots).set({ sessionId: 'sess-1', contextUsage: { used: 9000, size: 200000 } })
+    const pushed: WebEvent[] = []
+    t.ctx.bus.attach(owner.id, (e) => pushed.push(e))
 
     await api.post('/api/admin/mcp', { enabled: true, config: echo })
     expect((await t.db.select().from(groupBots)).map((g) => g.newSessionReason)).toEqual([null, null, null])
@@ -80,8 +82,13 @@ describe('global MCP servers', () => {
     await api.post('/api/admin/mcp', { enabled: true, config: wiki, forceNewSession: true })
     const rows = await t.db.select().from(groupBots)
     expect(rows).toHaveLength(3)
-    for (const r of rows) expect(r).toMatchObject({ newSessionReason: 'config_changed', sessionId: null })
+    for (const r of rows)
+      expect(r).toMatchObject({ newSessionReason: 'config_changed', sessionId: null, contextUsage: null })
     expect(new Set(rows.map((r) => r.groupId))).toEqual(new Set([g1.id, g2.id]))
+    // The context meter goes away right away.
+    const states = pushed.flatMap((e) => (e.t === 'group.botState' ? [e] : []))
+    expect(states).toHaveLength(3)
+    for (const e of states) expect(e.state.context).toBeNull()
   })
 
   it('injects enabled servers into run.start and the config_changed reason into the next dispatch', async () => {

@@ -1,0 +1,13 @@
+{
+  "t": "run.event",
+  "runId": "r1",
+  "event": {
+    "kind": "compaction",
+    "compactionId": "c1",
+    "status": "completed",
+    "trigger": "auto",
+    "preTokens": 167000,
+    "postTokens": 12000,
+    "summary": "Working on the context meter; tests pass."
+  }
+}

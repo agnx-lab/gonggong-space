@@ -89,7 +89,7 @@ pub const FIELDS: &[Field] = &[
         max: Some(1_000_000),
         ..field("autoCompactWindow", Provider, Env, AUTO_COMPACT, Tokens)
     },
-    field("maxOutputTokens", Provider, Env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS", Tokens),
+    field("maxOutputTokens", Provider, Env, MAX_OUTPUT, Tokens),
     field("disableThinking", Provider, Env, "CLAUDE_CODE_DISABLE_THINKING", Flag),
     field("disableBetas", Provider, Env, "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS", Flag),
     field("toolSearch", Provider, Env, "ENABLE_TOOL_SEARCH", Bool),
@@ -111,6 +111,7 @@ pub const FIELDS: &[Field] = &[
 
 pub const CONTEXT_WINDOW: &str = "CLAUDE_CODE_MAX_CONTEXT_TOKENS";
 pub const AUTO_COMPACT: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+pub const MAX_OUTPUT: &str = "CLAUDE_CODE_MAX_OUTPUT_TOKENS";
 const ATTRIBUTION_NONE: &str = "none";
 
 /// Claude Code settings gonggong owns (permission tier, model, MCP, skills, key): never set from agent settings.
@@ -119,6 +120,10 @@ pub const LOCKED_CLAUDE_SETTINGS: [&str; 5] = ["permissions", "model", "mcpServe
 /// CLI env vars that silently beat what gonggong sets (e.g. the bot's effort): reported as conflicts.
 pub const CLAUDE_CONFLICT_ENV: [&str; 4] =
     ["CLAUDE_CODE_EFFORT_LEVEL", "ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL", "MAX_THINKING_TOKENS"];
+
+/// CLI env vars that move Claude Code's compaction thresholds; read for the context meter, never reported.
+pub const CLAUDE_COMPACT_ENV: [&str; 3] =
+    ["DISABLE_AUTO_COMPACT", "DISABLE_COMPACT", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"];
 
 /// Env names whose values leave the machine masked, like the API key. Known setting fields (`*_MAX_*_TOKENS`) are
 /// sizes, not secrets.
@@ -255,6 +260,9 @@ pub struct CliSettingsSnapshot {
     pub permission_rules: u32,
     /// Claude Code version the adapter runs; None = unknown.
     pub version: Option<String>,
+    /// [`CLAUDE_COMPACT_ENV`] values it sets; daemon-local.
+    #[serde(skip)]
+    pub compact_env: BTreeMap<String, String>,
 }
 
 /// Claude's `<user_home>/.claude/settings.json`, reduced to the known fields, conflicting variables and the number
@@ -277,6 +285,16 @@ pub fn read_cli(user_home: &Path, version: Option<String>) -> Option<CliSettings
         .filter(|k| env.is_some_and(|e| e.contains_key(**k)))
         .map(|k| k.to_string())
         .collect();
+    let compact_env = CLAUDE_COMPACT_ENV
+        .iter()
+        .filter_map(|k| {
+            let v = match env?.get(*k)? {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            Some((k.to_string(), v))
+        })
+        .collect();
     let len = |v: Option<&Value>| v.and_then(Value::as_array).map_or(0, |a| a.len() as u32);
     let hooks = doc
         .get("hooks")
@@ -289,7 +307,7 @@ pub fn read_cli(user_home: &Path, version: Option<String>) -> Option<CliSettings
         .sum();
     let permissions = doc.get("permissions");
     let permission_rules = ["allow", "ask", "deny"].iter().map(|k| len(permissions.and_then(|p| p.get(k)))).sum();
-    Some(CliSettingsSnapshot { values, conflicts, hooks, permission_rules, version })
+    Some(CliSettingsSnapshot { values, conflicts, hooks, permission_rules, version, compact_env })
 }
 
 /// The Claude Code version the catalog in `<home>/models.json` was probed with (`<cli>+<adapter>`).
@@ -430,6 +448,7 @@ mod tests {
                 "BASH_MAX_TIMEOUT_MS": 600000,
                 "CLAUDE_CODE_EFFORT_LEVEL": "high",
                 "ANTHROPIC_AUTH_TOKEN": "sk-very-secret",
+                "DISABLE_AUTO_COMPACT": 1,
                 "OTHER": "x"
             },
             "hooks": {
@@ -452,8 +471,10 @@ mod tests {
         );
         assert_eq!(s.conflicts, vec!["CLAUDE_CODE_EFFORT_LEVEL".to_string()]);
         assert_eq!((s.hooks, s.permission_rules, s.version.as_deref()), (3, 3, Some("2.1.296")));
+        assert_eq!(s.compact_env, values(&[("DISABLE_AUTO_COMPACT", "1")]));
         let json = serde_json::to_string(&s).unwrap();
         assert!(!json.contains("sk-very-secret") && !json.contains("/bin/secret") && !json.contains("OTHER"));
+        assert!(!json.contains("DISABLE_AUTO_COMPACT"), "daemon-local");
     }
 
     #[test]

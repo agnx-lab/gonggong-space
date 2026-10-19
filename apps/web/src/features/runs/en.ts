@@ -248,4 +248,10 @@ export default {
   复制输出: 'Copy output',
   已复制输出: 'Output copied',
   '同一错误重复 {n} 次': 'Same failure {n} {n:time|times} in a row',
+  '正在压缩上下文…': 'Compacting context…',
+  压缩上下文未完成: 'Compaction did not finish',
+  已自动压缩上下文: 'Auto-compacted context',
+  已压缩上下文: 'Compacted context',
+  压缩上下文失败: 'Compaction failed',
+  压缩已取消: 'Compaction cancelled',
 } satisfies Record<string, string>

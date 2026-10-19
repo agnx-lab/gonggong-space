@@ -6,6 +6,7 @@ import { groupBots, groupMcpOverrides, groups, mcpServers } from '../../db/schem
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { keptIn, setInherited as setOverride, turnedOff } from '../../lib/group-overrides.js'
+import { publishBotState, RESET_SESSION } from '../workspaces/state.js'
 
 export type McpRow = typeof mcpServers.$inferSelect
 export type Scope = 'platform' | 'team' | 'group'
@@ -109,10 +110,12 @@ export async function forceNewSessions(ctx: Ctx, l: Layer) {
           ctx.db.select({ id: groups.id }).from(groups).where(eq(groups.teamId, l.teamId)),
         )
       : undefined
-  await ctx.db
+  const rows = await ctx.db
     .update(groupBots)
-    .set({ newSessionReason: 'config_changed', sessionId: null })
+    .set({ ...RESET_SESSION, newSessionReason: 'config_changed' })
     .where(and(isNull(groupBots.removedAt), affected))
+    .returning()
+  for (const row of rows) await publishBotState(ctx, row)
 }
 
 export async function logMcp(

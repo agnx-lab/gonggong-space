@@ -474,6 +474,66 @@ describe('process steps', () => {
   })
 })
 
+describe('compaction steps', () => {
+  const detail = (status: RunDto['status'], events: RunDetailDto['events']): RunDetailDto => ({
+    run: run({ status }),
+    patch: null,
+    purged: false,
+    settings: null,
+    patchRepos: [],
+    sessionId: null,
+    retentionDays: 30,
+    events,
+  })
+  const compaction = (id: number, o: Record<string, unknown>) => ({
+    id,
+    at: at(id),
+    event: { kind: 'compaction' as const, compactionId: 'c1', status: 'running' as const, ...o },
+  })
+
+  it('folds the start and end of one compaction into a row with tokens before and after', () => {
+    const steps = buildSteps(
+      detail('completed', [
+        compaction(1, {}),
+        compaction(2, {
+          status: 'completed',
+          trigger: 'auto',
+          preTokens: 167_000,
+          postTokens: 12_000,
+          summary: '保留了接口设计',
+        }),
+      ]),
+    )
+    expect(steps.slice(1)).toEqual([
+      expect.objectContaining({
+        kind: 'compaction',
+        label: '已自动压缩上下文',
+        mono: '167k → 12k',
+        out: '保留了接口设计',
+        running: false,
+        at: at(1),
+        end: at(2),
+      }),
+    ])
+  })
+
+  it('says a compaction runs, failed or was cancelled', () => {
+    const one = (status: RunDto['status'], o: Record<string, unknown>) =>
+      buildSteps(detail(status, [compaction(1, o)]))[1]
+    expect(one('running', {})).toMatchObject({ label: '正在压缩上下文…', running: true })
+    expect(one('running', { status: 'completed', trigger: 'manual' })).toMatchObject({
+      label: '已压缩上下文',
+    })
+    expect(one('running', { status: 'failed', error: 'boom' })).toMatchObject({
+      label: '压缩上下文失败',
+      mono: 'boom',
+      failed: true,
+    })
+    expect(one('running', { status: 'cancelled' })).toMatchObject({ label: '压缩已取消' })
+    expect(one('completed', {})).toMatchObject({ label: '压缩上下文未完成', running: false })
+  })
+})
+
 describe('diff bar', () => {
   it('splits five cells between additions and deletions like GitHub', () => {
     expect(diffCells(0, 0)).toEqual(['none', 'none', 'none', 'none', 'none'])

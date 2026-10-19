@@ -2,12 +2,14 @@
 use crate::attachments::rel_path;
 use crate::mcp_call;
 use crate::protocol::{
-    self, AgentKind, ContextMessage, ContextUsage, DiffRepo, GitStatus, McpCall, RunBot, RunEvent, RunPrompt,
-    RunSyncDone, RunSyncStart, SubagentState, TaskState, Tier, ToolStatus, Usage,
+    self, AgentKind, CompactionStatus, CompactionTrigger, ContextMessage, ContextUsage, DiffRepo, GitStatus, McpCall,
+    RunBot, RunEvent, RunPrompt, RunSyncDone, RunSyncStart, SubagentState, TaskState, Tier, ToolStatus, Usage,
 };
+use agent_client_protocol::schema::MaybeUndefined;
 use agent_client_protocol::schema::v1::{
-    ContentBlock, PermissionOption, PermissionOptionId, PermissionOptionKind, SessionUpdate, ToolCallContent,
-    ToolCallStatus, ToolCallUpdate, ToolKind,
+    ClientCapabilities, ClientSessionCapabilities, CompactionCapabilities, CompactionStatus as AcpCompactionStatus,
+    CompactionUpdate, ContentBlock, PermissionOption, PermissionOptionId, PermissionOptionKind, SessionUpdate,
+    ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolKind,
 };
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap};
@@ -16,6 +18,8 @@ const DETAIL_MAX: usize = 200;
 /// Tail of a shell command's output kept in the tool detail.
 const OUTPUT_LINES: usize = 20;
 const OUTPUT_MAX: usize = 1500;
+/// A compaction's retained summary as sent to the server.
+const SUMMARY_MAX: usize = 8000;
 
 /// Context lines (`[#seq time] author: body（附件：…）`) led by a pointer to the gonggong tools when `omitted` older
 /// ones were left out, the quote, then `<trigger> 说：<text>` with one `附件：<path>` line per attachment.
@@ -144,10 +148,18 @@ pub fn wire_options(options: &[PermissionOption]) -> Vec<protocol::PermissionOpt
 /// adapter reports errors as ordinary reply text.
 /// Also opts into native subagent sessions and async tasks, so both adapters report delegation and background work
 /// as `ExtUpdate`s instead of flattening them into the main transcript.
-pub fn client_meta() -> serde_json::Map<String, serde_json::Value> {
+fn client_meta() -> serde_json::Map<String, serde_json::Value> {
     let capabilities = ["sessionFailure", "nativeSubagentSessions", "asyncTasks"];
     let v = serde_json::json!({ "jetbrains": { "air": { "version": 1, "capabilities": capabilities } } });
     v.as_object().cloned().unwrap_or_default()
+}
+
+/// What gonggong supports as an ACP client: compaction updates (instead of Claude's synthetic "Compact" tool call)
+/// and the JetBrains extensions in `_meta`.
+pub fn client_capabilities() -> ClientCapabilities {
+    ClientCapabilities::new()
+        .session(ClientSessionCapabilities::new().compaction(CompactionCapabilities::new()))
+        .meta(client_meta())
 }
 
 /// Error title from a typed session failure in `_meta` (session_info_update or the prompt response).
@@ -295,6 +307,40 @@ struct Subagent {
     task: String,
 }
 
+/// Claude Code's compaction thresholds for a run, captured at launch (its `autoCompact` logic, 2.1.x).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CompactPolicy {
+    /// `CLAUDE_CODE_AUTO_COMPACT_WINDOW`.
+    pub window: Option<u64>,
+    /// `CLAUDE_CODE_MAX_OUTPUT_TOKENS`.
+    pub max_output: Option<u64>,
+    /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, within (0, 100].
+    pub pct: Option<f64>,
+    pub enabled: bool,
+}
+
+impl CompactPolicy {
+    /// `(compact_at, block_at)` for a context window of `size` tokens: where the agent compacts by itself, or, with
+    /// auto-compaction off, where it refuses to go on.
+    pub fn point(&self, size: u64) -> (Option<u64>, Option<u64>) {
+        const OUTPUT_RESERVE: u64 = 20_000;
+        const BUFFER: u64 = 13_000;
+        const BLOCK_BUFFER: u64 = 3_000;
+        const MIN_WINDOW: u64 = 100_000;
+        if !self.enabled {
+            return (None, Some(size.saturating_sub(BLOCK_BUFFER)));
+        }
+        let window = self.window.map_or(size, |w| w.max(MIN_WINDOW).min(size));
+        let effective = window.saturating_sub(self.max_output.map_or(OUTPUT_RESERVE, |m| m.min(OUTPUT_RESERVE)));
+        let threshold = effective.saturating_sub(BUFFER);
+        let at = match self.pct {
+            Some(p) => ((effective as f64 * p / 100.0).floor() as u64).min(threshold),
+            None => threshold,
+        };
+        (Some(at), None)
+    }
+}
+
 /// Accumulates one prompt turn: final reply, changed files, usage, and tool call state across patches.
 #[derive(Default)]
 pub struct Turn {
@@ -313,8 +359,10 @@ pub struct Turn {
     pub repos: Vec<DiffRepo>,
     /// Force group: how the turn's submit settled.
     pub sync: Option<RunSyncDone>,
-    /// Claude: the auto-compact window the run started with, if known.
-    pub compact_window: Option<u64>,
+    /// Claude: how the run's agent compacts; None for agents whose thresholds are unknown.
+    pub compact: Option<CompactPolicy>,
+    /// Summary chunks of compactions in progress, by compaction id.
+    summaries: HashMap<String, String>,
     tools: HashMap<(Option<String>, String), ToolState>,
     /// Subagents spawned this turn, by their ACP session id.
     subagents: HashMap<String, Subagent>,
@@ -340,15 +388,20 @@ impl Turn {
             SessionUpdate::ToolCall(c) => Some(self.tool(agent_id, c.into())),
             SessionUpdate::ToolCallUpdate(u) => Some(self.tool(agent_id, u)),
             SessionUpdate::UsageUpdate(u) if agent_id.is_none() => {
-                let usage = Usage {
-                    total_tokens: Some(u.used),
-                    cost_usd: u.cost.filter(|c| c.currency == "USD").map(|c| c.amount),
-                    ..Default::default()
-                };
+                let usage =
+                    Usage { cost_usd: u.cost.filter(|c| c.currency == "USD").map(|c| c.amount), ..Default::default() };
                 self.usage = Some(usage.clone());
-                let compact_at = self.compact_window.map(|w| w.min(u.size));
-                Some(RunEvent::Usage { usage, context: Some(ContextUsage { used: u.used, size: u.size, compact_at }) })
+                let (compact_at, block_at) = self.compact.map_or((None, None), |p| p.point(u.size));
+                let context = ContextUsage { used: u.used, size: u.size, compact_at, block_at };
+                Some(RunEvent::Usage { usage, context: Some(context) })
             }
+            SessionUpdate::CompactionSummaryChunk(c) if agent_id.is_none() => {
+                if let Some(t) = text(c.content) {
+                    self.summaries.entry(c.compaction_id.0.to_string()).or_default().push_str(&t);
+                }
+                None
+            }
+            SessionUpdate::CompactionUpdate(u) if agent_id.is_none() => self.compaction(u),
             SessionUpdate::SessionInfoUpdate(u) => {
                 if let Some(title) = session_failure(u.meta.as_ref()) {
                     self.failure = Some(title);
@@ -357,6 +410,50 @@ impl Turn {
             }
             _ => None,
         }
+    }
+
+    /// A compaction starting or ending; the summary streamed in chunks goes out once, with the end.
+    fn compaction(&mut self, u: CompactionUpdate) -> Option<RunEvent> {
+        let id = u.compaction_id.0.to_string();
+        let status = match u.status {
+            AcpCompactionStatus::InProgress => CompactionStatus::Running,
+            AcpCompactionStatus::Completed => CompactionStatus::Completed,
+            AcpCompactionStatus::Failed => CompactionStatus::Failed,
+            AcpCompactionStatus::Cancelled => CompactionStatus::Cancelled,
+            _ => return None,
+        };
+        let meta = match &u.meta {
+            MaybeUndefined::Value(m) => m.get("contextCompaction"),
+            _ => None,
+        };
+        let tokens = |key: &str| meta?.get(key)?.as_u64();
+        let trigger = match meta.and_then(|m| m.get("trigger")?.as_str()) {
+            Some("automatic") => Some(CompactionTrigger::Auto),
+            Some("manual") => Some(CompactionTrigger::Manual),
+            _ => None,
+        };
+        let streamed = match status {
+            CompactionStatus::Running => None,
+            _ => self.summaries.remove(&id),
+        };
+        let patched = match u.summary {
+            MaybeUndefined::Value(blocks) => Some(blocks.into_iter().filter_map(text).collect::<String>()),
+            _ => None,
+        };
+        let summary =
+            patched.or(streamed).filter(|s| !s.trim().is_empty()).map(|s| s.chars().take(SUMMARY_MAX).collect());
+        Some(RunEvent::Compaction {
+            compaction_id: id,
+            status,
+            trigger,
+            pre_tokens: tokens("preTokens"),
+            post_tokens: tokens("postTokens"),
+            summary,
+            error: match u.error {
+                MaybeUndefined::Value(e) => Some(e),
+                _ => None,
+            },
+        })
     }
 
     /// Subagent lifecycle announced in `session` (its parent's); async tasks are session-level, see `TaskSnap`.
@@ -678,17 +775,110 @@ mod tests {
 
         let usage =
             t.apply("s", SessionUpdate::UsageUpdate(UsageUpdate::new(1200, 200000).cost(Cost::new(0.5, "USD"))));
-        assert_eq!(t.usage, Some(Usage { total_tokens: Some(1200), cost_usd: Some(0.5), ..Default::default() }));
+        assert_eq!(t.usage, Some(Usage { cost_usd: Some(0.5), ..Default::default() }), "occupancy is not usage");
         assert!(matches!(
             usage,
-            Some(RunEvent::Usage { context: Some(ContextUsage { used: 1200, size: 200000, compact_at: None }), .. })
+            Some(RunEvent::Usage {
+                context: Some(ContextUsage { used: 1200, size: 200000, compact_at: None, block_at: None }),
+                ..
+            })
         ));
-        t.compact_window = Some(180000);
+        t.compact = Some(CompactPolicy { window: Some(180000), ..policy() });
         let usage = t.apply("s", SessionUpdate::UsageUpdate(UsageUpdate::new(1300, 150000)));
         assert!(matches!(
             usage,
-            Some(RunEvent::Usage { context: Some(ContextUsage { compact_at: Some(150000), .. }), .. })
+            Some(RunEvent::Usage { context: Some(ContextUsage { compact_at: Some(117000), block_at: None, .. }), .. })
         ));
+    }
+
+    fn policy() -> CompactPolicy {
+        CompactPolicy { window: None, max_output: None, pct: None, enabled: true }
+    }
+
+    #[test]
+    fn compacts_where_claude_code_does() {
+        assert_eq!(policy().point(200000), (Some(167000), None), "window − 20000 output reserve − 13000 buffer");
+        assert_eq!(CompactPolicy { window: Some(180000), ..policy() }.point(200000), (Some(147000), None));
+        assert_eq!(
+            CompactPolicy { window: Some(50000), ..policy() }.point(200000),
+            (Some(67000), None),
+            "at least 100k"
+        );
+        assert_eq!(CompactPolicy { window: Some(300000), ..policy() }.point(200000), (Some(167000), None));
+        assert_eq!(CompactPolicy { max_output: Some(8000), ..policy() }.point(200000), (Some(179000), None));
+        assert_eq!(CompactPolicy { max_output: Some(64000), ..policy() }.point(200000), (Some(167000), None));
+        assert_eq!(CompactPolicy { pct: Some(50.0), ..policy() }.point(200000), (Some(90000), None));
+        assert_eq!(CompactPolicy { pct: Some(99.0), ..policy() }.point(200000), (Some(167000), None), "never later");
+        assert_eq!(CompactPolicy { enabled: false, ..policy() }.point(200000), (None, Some(197000)));
+    }
+
+    #[test]
+    fn maps_compactions_with_their_summary() {
+        use agent_client_protocol::schema::v1::{CompactionStatus as Acp, CompactionSummaryChunk, CompactionUpdate};
+        let mut t = Turn::default();
+        let event = |status, trigger, pre, post, summary: Option<&str>, error: Option<&str>| {
+            Some(RunEvent::Compaction {
+                compaction_id: "c1".into(),
+                status,
+                trigger,
+                pre_tokens: pre,
+                post_tokens: post,
+                summary: summary.map(Into::into),
+                error: error.map(Into::into),
+            })
+        };
+        assert_eq!(
+            t.apply("s", SessionUpdate::CompactionUpdate(CompactionUpdate::new("c1", Acp::InProgress))),
+            event(CompactionStatus::Running, None, None, None, None, None)
+        );
+        let chunk = |s: &str| CompactionSummaryChunk::new("c1", ContentBlock::Text(TextContent::new(s)));
+        assert_eq!(t.apply("s", SessionUpdate::CompactionSummaryChunk(chunk("Working on "))), None);
+        t.apply("s", SessionUpdate::CompactionSummaryChunk(chunk("the meter.")));
+        let meta = serde_json::json!({ "contextCompaction": { "version": 1, "trigger": "automatic", "preTokens": 167000, "postTokens": 12000, "durationMs": 900 } });
+        let done = CompactionUpdate::new("c1", Acp::Completed).meta(meta.as_object().cloned().unwrap());
+        assert_eq!(
+            t.apply("s", SessionUpdate::CompactionUpdate(done)),
+            event(
+                CompactionStatus::Completed,
+                Some(CompactionTrigger::Auto),
+                Some(167000),
+                Some(12000),
+                Some("Working on the meter."),
+                None
+            )
+        );
+
+        let mut t = Turn::default();
+        let summary = vec![ContentBlock::Text(TextContent::new("界".repeat(9000)))];
+        let meta = serde_json::json!({ "contextCompaction": { "trigger": "manual" } });
+        let done =
+            CompactionUpdate::new("c2", Acp::Completed).summary(summary).meta(meta.as_object().cloned().unwrap());
+        let Some(RunEvent::Compaction { summary: Some(s), trigger, .. }) =
+            t.apply("s", SessionUpdate::CompactionUpdate(done))
+        else {
+            panic!("a completed compaction")
+        };
+        assert_eq!(
+            (s.chars().count(), trigger),
+            (SUMMARY_MAX, Some(CompactionTrigger::Manual)),
+            "the summary patch wins, clipped"
+        );
+        let failed = CompactionUpdate::new("c3", Acp::Failed).error("prompt too long".to_string());
+        assert!(matches!(
+            t.apply("s", SessionUpdate::CompactionUpdate(failed)),
+            Some(RunEvent::Compaction { status: CompactionStatus::Failed, error: Some(e), .. }) if e == "prompt too long"
+        ));
+        assert!(matches!(
+            t.apply("s", SessionUpdate::CompactionUpdate(CompactionUpdate::new("c4", Acp::Cancelled))),
+            Some(RunEvent::Compaction { status: CompactionStatus::Cancelled, summary: None, .. })
+        ));
+    }
+
+    #[test]
+    fn advertises_compaction_updates() {
+        let caps = serde_json::to_value(client_capabilities()).unwrap();
+        assert_eq!(caps["session"]["compaction"], serde_json::json!({}));
+        assert!(caps["_meta"]["jetbrains"]["air"]["capabilities"].is_array());
     }
 
     #[test]

@@ -1,0 +1,9 @@
+{
+  "t": "run.event",
+  "runId": "r1",
+  "event": {
+    "kind": "usage",
+    "usage": { "costUsd": 0.5 },
+    "context": { "used": 124000, "size": 200000, "blockAt": 197000 }
+  }
+}

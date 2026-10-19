@@ -333,7 +333,22 @@ export const RunEvent = z.discriminatedUnion('kind', [
       })
       .optional(),
   }),
+  /** `usage` carries what the run spent (cost so far); `context` is occupancy, never folded into `usage`. */
   z.object({ kind: z.literal('usage'), usage: Usage, context: ContextUsage.optional() }),
+  /**
+   * A context compaction (ACP compaction_update), sent when it starts and again when it ends. Tokens before and
+   * after and the trigger come with the end; `summary` (clipped, redacted server-side) is what the agent kept.
+   */
+  z.object({
+    kind: z.literal('compaction'),
+    compactionId: z.string(),
+    status: z.enum(['running', 'completed', 'failed', 'cancelled']),
+    trigger: z.enum(['manual', 'auto']).optional(),
+    preTokens: z.number().int().optional(),
+    postTokens: z.number().int().optional(),
+    summary: z.string().optional(),
+    error: z.string().optional(),
+  }),
   /** Full snapshot of a delegated subagent (Claude Agent/Task tool, Codex spawn_agent), sent on every change. */
   z.object({
     kind: z.literal('subagent'),

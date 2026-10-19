@@ -1,5 +1,6 @@
 import type { RunDetailDto, RunEvent } from '@gonggong/protocol'
 import { t } from '../../i18n'
+import { fmtTokens } from '../../lib/format'
 import { type DiffFile, findFile } from '../diff/patch'
 import { argSummary, type McpCall, mcpLabel } from './mcp'
 
@@ -71,7 +72,7 @@ export function processSteps(
   const merged = new Map<string, { step: Step; first: string }>()
   const subagents: [string, Step][] = []
   for (const { id, at, event } of events) {
-    const step = eventStep(id, event)
+    const step = eventStep(id, event, live)
     if (!step) continue
     step.at = at
     const owner =
@@ -83,7 +84,9 @@ export function processSteps(
           ? `s${event.agentId}`
           : event.kind === 'task'
             ? `k${event.taskId}`
-            : null
+            : event.kind === 'compaction'
+              ? `c${event.compactionId}`
+              : null
     if (key) {
       const seen = merged.get(key)
       if (event.kind === 'tool')
@@ -127,7 +130,7 @@ const TASK_STATE: Record<string, string> = {
   stopped: t('已停止'),
 }
 
-function eventStep(id: number, e: RunEvent): Step | null {
+function eventStep(id: number, e: RunEvent, live: boolean): Step | null {
   const key = `e${id}`
   switch (e.kind) {
     case 'thought':
@@ -164,8 +167,34 @@ function eventStep(id: number, e: RunEvent): Step | null {
         failed: e.state === 'failed',
         stop: e.canStop && (e.state === 'running' || e.state === 'paused') ? e.taskId : undefined,
       }
+    case 'compaction':
+      return { key, kind: 'compaction', ...compactionStep(e, live) }
     case 'usage':
       return null
+  }
+}
+
+/** One compaction's row: what happened, tokens before → after (or the error), the kept summary to fold out. */
+function compactionStep(e: Extract<RunEvent, { kind: 'compaction' }>, live: boolean) {
+  const running = live && e.status === 'running'
+  const tokens =
+    e.preTokens != null && e.postTokens != null
+      ? `${fmtTokens(e.preTokens)} → ${fmtTokens(e.postTokens)}`
+      : undefined
+  switch (e.status) {
+    case 'running':
+      return { label: running ? t('正在压缩上下文…') : t('压缩上下文未完成'), running }
+    case 'completed':
+      return {
+        label: e.trigger === 'auto' ? t('已自动压缩上下文') : t('已压缩上下文'),
+        mono: tokens,
+        out: e.summary,
+        running,
+      }
+    case 'failed':
+      return { label: t('压缩上下文失败'), mono: e.error, failed: true, running }
+    case 'cancelled':
+      return { label: t('压缩已取消'), running }
   }
 }
 

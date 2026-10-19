@@ -24,7 +24,7 @@ import { daemonWorkspaceRoutes } from './daemon.js'
 import { workspaceDiffRoutes } from './diff.js'
 import { workspaceFileRoutes } from './files.js'
 import { currentRepo, ensureWorkspace, onlineMachine, PAUSING } from './provision.js'
-import { listBotStates, updateBotState } from './state.js'
+import { listBotStates, RESET_SESSION, updateBotState } from './state.js'
 
 const DIR_TIMEOUT_MS = 10_000
 /** repo.find walks the home dir: allow it longer than one directory listing. */
@@ -135,7 +135,7 @@ export function workspaceRoutes(ctx: Ctx) {
         if (extraDirs.join('\n') === gb.extraDirs.join('\n')) return reply.status(204).send()
         await updateBotState(ctx, group.id, bot.id, {
           extraDirs,
-          sessionId: null,
+          ...RESET_SESSION,
           newSessionReason: 'config_changed',
         })
         await postEvent(

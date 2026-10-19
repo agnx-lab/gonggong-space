@@ -377,7 +377,7 @@ describe('context meter', () => {
     await waitFor(() => expect(posted()).toEqual(['/compact @小王的 Claude', '/new @小王的 Claude']))
   })
 
-  it('marks where auto-compaction runs when the daemon knows it', async () => {
+  it('counts down to auto-compaction and warns 20k before it', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -386,18 +386,72 @@ describe('context meter', () => {
             JSON.stringify([
               state('b1', { git: git(), context: { used: 50_000, size: 200_000, compactAt: 167_000 } }),
               state('b2', { git: git(), context: { used: 50_000, size: 200_000 } }),
+              state('b3', { git: git(), context: { used: 150_000, size: 200_000, compactAt: 167_000 } }),
+            ]),
+          ),
+      ),
+    )
+    render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
+    const meter = await screen.findByRole('button', { name: '小王的 Claude 上下文 50k / 200k' })
+    expect(meter.getAttribute('title')).toContain('还剩 117k 自动压缩')
+    expect(meter.dataset.level).toBe('normal')
+    expect(meter.querySelector('.ctx-meter__mark')).toBeTruthy()
+    const other = screen.getByRole('button', { name: '老李的 Codex 上下文 50k / 200k' })
+    expect(other.querySelector('.ctx-meter__mark')).toBeNull()
+    // 75% of the window, past compactAt − 20k: warning, but never critical while the agent compacts by itself.
+    expect(screen.getByRole('button', { name: '阿杰的 Claude 上下文 150k / 200k' }).dataset.level).toBe(
+      'warning',
+    )
+    fireEvent.click(meter)
+    expect(await screen.findByText(/还剩 117k 自动压缩/)).toBeTruthy()
+    expect(screen.queryByText(/即将用满/)).toBeNull()
+  })
+
+  it('says the agent stops at blockAt when auto-compaction is off', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              state('b1', { git: git(), context: { used: 100_000, size: 200_000, blockAt: 197_000 } }),
+              state('b2', { git: git(), context: { used: 180_000, size: 200_000, blockAt: 197_000 } }),
             ]),
           ),
       ),
     )
     render(<GitBar group={group({ botIds: ['b1', 'b2'] })} />)
-    const meter = await screen.findByRole('button', { name: '小王的 Claude 上下文 50k / 200k' })
-    expect(meter.getAttribute('title')).toContain('约在 167k 时自动压缩')
-    expect(meter.querySelector('.ctx-meter__mark')).toBeTruthy()
-    const other = screen.getByRole('button', { name: '老李的 Codex 上下文 50k / 200k' })
-    expect(other.querySelector('.ctx-meter__mark')).toBeNull()
-    fireEvent.click(meter)
-    expect(await screen.findByText(/约在 167k 时自动压缩/)).toBeTruthy()
+    const meter = await screen.findByRole('button', { name: '小王的 Claude 上下文 100k / 200k' })
+    expect(meter.dataset.level).toBe('normal')
+    expect(meter.querySelector('.ctx-meter__mark--block')).toBeTruthy()
+    const full = screen.getByRole('button', { name: '老李的 Codex 上下文 180k / 200k' })
+    expect(full.dataset.level).toBe('critical')
+    fireEvent.click(full)
+    expect(
+      await screen.findByText(/已关闭自动压缩，用到 197k 时 Agent 会停下，需要手动压缩或开新对话/),
+    ).toBeTruthy()
+    expect(screen.getByText(/即将停下/)).toBeTruthy()
+    expect(screen.queryByText(/自动压缩。$|Agent 会自动压缩/)).toBeNull()
+  })
+
+  it('sends what to keep along with /compact', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/bot-states')
+          ? new Response(
+              JSON.stringify([state('b1', { git: git(), context: { used: 50_000, size: 200_000 } })]),
+            )
+          : new Response(JSON.stringify({ id: 'm1' })),
+      ),
+    )
+    render(<GitBar group={group({ botIds: ['b1'] })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 上下文 50k / 200k' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: '压缩时保留的重点（可选）' }), {
+      target: { value: '  保留接口设计 ' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '压缩上下文' }))
+    await waitFor(() => expect(posted()).toEqual(['/compact 保留接口设计 @小王的 Claude']))
   })
 })
 

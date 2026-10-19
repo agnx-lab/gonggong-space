@@ -88,9 +88,12 @@ pub struct Usage {
 pub struct ContextUsage {
     pub used: u64,
     pub size: u64,
-    /// Tokens at which auto-compaction runs, when known.
+    /// Tokens at which the agent compacts by itself, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_at: Option<u64>,
+    /// Auto-compaction is off: the agent stops here until compacted by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -684,6 +687,22 @@ pub enum RunEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<ContextUsage>,
     },
+    /// A context compaction, sent when it starts and when it ends.
+    #[serde(rename_all = "camelCase")]
+    Compaction {
+        compaction_id: String,
+        status: CompactionStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trigger: Option<CompactionTrigger>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pre_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        post_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     #[serde(rename_all = "camelCase")]
     Subagent {
         agent_id: String,
@@ -710,6 +729,22 @@ pub enum RunEvent {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         can_stop: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompactionStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompactionTrigger {
+    Manual,
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
