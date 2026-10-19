@@ -91,6 +91,13 @@ impl Host {
         }
     }
 
+    pub fn context(&self, group_id: &str, bot_id: &str) -> Option<gonggong::protocol::ContextUsage> {
+        match &*self.state.lock().unwrap() {
+            State::Running(daemon) => daemon.context(group_id, bot_id),
+            _ => None,
+        }
+    }
+
     /// Hands a fresh local detection to the running daemon, which reports it to the server if it changed.
     pub fn report_agents(&self, agents: Vec<gonggong::protocol::AgentInfo>) {
         if let State::Running(daemon) = &*self.state.lock().unwrap() {

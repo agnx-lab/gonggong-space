@@ -117,6 +117,10 @@ impl Daemon {
         self.monitor.subscribe()
     }
 
+    pub fn context(&self, group_id: &str, bot_id: &str) -> Option<crate::protocol::ContextUsage> {
+        self.monitor.context(group_id, bot_id)
+    }
+
     /// A fresh local detection (the desktop's 重新检测, a changed path); reported to the server if it differs.
     pub fn set_agents(&self, agents: Vec<AgentInfo>) {
         publish_agents(&self.agents, agents);

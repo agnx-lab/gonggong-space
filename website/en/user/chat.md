@@ -57,7 +57,7 @@ Messages without an @ don't trigger Bots. Below the input box you'll see 「未 
 
 The next time a Bot is triggered, it receives the group messages sent after its previous run and before this trigger:
 
-- By default, up to the latest **20** messages. Admins can adjust this with the system parameter 「每轮随消息附带的群聊上下文」 (Group chat context attached per turn); see [System parameters](/en/admin/params).
+- Newest first, about **8000** tokens in total by default (estimated from text length, no message-count limit). Admins can adjust this with the system parameter 「每轮随消息附带的群聊上下文（token 上限）」 (Group chat context sent with each turn, max tokens); see [System parameters](/en/admin/params).
 - Older messages aren't attached directly; the Bot reads the group history itself when it needs to.
 - Not included: the Bot's own messages, command messages, and recalled messages.
 

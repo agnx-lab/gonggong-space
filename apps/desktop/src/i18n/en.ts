@@ -385,4 +385,8 @@ export const en = {
     'Loads the personal config, CLAUDE.md, memory, hooks and skills under ~/.claude',
   '本机 CLI 配置设置了 {list}，会盖过共工的对应设置':
     'The local CLI config sets {list}, which overrides the matching Gonggong settings',
+  '{bot} 上下文 {detail}': '{bot} context {detail}',
+  '{bot} 的上下文': "{bot}'s context",
+  '在群里发 /compact @{bot} 压缩上下文，发 /new 开新对话。':
+    'Send /compact @{bot} in the group to compact the context, or /new to start a new conversation.',
 } satisfies Record<string, string>

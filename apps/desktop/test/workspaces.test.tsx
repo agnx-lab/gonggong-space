@@ -19,12 +19,13 @@ const row = (o: Partial<WorkspaceRow>): WorkspaceRow => ({
   state: 'running',
   stateLabel: '运行中',
   deletable: false,
+  context: null,
   ...o,
 })
 
 const DATA: Workspaces = {
   rows: [
-    row({}),
+    row({ context: { used: 124_000, size: 200_000, compactAt: 167_000 } }),
     row({
       groupId: 'g2',
       group: '数据平台',
@@ -99,6 +100,24 @@ describe('工作区', () => {
     expect(screen.getByText('~/.gonggong/backups/web-site/0923-1002')).toBeTruthy()
     fireEvent.click(screen.getAllByRole('button', { name: '在 Finder 中显示' })[1]!)
     expect(m.reveal).toHaveBeenCalledWith('/Users/wl/.gonggong/backups/web-site/0923-1002')
+  })
+
+  it("shows each conversation's context occupancy, read only", async () => {
+    render(<WorkspacesPage go={() => {}} />)
+    await screen.findByText('支付服务重构')
+    expect(screen.getByRole('columnheader', { name: '上下文' })).toBeTruthy()
+    const ring = within(rowOf('支付服务重构')).getByRole('button', {
+      name: '小王的 Claude 上下文 124k / 200k',
+    })
+    expect(ring.dataset.level).toBe('normal')
+    expect(ring.textContent).toBe('62%')
+    expect(ring.title).toBe('上下文 124k / 200k · 还剩 43k 自动压缩')
+    expect(within(rowOf('数据平台')).queryByRole('button', { name: /上下文/ })).toBeNull()
+    fireEvent.click(ring)
+    const pop = await screen.findByRole('dialog', { name: '小王的 Claude 的上下文' })
+    expect(within(pop).getByText('124k / 200k')).toBeTruthy()
+    expect(pop.textContent).toContain('在群里发 /compact @小王的 Claude 压缩上下文，发 /new 开新对话。')
+    expect(within(pop).queryByRole('button', { name: '压缩上下文' })).toBeNull()
   })
 
   it('deletes a removed workspace only after confirmation, then reloads', async () => {

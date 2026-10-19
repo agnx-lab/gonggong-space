@@ -31,8 +31,8 @@ The three items marked 「群默认」 (group default) are global defaults for g
 
 | Parameter | Default | Range | Description |
 | --- | --- | --- | --- |
-| 会话恢复失败时补送群消息数 (Group messages to resend when session resume fails) | 50 messages | 1–500 | When a Bot resumes a previous session, the most recent group messages are prepared alongside it and sent to the new session if the old one can't be resumed; the actual count doesn't exceed the next item |
-| 每轮随消息附带的群聊上下文 (Group chat context attached per turn) | 20 messages | 1–200 | The maximum number of group messages sent to the Bot with the @ message on each run (new messages since that Bot's last run); the Bot can read older messages itself via built-in tools |
+| 会话恢复失败时补送的群聊上下文（token 上限） (Group chat context replayed when a session cannot resume, max tokens) | 16000 tokens | 1000–100000 | When a Bot resumes a previous session, the most recent group messages (up to this total) are prepared alongside it and sent to the new session if the old one can't be resumed; the Bot can read older messages itself via built-in tools |
+| 每轮随消息附带的群聊上下文（token 上限） (Group chat context sent with each turn, max tokens) | 8000 tokens | 1000–100000 | The maximum total size of group messages sent to the Bot with the @ message on each run (new messages since that Bot's last run, newest first, tokens estimated from text length, no message-count limit; a newest message over the limit on its own is truncated); the Bot can read older messages itself via built-in tools |
 | 提问卡片每张题数上限 (Max questions per question card) | 4 questions | 1–4 | Has no effect in the current version; each question card is fixed at a maximum of 4 questions |
 
 ## Attachments

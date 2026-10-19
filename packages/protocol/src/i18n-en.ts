@@ -210,8 +210,9 @@ export const protocolEn = {
   '版本号需为 x.y.z': 'Version must be x.y.z',
 
   // System parameters
-  会话恢复失败时补送群消息数: 'Group messages replayed when a session cannot resume',
-  每轮随消息附带的群聊上下文: 'Group chat context sent with each turn',
+  '会话恢复失败时补送的群聊上下文（token 上限）':
+    'Group chat context replayed when a session cannot resume (max tokens)',
+  '每轮随消息附带的群聊上下文（token 上限）': 'Group chat context sent with each turn (max tokens)',
   完整运行过程保留: 'Keep full run details for',
   预览无人访问后自动关闭: 'Close previews after no visits for',
   预览公开链接最长有效期: 'Longest validity of a public preview link',

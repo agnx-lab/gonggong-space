@@ -26,6 +26,7 @@ import { enabledSkills } from '../skills/service.js'
 import { runSyncStart } from '../sync/store.js'
 import { sendDueInits, syncHeld, syncOutdated } from '../sync/switch.js'
 import { unreadyGroups } from '../workspaces/state.js'
+import { fitBudget } from './context-budget.js'
 import { publishRuns, type RunRow } from './dto.js'
 import { runStep } from './step.js'
 import { interruptNote } from './stop.js'
@@ -219,14 +220,14 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
   const resumeSessionId = gb.newSessionReason ? null : gb.sessionId
   const [recent, replay, interrupted, feishu, relay, scheduled, tier, sync] = await Promise.all([
     // Older messages stay out of the prompt; the agent reads them with the gonggong tools (plan C1).
-    command ? [] : contextMessages(tx, since, params.contextInlineMax),
+    command ? null : contextMessages(tx, since, params.contextInlineTokens),
     resumeSessionId && !command
       ? contextMessages(
           tx,
           and(eq(messages.groupId, run.groupId), lt(messages.seq, trigger.seq)),
-          Math.min(params.sessionReplayCount, params.contextInlineMax),
+          params.sessionReplayTokens,
         )
-      : [],
+      : null,
     interruptNote(tx, run, at),
     // A DM's single chat with the bot app is synced whole: nothing to read from Feishu.
     group.kind === 'group' && boundChat(tx, run.groupId),
@@ -235,10 +236,9 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean) {
     runTier(tx, (gb.tier ?? bot.tier) as Tier),
     synced ? runSyncStart(tx, run.groupId, bot.id, meta.syncResolve?.decisions ?? null) : null,
   ])
-  const context = recent.reverse()
-  const fallbackContext = replay.reverse()
-  const omitted =
-    command || context.length < params.contextInlineMax ? 0 : (await countContext(tx, since)) - context.length
+  const context = recent?.kept.reverse() ?? []
+  const fallbackContext = replay?.kept.reverse() ?? []
+  const omitted = !recent || recent.complete ? 0 : (await countContext(tx, since)) - context.length
   const config = resolveConfig(catalog, meta.runOptions?.[bot.id], gb, bot)
   const note = [...(interrupted ? [interrupted.note] : []), ...relay, ...(scheduled ? [scheduled] : [])]
   const protectBase = group.protectBase && !!repo
@@ -340,8 +340,24 @@ async function countContext(tx: Tx, where: SQL | undefined) {
   return row?.n ?? 0
 }
 
-/** Humans' messages and bots' final replies; the latest `limit` ones, newest first. */
-async function contextMessages(tx: Tx, where: SQL | undefined, limit: number): Promise<ContextMessage[]> {
+/** Rows read per query, and at most this many in all: a huge backlog is only counted in `omitted`. */
+const CONTEXT_PAGE = 100
+const CONTEXT_MAX_ROWS = 500
+
+/** Humans' messages and bots' final replies: the latest ones within `budget` tokens, newest first. */
+async function contextMessages(tx: Tx, where: SQL | undefined, budget: number) {
+  const rows: ContextMessage[] = []
+  for (let before: number | null = null; rows.length < CONTEXT_MAX_ROWS; ) {
+    const page = await contextPage(tx, before === null ? where : and(where, lt(messages.seq, before)))
+    rows.push(...page)
+    const fit = fitBudget(rows, budget)
+    if (!fit.complete || page.length < CONTEXT_PAGE) return fit
+    before = page[page.length - 1]?.seq ?? null
+  }
+  return { ...fitBudget(rows, budget), complete: false }
+}
+
+async function contextPage(tx: Tx, where: SQL | undefined): Promise<ContextMessage[]> {
   const rows = await tx
     .select({
       seq: messages.seq,
@@ -357,7 +373,7 @@ async function contextMessages(tx: Tx, where: SQL | undefined, limit: number): P
     .leftJoin(bots, eq(bots.id, messages.authorBotId))
     .where(contextFilter(where))
     .orderBy(desc(messages.seq))
-    .limit(limit)
+    .limit(CONTEXT_PAGE)
   return rows.map((r) => ({
     seq: r.seq,
     author: r.user ?? r.bot ?? '',

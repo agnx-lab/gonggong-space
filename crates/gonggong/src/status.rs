@@ -1,9 +1,11 @@
 //! Live daemon status for UIs (the desktop app): connection, heartbeat, latency and the runs executing here.
 //! `Service` feeds it from the messages it relays; readers take snapshots or watch for changes.
-use crate::protocol::{AgentInfo, DaemonToServer, RejectReason, RunEvent, RunOutcome, RunStatus, ServerToDaemon};
+use crate::protocol::{
+    AgentInfo, ContextUsage, DaemonToServer, RejectReason, RunEvent, RunOutcome, RunStatus, ServerToDaemon,
+};
 use crate::service::MAX_MERGED_DELTA;
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -44,6 +46,8 @@ pub struct RunInfo {
     /// Waiting behind an earlier run of the same (group, bot) conversation.
     pub queued: bool,
     pub started_ms: u64,
+    /// The conversation's context window occupancy, as last reported.
+    pub context: Option<ContextUsage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -113,6 +117,8 @@ pub struct ProcessPatch {
 struct Journal {
     runs: VecDeque<Process>,
     next_id: u64,
+    /// Latest context occupancy per (group, bot) conversation; outlives its runs and session.
+    contexts: HashMap<(String, String), ContextUsage>,
 }
 
 impl Journal {
@@ -120,6 +126,9 @@ impl Journal {
         let Some(p) = self.runs.iter_mut().find(|p| p.run.run_id == run_id) else { return };
         p.rev += 1;
         progress(&mut p.run, event);
+        if let RunEvent::Usage { context: Some(c), .. } = event {
+            self.contexts.insert((p.run.group_id.clone(), p.run.bot_id.clone()), *c);
+        }
         if let Some(last) = p.events.back_mut() {
             match (&mut last.event, event) {
                 (RunEvent::Text { delta: a, agent_id: x }, RunEvent::Text { delta: b, agent_id: y })
@@ -157,6 +166,12 @@ impl Journal {
 /// Whether `event` changed what `run` shows.
 fn progress(run: &mut RunInfo, event: &RunEvent) -> bool {
     let (status, step) = match event {
+        RunEvent::Usage { context: Some(c), .. } => {
+            let changed = run.status.is_none() || run.context != Some(*c);
+            run.status.get_or_insert(RunStatus::Running);
+            run.context = Some(*c);
+            return changed;
+        }
         RunEvent::Status { status, step } => (*status, step),
         RunEvent::Tool { title, .. } => (RunStatus::Running, title),
         _ => {
@@ -267,12 +282,21 @@ impl Monitor {
         self.set(|s| &mut s.latency_ms, Some(rtt.as_millis() as u64));
     }
 
+    /// The (group, bot) conversation's context occupancy as last reported, until a new session replaces it.
+    pub fn context(&self, group_id: &str, bot_id: &str) -> Option<ContextUsage> {
+        self.journal.lock().unwrap().contexts.get(&(group_id.to_string(), bot_id.to_string())).copied()
+    }
+
     pub(crate) fn inbound(&self, msg: &ServerToDaemon) {
         let ServerToDaemon::RunStart(start) = msg else { return };
         let mut journal = self.journal.lock().unwrap();
         // Sent again while running: the engine ignores it too.
         if journal.runs.iter().any(|p| p.run.run_id == start.run_id && p.ended_ms.is_none()) {
             return;
+        }
+        let key = (start.group_id.clone(), start.bot.id.clone());
+        if start.resume_session_id.is_none() {
+            journal.contexts.remove(&key);
         }
         let run = RunInfo {
             run_id: start.run_id.clone(),
@@ -285,6 +309,7 @@ impl Monitor {
             step: crate::t!("准备工作区").into(),
             queued: false,
             started_ms: now_ms(),
+            context: journal.contexts.get(&key).copied(),
         };
         journal.runs.push_back(Process {
             run: run.clone(),
@@ -334,6 +359,7 @@ fn mark_queued(runs: &mut [RunInfo]) {
 mod tests {
     use super::*;
     use crate::engine::failed;
+    use crate::protocol::ContextUsage;
 
     fn start(run_id: &str, group: &str) -> ServerToDaemon {
         let mut raw: serde_json::Value =
@@ -527,6 +553,44 @@ mod tests {
         assert!(!rx.has_changed().unwrap(), "streamed deltas and repeated reports do not notify");
         m.outbound(&event("r1", step));
         assert!(rx.has_changed().unwrap(), "a new step does");
+    }
+
+    #[test]
+    fn remembers_each_conversations_context_until_a_fresh_session_starts() {
+        let m = Monitor::default();
+        let usage = |used| RunEvent::Usage {
+            usage: Default::default(),
+            context: Some(ContextUsage { used, size: 200_000, compact_at: Some(167_000), block_at: None }),
+        };
+        let ctx = |used| Some(ContextUsage { used, size: 200_000, compact_at: Some(167_000), block_at: None });
+        assert_eq!(m.context("g1", "b1"), None);
+
+        m.inbound(&start("r1", "g1"));
+        assert_eq!(m.snapshot().runs[0].context, None);
+        let mut rx = m.subscribe();
+        rx.mark_unchanged();
+        m.outbound(&event("r1", usage(50_000)));
+        assert!(rx.has_changed().unwrap(), "a new occupancy reaches the UI");
+        assert_eq!(m.snapshot().runs[0].context, ctx(50_000));
+        assert_eq!(m.process_since("r1", None, None).unwrap().run.context, ctx(50_000));
+        rx.mark_unchanged();
+        m.outbound(&event("r1", usage(50_000)));
+        assert!(!rx.has_changed().unwrap(), "the same occupancy does not notify");
+        m.outbound(&event("r1", RunEvent::Usage { usage: Default::default(), context: None }));
+        m.outbound(&failed("r1", "x".into()));
+        assert_eq!(m.context("g1", "b1"), ctx(50_000), "kept after the run ends");
+        assert_eq!(m.context("g2", "b1"), None);
+
+        m.inbound(&start("r2", "g1"));
+        assert_eq!(m.snapshot().runs[0].context, ctx(50_000), "a resumed run starts from the last occupancy");
+
+        let mut fresh: serde_json::Value =
+            serde_json::from_str(include_str!("../../../packages/protocol/fixtures/s2d.run.start.json")).unwrap();
+        fresh["runId"] = "r3".into();
+        fresh["resumeSessionId"] = serde_json::Value::Null;
+        m.inbound(&serde_json::from_value(fresh).unwrap());
+        assert_eq!(m.context("g1", "b1"), None, "a new session starts empty");
+        assert_eq!(m.snapshot().runs[1].context, None);
     }
 
     #[test]

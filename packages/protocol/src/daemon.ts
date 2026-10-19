@@ -285,9 +285,9 @@ export const RunStart = z.object({
     triggeredBy: z.string(),
     /** The latest group messages since this bot was last @-ed (humans + other bots' final replies). */
     context: z.array(ContextMessage),
-    /** Messages since the last @ left out of `context` (over `contextInlineMax`); the agent reads them with gonggong tools. */
+    /** Messages since the last @ left out of `context` (over the `contextInlineTokens` budget); the agent reads them with gonggong tools. */
     omitted: z.number().int().min(0),
-    /** Last N group messages, replayed only if resuming `resumeSessionId` fails. Empty when not resuming. */
+    /** Latest group messages within `sessionReplayTokens`, replayed only if resuming `resumeSessionId` fails. Empty when not resuming. */
     fallbackContext: z.array(ContextMessage),
     /** Files of the trigger message: written into the workspace; images also sent as ACP image content if supported. */
     attachments: z.array(Attachment),

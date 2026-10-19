@@ -95,6 +95,7 @@ export function run(over: Partial<RunInfo>): RunInfo {
     step: 'go build ./...',
     queued: false,
     startedMs: 0,
+    context: null,
     ...over,
   }
 }

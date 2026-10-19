@@ -372,8 +372,8 @@ describe('system params', () => {
       approvalTimeoutMin: 30,
       chainMaxHops: 3,
       offlineWaitMin: 30,
-      sessionReplayCount: 50,
-      contextInlineMax: 20,
+      sessionReplayTokens: 16000,
+      contextInlineTokens: 8000,
       runRetentionDays: 30,
       attachmentMaxMb: 50,
       attachmentsPerMessage: 10,
@@ -418,11 +418,14 @@ describe('system params', () => {
     await t.db.insert(systemParams).values([
       { key: 'writerDisconnectReleaseSec', value: 60 },
       { key: 'forceSyncMaxLatencyMs', value: 120 },
+      { key: 'contextInlineMax', value: 20 },
+      { key: 'sessionReplayCount', value: 50 },
     ])
     forgetSysParams(t.db)
-    expect((await put(cookie, '/api/admin/params', { sessionReplayCount: 20 })).status).toBe(200)
+    expect((await put(cookie, '/api/admin/params', { sessionReplayTokens: 20000 })).status).toBe(200)
     const params = await sysParams(t.db)
-    expect(params.sessionReplayCount).toBe(20)
+    expect(params.sessionReplayTokens).toBe(20000)
+    expect(params).not.toHaveProperty('contextInlineMax')
     expect(params).not.toHaveProperty('writerDisconnectReleaseSec')
     expect((await admin.get<SystemParams>('/api/admin/params')).body).not.toHaveProperty(
       'forceSyncMaxLatencyMs',

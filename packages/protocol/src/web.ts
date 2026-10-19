@@ -1431,8 +1431,8 @@ export type AdminMachineDto = z.infer<typeof AdminMachineDto>
 
 /** System-wide defaults editable by the sysadmin (spec §10); group params override the group-level ones. */
 export const SystemParams = GroupParams.extend({
-  sessionReplayCount: z.number().int().min(1).max(500),
-  contextInlineMax: z.number().int().min(1).max(200),
+  sessionReplayTokens: z.number().int().min(1000).max(100000),
+  contextInlineTokens: z.number().int().min(1000).max(100000),
   runRetentionDays: z.number().int().min(1).max(3650),
   attachmentMaxMb: z
     .number()
@@ -1470,8 +1470,8 @@ export const TEAM_PARAM_KEYS = [
   'approvalTimeoutMin',
   'chainMaxHops',
   'offlineWaitMin',
-  'contextInlineMax',
-  'sessionReplayCount',
+  'contextInlineTokens',
+  'sessionReplayTokens',
   'botConcurrencyDefault',
   'attachmentsPerMessage',
   'questionsPerCard',
@@ -1506,8 +1506,8 @@ export const SYSTEM_PARAM_VIEW: {
   label: string
   unit: string
 }[] = [
-  { key: 'sessionReplayCount', label: '会话恢复失败时补送群消息数', unit: '条' },
-  { key: 'contextInlineMax', label: '每轮随消息附带的群聊上下文', unit: '条' },
+  { key: 'sessionReplayTokens', label: '会话恢复失败时补送的群聊上下文（token 上限）', unit: 'token' },
+  { key: 'contextInlineTokens', label: '每轮随消息附带的群聊上下文（token 上限）', unit: 'token' },
   { key: 'runRetentionDays', label: '完整运行过程保留', unit: '天' },
   { key: 'previewIdleHours', label: '预览无人访问后自动关闭', unit: '小时' },
   { key: 'previewShareMaxDays', label: '预览公开链接最长有效期', unit: '天' },

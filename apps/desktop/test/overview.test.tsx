@@ -100,6 +100,22 @@ describe('overview', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it("shows the running bot's context occupancy on its row", async () => {
+    show(
+      status({
+        runs: [
+          run({ runId: 'r1', context: { used: 180_000, size: 200_000, blockAt: 187_000 } }),
+          run({ runId: 'r2', groupId: 'g2', groupName: '官网改版' }),
+        ],
+      }),
+    )
+    const running = screen.getByTestId('running')
+    const ring = within(running).getByLabelText('小王的 Claude 上下文 180k / 200k')
+    expect(ring.dataset.level).toBe('critical')
+    expect(ring.textContent).toBe('90%')
+    expect(within(running).getAllByLabelText(/上下文/)).toHaveLength(1)
+  })
+
   it('keeps the last workspace count while it is counted again', async () => {
     m.overview.mockReturnValue(new Promise(() => {}))
     const first = show(status())

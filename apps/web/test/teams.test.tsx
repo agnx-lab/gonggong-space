@@ -307,8 +307,8 @@ describe('team management tabs', () => {
           approvalTimeoutMin: 30,
           chainMaxHops: 3,
           offlineWaitMin: 30,
-          contextInlineMax: 20,
-          sessionReplayCount: 50,
+          contextInlineTokens: 8000,
+          sessionReplayTokens: 16000,
           botConcurrencyDefault: 2,
           attachmentsPerMessage: 10,
           questionsPerCard: 5,
@@ -319,15 +319,17 @@ describe('team management tabs', () => {
     signIn({ teams: [team({ role: 'admin' })], singleTeamMode: false, canCreateTeam: false })
     render(<TeamSettingsDialog team={team({ role: 'admin' })} onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: '参数' }))
-    const context = (await screen.findByLabelText('每轮随消息附带的群聊上下文')) as HTMLInputElement
-    expect([context.value, context.placeholder]).toEqual(['', '20'])
+    const context = (await screen.findByLabelText(
+      '每轮随消息附带的群聊上下文（token 上限）',
+    )) as HTMLInputElement
+    expect([context.value, context.placeholder]).toEqual(['', '8000'])
     expect((screen.getByLabelText('接力链长上限 · 群默认') as HTMLInputElement).value).toBe('2')
-    fireEvent.change(context, { target: { value: '8' } })
+    fireEvent.change(context, { target: { value: '4000' } })
     fireEvent.blur(context)
     fireEvent.click(screen.getByRole('button', { name: '接力链长上限 · 群默认：恢复继承' }))
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
-    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ params: { contextInlineMax: 8 } })
+    expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ params: { contextInlineTokens: 4000 } })
   })
 
   it('opens my groups; views or takes over the others; never archives', async () => {

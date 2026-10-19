@@ -22,7 +22,7 @@ import { approvals, auditLogs, groups, messages, runs, teamMembers, teams } from
 import { audit } from '../src/lib/audit.js'
 import { saveSysParams } from '../src/modules/admin/params.js'
 import { claimAttachments } from '../src/modules/attachments/service.js'
-import { effectiveParams, groupParams } from '../src/modules/groups/params.js'
+import { effectiveParams, forgetTeamParams, groupParams } from '../src/modules/groups/params.js'
 import { enabledMcpServers } from '../src/modules/mcp/service.js'
 import { schedule } from '../src/modules/runs/scheduler.js'
 import { createTestApp, type TestApp } from './support/app.js'
@@ -140,17 +140,22 @@ describe('MCP layers (plan D8)', () => {
 describe('params layers (plan D9)', () => {
   it('applies platform → team → group, team overrides limited to the whitelist', async () => {
     const w = await world()
-    await saveSysParams(t.ctx, { chainMaxHops: 5, contextInlineMax: 30, attachmentMaxMb: 20 }, w.root.id)
+    await saveSysParams(
+      t.ctx,
+      { chainMaxHops: 5, contextInlineTokens: 30000, attachmentMaxMb: 20 },
+      w.root.id,
+    )
     const bob = await w.as(w.bob)
     expect((await bob.patch(`/api/teams/${w.teamA}`, { params: { attachmentMaxMb: 1 } })).status).toBe(400)
     expect((await bob.patch(`/api/teams/${w.teamA}`, { params: { chainMaxHops: 99 } })).status).toBe(400)
     expect((await (await w.as(w.eve)).patch(`/api/teams/${w.teamA}`, { params: {} })).status).toBe(403)
     expect(
-      (await bob.patch(`/api/teams/${w.teamA}`, { params: { chainMaxHops: 2, contextInlineMax: 8 } })).status,
+      (await bob.patch(`/api/teams/${w.teamA}`, { params: { chainMaxHops: 2, contextInlineTokens: 8000 } }))
+        .status,
     ).toBe(200)
     expect((await bob.get<TeamParamsDto>(`/api/teams/${w.teamA}/params`)).body).toMatchObject({
-      overrides: { chainMaxHops: 2, contextInlineMax: 8 },
-      platform: { chainMaxHops: 5, contextInlineMax: 30, approvalTimeoutMin: 30 },
+      overrides: { chainMaxHops: 2, contextInlineTokens: 8000 },
+      platform: { chainMaxHops: 5, contextInlineTokens: 30000, approvalTimeoutMin: 30 },
     })
 
     const groupA = (await t.db.select().from(groups).where(eq(groups.id, w.groupA.id)))[0]!
@@ -160,7 +165,7 @@ describe('params layers (plan D9)', () => {
         .chainMaxHops,
     ).toBe(5)
     const eff = await effectiveParams(t.db, w.groupA.id)
-    expect([eff.contextInlineMax, eff.attachmentMaxMb, eff.chainMaxHops]).toEqual([8, 20, 2])
+    expect([eff.contextInlineTokens, eff.attachmentMaxMb, eff.chainMaxHops]).toEqual([8000, 20, 2])
 
     await (await w.as(w.eve)).put(`/api/groups/${w.groupA.id}/params`, {
       approvalTimeoutMin: 30,
@@ -171,8 +176,24 @@ describe('params layers (plan D9)', () => {
 
     // Clearing the overrides falls back to the platform.
     await bob.patch(`/api/teams/${w.teamA}`, { params: {} })
-    expect((await effectiveParams(t.db, w.groupB.id)).contextInlineMax).toBe(30)
-    expect((await effectiveParams(t.db, w.groupA.id)).contextInlineMax).toBe(30)
+    expect((await effectiveParams(t.db, w.groupB.id)).contextInlineTokens).toBe(30000)
+    expect((await effectiveParams(t.db, w.groupA.id)).contextInlineTokens).toBe(30000)
+  })
+
+  it('ignores stored overrides of retired params and still saves new ones', async () => {
+    const w = await world()
+    await t.db
+      .update(teams)
+      .set({ params: { contextInlineMax: 8, sessionReplayCount: 5 } })
+      .where(eq(teams.id, w.teamA))
+    forgetTeamParams(t.db, w.teamA)
+    const bob = await w.as(w.bob)
+    expect((await bob.get<TeamParamsDto>(`/api/teams/${w.teamA}/params`)).body.overrides).toEqual({})
+    expect((await effectiveParams(t.db, w.groupA.id)).contextInlineTokens).toBe(8000)
+    expect((await bob.patch(`/api/teams/${w.teamA}`, { params: { contextInlineTokens: 4000 } })).status).toBe(
+      200,
+    )
+    expect((await effectiveParams(t.db, w.groupA.id)).contextInlineTokens).toBe(4000)
   })
 
   it('enforces the team’s attachmentsPerMessage when a message claims its files', async () => {

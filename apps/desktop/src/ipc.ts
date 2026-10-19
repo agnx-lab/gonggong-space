@@ -8,6 +8,7 @@ import type {
   AgentSettings,
   BotDto,
   CliSettingsSnapshot,
+  ContextUsage,
   DevtoolsBlocker,
   Locale,
   OfficialSettings,
@@ -44,6 +45,8 @@ export interface RunInfo {
   step: string
   queued: boolean
   startedMs: number
+  /** The conversation's context occupancy as last reported; null until known. */
+  context: ContextUsage | null
 }
 
 /** A run's process as executed on this machine (kept for the last finished runs too). */
@@ -133,6 +136,8 @@ export interface WorkspaceRow {
   state: WorkspaceState
   stateLabel: string
   deletable: boolean
+  /** The conversation's context occupancy as this daemon last saw it (since it started); null when unknown. */
+  context: ContextUsage | null
 }
 
 export interface BackupRow {

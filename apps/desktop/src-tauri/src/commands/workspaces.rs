@@ -2,6 +2,7 @@ use super::Result;
 use crate::host::Host;
 use crate::i18n::tr;
 use gonggong::config::Config;
+use gonggong::protocol::ContextUsage;
 use gonggong::workspace::{self, Entry, EntryKind, EntryState, human_size};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -22,6 +23,8 @@ pub struct Row {
     state: EntryState,
     state_label: String,
     deletable: bool,
+    /// The conversation's context occupancy as this daemon last saw it; null when unknown.
+    context: Option<ContextUsage>,
 }
 
 impl From<&Entry> for Row {
@@ -37,6 +40,7 @@ impl From<&Entry> for Row {
             state: e.state,
             state_label: e.state_label(),
             deletable: e.deletable(),
+            context: None,
         }
     }
 }
@@ -82,7 +86,8 @@ pub async fn workspaces(host: State<'_, Host>) -> Result<Workspaces> {
             modified_ms: b.modified.and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis()),
         })
         .collect();
-    Ok(Workspaces { rows: entries.iter().map(Row::from).collect(), backups, offline })
+    let rows = entries.iter().map(|e| Row { context: host.context(&e.group_id, &e.bot_id), ..Row::from(e) }).collect();
+    Ok(Workspaces { rows, backups, offline })
 }
 
 /// 打开 / 在 Finder 中显示.
@@ -156,5 +161,10 @@ mod tests {
         let row = Row::from(&entry(EntryKind::Managed, Some(412_000_000), EntryState::Removed));
         assert_eq!((row.group.as_str(), row.bot.as_str()), ("支付服务重构", "b"));
         assert_eq!((row.kind_label, row.state_label.as_str(), row.deletable), ("托管", "已移出 · 412 MB", true));
+        assert_eq!(
+            serde_json::to_value(&row).unwrap()["context"],
+            serde_json::Value::Null,
+            "unknown until a run reports"
+        );
     }
 }

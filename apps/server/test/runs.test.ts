@@ -196,20 +196,51 @@ describe('run engine', () => {
     expect(start.prompt.omitted).toBe(0)
   })
 
-  it('inlines only the latest contextInlineMax messages and counts the rest for the gonggong tools', async () => {
+  it('inlines the latest messages within contextInlineTokens and counts the rest for the gonggong tools', async () => {
     const w = await world()
     const d = await daemon(w.token)
-    await t.db.insert(systemParams).values({ key: 'contextInlineMax', value: 2 })
+    await t.db.insert(systemParams).values([
+      { key: 'contextInlineTokens', value: 1000 },
+      { key: 'sessionReplayTokens', value: 1000 },
+    ])
     forgetSysParams(t.db)
     await t.db.update(groupBots).set({ sessionId: 'sess-0' }).where(eq(groupBots.botId, w.bot.id))
-    for (const body of ['一', '二', '三', '四']) await w.say(body, { userId: w.bob.id })
+    for (const c of ['一', '二', '三', '四']) await w.say(c.repeat(400), { userId: w.bob.id })
     const trigger = await w.mention('@小王的 Claude hi')
     const start = await d.next()
-    expect(start.prompt.context.map((c) => c.body)).toEqual(['三', '四'])
+    expect(start.prompt.context.map((c) => c.body[0])).toEqual(['三', '四'])
     expect(start.prompt.omitted).toBe(2)
-    expect(start.prompt.fallbackContext.map((c) => c.body)).toEqual(['三', '四'])
+    expect(start.prompt.fallbackContext.map((c) => c.body[0])).toEqual(['三', '四'])
     const [gb] = await t.db.select().from(groupBots).where(eq(groupBots.botId, w.bot.id))
     expect(gb?.contextSeq).toBe(trigger.seq)
+  })
+
+  it('clips a newest message that alone exceeds the context budget', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    await t.db.insert(systemParams).values({ key: 'contextInlineTokens', value: 1000 })
+    forgetSysParams(t.db)
+    await w.say('早', { userId: w.bob.id })
+    const long = await w.say('长'.repeat(3000), { userId: w.bob.id })
+    await w.mention('@小王的 Claude hi')
+    const start = await d.next()
+    expect(start.prompt.context).toHaveLength(1)
+    expect(start.prompt.context[0]?.body).toMatch(
+      new RegExp(`^长+…（已截断，全文用 list_messages\\(around=${long.seq}\\) 查看）$`),
+    )
+    expect(start.prompt.omitted).toBe(1)
+  })
+
+  it('ignores a stored row of the retired contextInlineMax param', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    await t.db.insert(systemParams).values({ key: 'contextInlineMax', value: 1 })
+    forgetSysParams(t.db)
+    for (const body of ['一', '二', '三']) await w.say(body, { userId: w.bob.id })
+    await w.mention('@小王的 Claude hi')
+    const start = await d.next()
+    expect(start.prompt.context.map((c) => c.body)).toEqual(['一', '二', '三'])
+    expect(start.prompt.omitted).toBe(0)
   })
 
   it('waits while the machine is offline and dispatches when it connects', async () => {

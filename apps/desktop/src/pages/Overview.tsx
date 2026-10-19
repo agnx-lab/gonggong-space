@@ -3,6 +3,7 @@ import { Alert, Badge, Button, EmptyState, GroupBox, Icon } from '@web/ui'
 import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { t } from '../i18n'
 import { type DaemonStatus, ipc, type MachineBot, type Tunnels } from '../ipc'
+import { ContextBadge } from '../lib/ContextBadge'
 import { CONN_STAT, connKind, runBadge } from '../lib/labels'
 import { Section } from '../lib/ui'
 import { openGuide, PERMISSIONS, useMissing } from '../permissions'
@@ -121,6 +122,7 @@ export function OverviewPage({ go }: PageProps) {
                     </span>
                     <span className="dk-mono dk-sub dk-ellipsis">{toolTitle(r.step)}</span>
                   </div>
+                  {r.context ? <ContextBadge inert bot={r.botName} context={r.context} /> : null}
                   <Badge variant={badge.variant}>{badge.text}</Badge>
                   <Icon name="chevron-right" size={12} color="var(--label-tertiary)" />
                 </button>

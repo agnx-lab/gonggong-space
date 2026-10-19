@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from 'react'
 import logo from '../assets/logo.svg'
 import { t } from '../i18n'
 import { ipc, type WorkspaceRow, type WorkspaceState, type Workspaces } from '../ipc'
+import { ContextBadge } from '../lib/ContextBadge'
 import { revealLabel, tildify } from '../lib/labels'
 import { Section } from '../lib/ui'
 import { useDaemon } from '../store'
@@ -98,6 +99,12 @@ export function WorkspacesPage(_: PageProps) {
       title: t('状态'),
       width: 128,
       render: (w) => <Tag tone={STATE_TONE[w.state]}>{w.stateLabel}</Tag>,
+    },
+    {
+      key: 'context',
+      title: t('上下文'),
+      width: 72,
+      render: (w) => (w.context ? <ContextBadge bot={w.bot} context={w.context} /> : null),
     },
     {
       key: 'action',
