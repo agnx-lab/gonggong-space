@@ -36,5 +36,6 @@ export const GONGGONG_TOOL_TITLES = {
   mcp_update: '修改 MCP',
   mcp_toggle: '启用/停用 MCP',
   mcp_delete: '删除 MCP',
-  mcp_secret_request: '请求填写密钥',
+  secret_list: '密钥列表',
+  secret_request: '请求填写密钥',
 } as const

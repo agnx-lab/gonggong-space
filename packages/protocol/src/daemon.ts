@@ -302,6 +302,8 @@ export const RunStart = z.object({
   command: z.string().nullable().default(null),
   /** Force groups only (null in partition groups). */
   sync: RunSyncStart.nullable().default(null),
+  /** Resolved secrets (plan 团队密钥-方案): env of the adapter process, kept in memory only, never logged or written. */
+  env: z.record(z.string(), z.string()).default({}),
 })
 export type RunStart = z.infer<typeof RunStart>
 

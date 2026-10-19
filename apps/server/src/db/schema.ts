@@ -4,6 +4,7 @@ import {
   type I18nText,
   LIVE_RUN_STATUSES,
   type RunConfigPick,
+  type RunSecret,
   type RunSettingsSnapshot,
   type RunSyncDone,
 } from '@gonggong/protocol'
@@ -570,6 +571,8 @@ export const runs = pgTable(
     patch: text('patch'),
     /** Repos `patch` spans (RunDone.repos); purged with it. */
     patchRepos: jsonb('patch_repos').$type<DiffRepo[]>().notNull().default([]),
+    /** Secrets injected into the run: names and sources, never values. */
+    secrets: jsonb('secrets').$type<RunSecret[]>().notNull().default([]),
     /** Latest state of each subagent / background task by id: { subagents: {id: state}, tasks: {id: state} }. */
     delegation: jsonb('delegation').notNull().default({}),
     /**
@@ -853,6 +856,76 @@ export const mcpSecretRequests = pgTable('mcp_secret_requests', {
     .notNull()
     .references(() => users.id),
   keys: jsonb('keys').$type<string[]>().notNull(),
+  forceNewSession: boolean('force_new_session').notNull().default(false),
+  messageId: uuid('message_id'),
+  filledAt: ts('filled_at'),
+  createdAt: createdAt(),
+})
+
+/**
+ * Secret definitions (plan 团队密钥-方案), layered like `mcp_servers`; the shared value is seal()ed and never returned.
+ * Injected into runs as env vars named `name`; MCP env / headers reference them as `${secret:NAME}`.
+ */
+export const secrets = pgTable(
+  'secrets',
+  {
+    id: id(),
+    /** 'platform' | 'team' | 'group' */
+    scope: text('scope').notNull(),
+    teamId: uuid('team_id').references(() => teams.id),
+    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    /** 'shared' | 'shared_overridable' | 'personal' */
+    mode: text('mode').notNull().default('shared'),
+    /** null = every bot; otherwise only these bots get it injected. */
+    botIds: jsonb('bot_ids').$type<string[]>(),
+    enabled: boolean('enabled').notNull().default(true),
+    expiresAt: ts('expires_at'),
+    /** seal()ed shared value; null = not filled (always null for 'personal'). */
+    value: text('value'),
+    last4: text('last4'),
+    valueUpdatedBy: uuid('value_updated_by').references(() => users.id),
+    valueUpdatedAt: ts('value_updated_at'),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.scope, t.teamId, t.groupId, t.name).nullsNotDistinct()],
+)
+
+/** A member's own value of a secret name within a team: used by every same-named definition the team's groups see. */
+export const personalSecrets = pgTable(
+  'personal_secrets',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    teamId: uuid('team_id')
+      .notNull()
+      .references(() => teams.id),
+    name: text('name').notNull(),
+    /** seal()ed. */
+    value: text('value').notNull(),
+    last4: text('last4').notNull(),
+    /** false: injected only into runs on the user's own machines (a machine's owner can read its processes' env). */
+    allowForeignMachines: boolean('allow_foreign_machines').notNull().default(false),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.teamId, t.name)],
+)
+
+/** A 填写密钥 card posted by `secret_request` (supersedes `mcp_secret_requests`, kept for old cards). */
+export const secretRequests = pgTable('secret_requests', {
+  id: id(),
+  groupId: uuid('group_id')
+    .notNull()
+    .references(() => groups.id),
+  runId: uuid('run_id').references(() => runs.id),
+  /** 'origin' (userId fills personal values) | 'admins' (an admin of each definition's layer fills shared values) */
+  audience: text('audience').notNull(),
+  userId: uuid('user_id').references(() => users.id),
+  names: jsonb('names').$type<string[]>().notNull(),
   forceNewSession: boolean('force_new_session').notNull().default(false),
   messageId: uuid('message_id'),
   filledAt: ts('filled_at'),

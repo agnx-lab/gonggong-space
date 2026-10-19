@@ -46,6 +46,7 @@ import {
 import { I18nText } from './i18n.js'
 import { LiveRun } from './live-run.js'
 import { GroupSchedulesDto } from './schedules.js'
+import { RunSecret, SecretCard } from './secrets.js'
 import { RunSyncDone, SyncStatusDto } from './sync.js'
 
 /** REST base: /api. Auth: httpOnly cookie `gonggong_session`. Errors: { error: ErrorCode, message }. */
@@ -793,8 +794,10 @@ export const MessageDto = z.object({
   i18n: I18nText.optional(),
   /** A force-sync conflict card (F11): the held change and whose replica it is. */
   syncConflict: z.object({ id: z.string(), botId: z.string() }).nullable().optional(),
-  /** A bot's 填写密钥 card for an MCP server. */
+  /** Legacy 填写密钥 card for an MCP server (before secrets); rendered read-only. */
   mcpSecret: McpSecretCard.optional(),
+  /** A bot's 填写密钥 card (secret_request). */
+  secretCard: SecretCard.optional(),
 })
 export type MessageDto = z.infer<typeof MessageDto>
 
@@ -1091,6 +1094,8 @@ export const RunDto = z.object({
   effort: z.string().nullable(),
   /** Force group: how the turn's submit settled (F10, F14); null elsewhere or before run.done. */
   sync: RunSyncDone.nullable().optional(),
+  /** Secrets injected into the run, names and sources only. */
+  secrets: z.array(RunSecret).optional(),
 })
 export type RunDto = z.infer<typeof RunDto>
 

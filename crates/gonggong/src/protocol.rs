@@ -628,6 +628,20 @@ pub struct RunStart {
     /// Force groups only.
     #[serde(default)]
     pub sync: Option<RunSyncStart>,
+    /// Resolved secrets: env of the adapter process, kept in memory only.
+    #[serde(default)]
+    pub env: SecretEnv,
+}
+
+/// Secret env vars; `Debug` prints names only so a logged `RunStart` never carries a value.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecretEnv(pub std::collections::BTreeMap<String, String>);
+
+impl std::fmt::Debug for SecretEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.keys()).finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -258,7 +258,7 @@ const forceNewSession = z
   .optional()
 const secretValues = z
   .record(z.string(), z.string())
-  .describe('值只能写占位符 ${secret:名称}，真实值用 mcp_secret_request 让发起人在卡片里填写')
+  .describe('值只能写 ${secret:名称} 引用密钥（secret_list 列出），运行时替换为实值')
 const McpConfigArg = z.discriminatedUnion('transport', [
   z.object({
     transport: z.literal('stdio'),
@@ -304,21 +304,20 @@ export const McpToggleArgs = z.object({
   forceNewSession,
 })
 export const McpDeleteArgs = z.object({ name: mcpName, layer: mcpLayer.optional(), forceNewSession })
-export const McpSecretRequestArgs = z.object({
-  name: mcpName,
-  layer: mcpLayer.optional(),
-  keys: z
-    .array(z.string().min(1).max(128))
+export const SecretListArgs = z.object({})
+export const SecretRequestArgs = z.object({
+  names: z
+    .array(z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/))
     .min(1)
     .max(20)
-    .describe('要填写的 env 键（stdio）或请求头名（http），须已在配置里'),
+    .describe('要填写的密钥名称，须已在本群可见的定义里（secret_list 列出）'),
   forceNewSession,
 })
 
 const MCP_WRITE =
   '以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。'
 const MCP_SECRET =
-  'env / headers 的值一律视为密钥：只能写占位符 ${secret:名称}，不接受明文；真实值用 mcp_secret_request 让发起人在群里的卡片上填写，你看不到也不要在对话里索要。'
+  'env / headers 的值一律视为密钥：只能写 ${secret:名称} 引用本群可见的密钥（secret_list 列出），不接受明文；密钥缺值时用 secret_request 请人在卡片上填写，你看不到也不要在对话里索要。'
 
 const SKILL_WRITE =
   '以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员；平台层只读。改动下一轮生效。'
@@ -522,12 +521,19 @@ export const GONGGONG_TOOLS = {
     description: `删除 MCP，不可恢复；只想暂时不用时用 mcp_toggle 停用。${MCP_WRITE}`,
     input: McpDeleteArgs,
   },
-  mcp_secret_request: {
-    title: GONGGONG_TOOL_TITLES.mcp_secret_request,
+  secret_list: {
+    title: GONGGONG_TOOL_TITLES.secret_list,
     description:
-      '在群里发一张「填写密钥」卡片，请发起本轮的人填写 MCP 的密钥（密码框）；填写后直接写入配置，不经过你，也不进聊天记录和日志。' +
-      `工具立即返回，不等待填写；之后可用 mcp_get 查看是否已填写。${MCP_WRITE}`,
-    input: McpSecretRequestArgs,
+      '列出本群可用的密钥：名称、用途、模式（shared 统一值 / shared_overridable 统一值可个人覆盖 / personal 每人自填）、来源层、是否已填写、本轮是否注入。' +
+      '已注入的密钥在你的进程环境变量里（同名），直接用 $名称 读取；永远不要把值打印、写进文件、消息或提交。',
+    input: SecretListArgs,
+  },
+  secret_request: {
+    title: GONGGONG_TOOL_TITLES.secret_request,
+    description:
+      '在群里发一张「填写密钥」卡片：personal / 可覆盖的密钥请发起本轮的人填写自己的值，shared 密钥请该层管理员填写；值不经过你，也不进聊天记录和日志。' +
+      '工具立即返回，不等待填写；填写后下一轮注入。不要在对话里索要密钥。',
+    input: SecretRequestArgs,
   },
 } as const
 
