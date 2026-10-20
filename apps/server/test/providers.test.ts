@@ -494,6 +494,35 @@ describe('agent tools and providers relayed to the machine', () => {
     expect((await w.asWang.get(url)).body).toEqual({ catalog: official })
   })
 
+  it("refreshes a bot's catalog by having its machine probe the agent again", async () => {
+    const w = await world()
+    const fresh: AgentCatalog = {
+      models: [{ value: 'kimi-k3', name: 'kimi-k3', efforts: [], effort: null }],
+      current: 'kimi-k3',
+      efforts: [],
+      effort: null,
+    }
+    const url = `/api/bots/${w.bot.id}/catalog/refresh`
+    const old = await daemon(w.a.token, w.a.machine.id)
+    expect((await w.asWang.post(url)).status).toBe(409)
+    await old.close()
+
+    const d = await daemon(w.a.token, w.a.machine.id, ['tools', 'providers', 'reprobe'])
+    const failed = w.asWang.post(url)
+    const first = await d.next()
+    expect(first).toMatchObject({ t: 'agents.reprobe', kind: 'claude' })
+    d.send({ t: 'agents.reprobe.result', requestId: first.requestId, ok: false, error: '探测超时' })
+    expect((await failed).status).toBe(400)
+
+    const pending = w.asLi.post<{ catalog: AgentCatalog | null }>(url)
+    const reprobe = await d.next()
+    d.send({ t: 'agents.reprobe.result', requestId: reprobe.requestId, ok: true, error: null })
+    const cmd = await d.next()
+    expect(cmd).toMatchObject({ t: 'providers.cmd', action: 'botCatalog', botId: w.bot.id })
+    d.send({ t: 'providers.result', requestId: cmd.requestId, ok: true, error: null, catalog: fresh })
+    expect((await pending).body).toEqual({ catalog: fresh })
+  })
+
   it('starts installs at once and streams their progress and result to the owner only', async () => {
     const w = await world()
     const d = await daemon(w.a.token, w.a.machine.id)

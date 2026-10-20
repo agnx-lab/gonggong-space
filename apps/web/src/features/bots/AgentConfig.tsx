@@ -9,7 +9,8 @@ import {
 import { useEffect, useState } from 'react'
 import { t } from '../../i18n'
 import { api, errorText } from '../../lib/api'
-import { FormRow, PopUpButton } from '../../ui'
+import { toastError } from '../../lib/errors'
+import { Button, FormRow, PopUpButton, toast } from '../../ui'
 
 export interface AgentConfig {
   model: string | null
@@ -52,6 +53,7 @@ export const withModel = (catalog: AgentCatalog | null, effort: string | null, m
  */
 export function useBotCatalog(botId: string, key?: unknown) {
   const [state, setState] = useState<{ catalog: AgentCatalog | null; error: string | null }>()
+  const [refreshing, setRefreshing] = useState(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` only triggers a refetch
   useEffect(() => {
     let live = true
@@ -63,7 +65,35 @@ export function useBotCatalog(botId: string, key?: unknown) {
       live = false
     }
   }, [botId, key])
-  return state
+  /** 刷新模型: the machine probes the agent again, e.g. after its CLI config was edited. */
+  const refresh = async () => {
+    setRefreshing(true)
+    try {
+      const { catalog } = await api.post<BotCatalogDto>(`/bots/${botId}/catalog/refresh`)
+      setState({ catalog, error: null })
+      toast({ type: 'success', message: t('已刷新，共 {n} 个可选模型', { n: catalog?.models.length ?? 0 }) })
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+  return state && { ...state, refresh: { run: refresh, busy: refreshing } }
+}
+
+/** Asks the bot's machine to probe the agent for its models again. */
+export interface CatalogRefresh {
+  run: () => void
+  busy: boolean
+}
+
+function RefreshButton({ refresh }: { refresh?: CatalogRefresh }) {
+  if (!refresh) return null
+  return (
+    <Button size="small" loading={refresh.busy} onClick={refresh.run}>
+      {t('刷新模型')}
+    </Button>
+  )
 }
 
 /** 模型 / 推理强度 rows of the bot forms; values not on the catalog stay selectable but none can be added. */
@@ -71,30 +101,38 @@ export function AgentConfigFields({
   catalog,
   value,
   disabled,
+  refresh,
   onChange,
 }: {
   catalog: AgentCatalog | null
   value: AgentConfig
   disabled?: boolean
+  refresh?: CatalogRefresh
   onChange: (next: AgentConfig) => void
 }) {
   if (!catalog)
     return (
       <FormRow label={t('模型')}>
-        <span className="bots-detail__unset">{t('跟随默认 · 机器上报可选模型后可设置')}</span>
+        <div className="bots-detail__buttons">
+          <span className="bots-detail__unset">{t('跟随默认 · 机器上报可选模型后可设置')}</span>
+          <RefreshButton refresh={refresh} />
+        </div>
       </FormRow>
     )
   const efforts = effortOptions(catalog, value.model)
   return (
     <>
       <FormRow label={t('模型')} hint={t('群内可临时切换，发消息时也可单条指定')}>
-        <PopUpButton
-          aria-label={t('模型')}
-          value={value.model ?? ''}
-          disabled={disabled}
-          options={modelOptions(catalog, value.model)}
-          onChange={(v) => onChange(withModel(catalog, value.effort, v || null))}
-        />
+        <div className="bots-detail__buttons">
+          <PopUpButton
+            aria-label={t('模型')}
+            value={value.model ?? ''}
+            disabled={disabled}
+            options={modelOptions(catalog, value.model)}
+            onChange={(v) => onChange(withModel(catalog, value.effort, v || null))}
+          />
+          <RefreshButton refresh={refresh} />
+        </div>
       </FormRow>
       {efforts.length ? (
         <FormRow label={t('推理强度')}>

@@ -594,7 +594,8 @@ impl LocalStore {
     }
 }
 
-/// A probed catalog and the adapter + CLI build it came from (`agents::catalog_key`); another build is probed again.
+/// A probed catalog and the adapter + CLI build and CLI config it came from (`agents::catalog_key`); any change is probed
+/// again.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CachedCatalog {
     pub key: String,

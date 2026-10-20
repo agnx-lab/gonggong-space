@@ -5,7 +5,7 @@ import { api } from '../../lib/api'
 import { toastError } from '../../lib/errors'
 import { FormRow, PopUpButton } from '../../ui'
 import { botProviderOptions } from '../machines/providers'
-import { type AgentConfig, AgentConfigFields } from './AgentConfig'
+import { type AgentConfig, AgentConfigFields, type CatalogRefresh } from './AgentConfig'
 
 /** The machine's provider store (design §4.2), read live from it; null while asked or when `blocked`. */
 export function useMachineProviders(machineId: string | null, blocked: boolean) {
@@ -56,6 +56,7 @@ export function ProviderModelFields({
   catalog,
   config,
   disabled,
+  refresh,
   onChange,
 }: {
   reason: string | null
@@ -65,6 +66,7 @@ export function ProviderModelFields({
   catalog: AgentCatalog | null
   config: AgentConfig
   disabled?: boolean
+  refresh?: CatalogRefresh
   onChange: (next: { provider: string; config: AgentConfig }) => void
 }) {
   return (
@@ -83,6 +85,7 @@ export function ProviderModelFields({
         catalog={catalog}
         value={config}
         disabled={disabled}
+        refresh={refresh}
         onChange={(next) => onChange({ provider, config: next })}
       />
     </>

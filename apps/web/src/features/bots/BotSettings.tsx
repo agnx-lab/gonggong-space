@@ -220,6 +220,9 @@ export function BotDetail({
   const live = useBotCatalog(bot.id, effective)
   const pickedCatalog = useProviderCatalog(bot.machineId, bot.agentKind, picked)
   const catalog = picked ? pickedCatalog : (live?.catalog ?? bot.catalog)
+  // Only on the owner's own machine: it alone sees the machine, and a picked provider declares its own models.
+  const refresh =
+    !picked && machine?.online && machine.features.includes('reprobe') ? live?.refresh : undefined
 
   // Unchanged values are left out: one the catalog no longer lists would be refused.
   const patch: BotPatch = {
@@ -340,13 +343,20 @@ export function BotDetail({
           catalog={catalog}
           config={config}
           disabled={!canEdit}
+          refresh={refresh}
           onChange={(next) => {
             setProvider(next.provider)
             setConfig(next.config)
           }}
         />
       ) : (
-        <AgentConfigFields catalog={catalog} value={config} disabled={!canEdit} onChange={setConfig} />
+        <AgentConfigFields
+          catalog={catalog}
+          value={config}
+          disabled={!canEdit}
+          refresh={refresh}
+          onChange={setConfig}
+        />
       )}
       <BotAgentSettingRows
         agent={bot.agentKind}

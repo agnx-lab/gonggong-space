@@ -17,7 +17,7 @@ import {
   UseProviderReq,
 } from '@gonggong/protocol'
 import { and, eq, isNull } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { Ctx } from '../../context.js'
 import { bots, groupBots, groupMembers, machines } from '../../db/schema.js'
@@ -30,6 +30,8 @@ import { ownMachine, quietErrors, relay, requireFeature } from '../machines/rela
 import { providerStateRoutes } from './state.js'
 
 const TIMEOUT_MS = 15_000
+/** The daemon gives a probe 90 s. */
+const REPROBE_TIMEOUT_MS = 100_000
 
 type Params = { id: string }
 type ProviderParams = { id: string; pid: string }
@@ -228,7 +230,7 @@ export function providerRoutes(ctx: Ctx) {
     })
 
     // Whoever may pick a model for the bot: its owner, sysadmins and the members of its groups.
-    app.get<{ Params: Params }>('/api/bots/:id/catalog', async (req): Promise<BotCatalogDto> => {
+    const pickable = async (req: FastifyRequest<{ Params: Params }>) => {
       const me = await requireUser(ctx, req)
       const [bot] = await ctx.db
         .select()
@@ -247,6 +249,21 @@ export function providerRoutes(ctx: Ctx) {
           .limit(1)
         if (!seat) return fail('forbidden', '只有 Bot 所在群的成员可以查看其可选模型')
       }
+      return bot
+    }
+
+    app.get<{ Params: Params }>('/api/bots/:id/catalog', async (req): Promise<BotCatalogDto> => {
+      const bot = await pickable(req)
+      return { catalog: await pickCatalog(ctx, bot) }
+    })
+
+    // 刷新模型: the machine probes the bot's agent again now (e.g. after its CLI config was edited).
+    app.post<{ Params: Params }>('/api/bots/:id/catalog/refresh', async (req): Promise<BotCatalogDto> => {
+      const bot = await pickable(req)
+      if (!bot.machineId) return fail('conflict', 'Bot 尚未绑定机器')
+      requireFeature(ctx, bot.machineId, 'reprobe')
+      const msg = { t: 'agents.reprobe', requestId: randomUUID(), kind: bot.agentKind as AgentKind } as const
+      await relay(ctx, bot.machineId, msg, 'agents.reprobe.result', REPROBE_TIMEOUT_MS)
       return { catalog: await pickCatalog(ctx, bot) }
     })
   }

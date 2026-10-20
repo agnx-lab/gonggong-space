@@ -30,7 +30,7 @@ export function requireFeature(
   if (!ctx.hub.features(machineId).includes(feature)) fail('conflict', missing)
 }
 
-type Answered = 'tools.result' | 'providers.result' | 'ccswitch.result'
+type Answered = 'tools.result' | 'providers.result' | 'ccswitch.result' | 'agents.reprobe.result'
 
 /** One round trip to the daemon; its own error (in its words, keys never included) becomes a 400. */
 export async function relay<T extends Answered>(

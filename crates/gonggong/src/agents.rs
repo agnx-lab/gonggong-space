@@ -2,6 +2,7 @@ use crate::engine::ADAPTERS;
 use crate::local::{LocalSettings, load_catalogs};
 use crate::protocol::{AgentInfo, AgentKind};
 use crate::t;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
@@ -40,10 +41,28 @@ pub fn detect(home: &Path, local: &LocalSettings) -> Vec<AgentInfo> {
         .collect()
 }
 
-/// The CLI and adapter builds a catalog is probed from: upgrading either may change what is offered.
+/// The CLI and adapter builds a catalog is probed from, and the CLI's own user-level config: upgrading either build or
+/// editing the config (a provider or model added to `~/.codex/config.toml`) may change what is offered.
 pub fn catalog_key(kind: AgentKind, version: Option<&str>) -> String {
     let adapter = ADAPTERS.iter().find(|(k, ..)| *k == kind).map_or("", |(.., v)| v);
-    format!("{}+{adapter}", version.unwrap_or("?"))
+    format!("{}+{adapter}+{}", version.unwrap_or("?"), file_digest(&cli_config(kind)))
+}
+
+/// A short digest of the file's content, empty when it cannot be read.
+fn file_digest(path: &Path) -> String {
+    std::fs::read(path)
+        .map(|b| Sha256::digest(b).iter().take(6).map(|b| format!("{b:02x}")).collect())
+        .unwrap_or_default()
+}
+
+/// The user-level config file the CLI reads its providers and models from.
+fn cli_config(kind: AgentKind) -> PathBuf {
+    match kind {
+        AgentKind::Claude => crate::config::user_home().join(".claude/settings.json"),
+        AgentKind::Codex => std::env::var_os("CODEX_HOME")
+            .map_or_else(|| crate::config::user_home().join(".codex"), PathBuf::from)
+            .join("config.toml"),
+    }
 }
 
 fn detect_one(home: &Path, kind: AgentKind, local: &LocalSettings) -> AgentInfo {
@@ -349,6 +368,19 @@ mod tests {
         let fresh = CachedCatalog { key: catalog_key(AgentKind::Claude, Some("2.1.4")), catalog: catalog.clone() };
         save_catalog(home.path(), AgentKind::Claude, fresh).unwrap();
         assert_eq!(claude(home.path()).catalog, Some(catalog));
+    }
+
+    #[test]
+    fn editing_the_cli_config_changes_the_catalog_key() {
+        use super::file_digest;
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        assert_eq!(file_digest(&config), "");
+        std::fs::write(&config, "model = \"a\"\n").unwrap();
+        let before = file_digest(&config);
+        std::fs::write(&config, "model = \"a\"\n[model_providers.b]\n").unwrap();
+        assert_ne!(file_digest(&config), before);
+        assert_eq!(before.len(), 12);
     }
 
     #[cfg(unix)]

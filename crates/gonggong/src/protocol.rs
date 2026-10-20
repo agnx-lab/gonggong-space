@@ -1045,6 +1045,7 @@ pub const FEATURE_CC_SWITCH: &str = "ccSwitch";
 pub const FEATURE_SYNC: &str = "sync";
 pub const FEATURE_SESSION_FORK: &str = "sessionFork";
 pub const FEATURE_AGENT_SETTINGS: &str = "agentSettings";
+pub const FEATURE_REPROBE: &str = "reprobe";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolsSettings {
@@ -1481,6 +1482,8 @@ pub enum DaemonToServer {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         view: Option<StoreView>,
     },
+    #[serde(rename = "agents.reprobe.result", rename_all = "camelCase")]
+    AgentsReprobeResult { request_id: String, ok: bool, error: Option<String> },
     #[serde(rename = "bots.providerState")]
     BotsProviderState { items: Vec<ProviderStateItem> },
     #[serde(rename = "sync.submit")]
@@ -1604,6 +1607,8 @@ pub enum ServerToDaemon {
     CcSwitchRead { request_id: String },
     #[serde(rename = "ccswitch.apply", rename_all = "camelCase")]
     CcSwitchApply { request_id: String, keys: Vec<String>, set_default: bool },
+    #[serde(rename = "agents.reprobe", rename_all = "camelCase")]
+    AgentsReprobe { request_id: String, kind: AgentKind },
     #[serde(rename = "sync.result", rename_all = "camelCase")]
     SyncResult { group_id: String, bot_id: String, submit_id: String, result: SyncSubmitResult },
     #[serde(rename = "sync.available", rename_all = "camelCase")]

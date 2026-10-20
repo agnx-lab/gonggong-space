@@ -4,6 +4,8 @@ export default {
   模型: 'Model',
   '跟随默认 · 机器上报可选模型后可设置': 'Follows default · Available once the machine reports its models',
   '群内可临时切换，发消息时也可单条指定': 'Can be switched in a group, or set per message',
+  刷新模型: 'Refresh models',
+  '已刷新，共 {n} 个可选模型': 'Refreshed · {n} models available',
   推理强度: 'Reasoning effort',
   每次询问: 'Ask every time',
   白名单自动: 'Auto for allowlist',

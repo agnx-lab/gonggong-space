@@ -703,6 +703,7 @@ export const DaemonFeature = z.enum([
   'sync',
   'sessionFork',
   'agentSettings',
+  'reprobe',
 ])
 export type DaemonFeature = z.infer<typeof DaemonFeature>
 
@@ -897,6 +898,13 @@ export const CcSwitchResult = z.object({
   view: ProviderStoreView.optional(),
 })
 export type CcSwitchResult = z.infer<typeof CcSwitchResult>
+/** agents.reprobe done; on success the new catalog has been sent in an agents.update first. */
+export const AgentsReprobeResult = z.object({
+  t: z.literal('agents.reprobe.result'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  error: z.string().nullable(),
+})
 /** Replaces the machine's list; sent after welcome, after each run and whenever providers change. */
 export const BotsProviderState = z.object({
   t: z.literal('bots.providerState'),
@@ -934,6 +942,7 @@ export const DaemonToServer = z.discriminatedUnion('t', [
   ToolsResult,
   ProvidersResult,
   CcSwitchResult,
+  AgentsReprobeResult,
   BotsProviderState,
   SyncSubmit,
   SyncApplied,
@@ -1230,6 +1239,12 @@ export const CcSwitchApply = z.object({
   keys: z.array(z.string()),
   setDefault: z.boolean(),
 })
+/** Probe the agent's adapter for its models again now, e.g. after its CLI config was edited (feature `reprobe`). */
+export const AgentsReprobe = z.object({
+  t: z.literal('agents.reprobe'),
+  requestId: z.string(),
+  kind: AgentKind,
+})
 
 export const ServerToDaemon = z.discriminatedUnion('t', [
   DirList,
@@ -1264,6 +1279,7 @@ export const ServerToDaemon = z.discriminatedUnion('t', [
   ProvidersCmd,
   CcSwitchRead,
   CcSwitchApply,
+  AgentsReprobe,
   SyncResult,
   SyncAvailable,
   SyncAction,

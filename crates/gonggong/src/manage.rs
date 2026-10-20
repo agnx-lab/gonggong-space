@@ -5,8 +5,8 @@ use crate::config::{Mirror, Settings};
 use crate::local::LocalSettings;
 use crate::protocol::{
     AgentCatalog, AgentInfo, Choice, DaemonToServer, FEATURE_AGENT_SETTINGS, FEATURE_CC_SWITCH, FEATURE_PROVIDERS,
-    FEATURE_SESSION_FORK, FEATURE_SYNC, FEATURE_TOOLS, ModelChoice, ModelMap, ProviderInput, ProviderStateItem,
-    ProvidersAction, ProvidersCmd, ProvidersResult, ToolsAction, ToolsCmd, ToolsSettings,
+    FEATURE_REPROBE, FEATURE_SESSION_FORK, FEATURE_SYNC, FEATURE_TOOLS, ModelChoice, ModelMap, ProviderInput,
+    ProviderStateItem, ProvidersAction, ProvidersCmd, ProvidersResult, ToolsAction, ToolsCmd, ToolsSettings,
 };
 use crate::providers::{self, API_KEY, AUTH_TOKEN, INHERIT, Provider, Selection, Store};
 use crate::service::Outbox;
@@ -51,6 +51,7 @@ impl Manage {
             FEATURE_SYNC.to_string(),
             FEATURE_SESSION_FORK.to_string(),
             FEATURE_AGENT_SETTINGS.to_string(),
+            FEATURE_REPROBE.to_string(),
         ];
         if self.0.cc_switch().is_dir() {
             features.push(FEATURE_CC_SWITCH.into());
@@ -178,7 +179,7 @@ impl Manage {
         });
     }
 
-    async fn refresh_agents(&self) {
+    pub async fn refresh_agents(&self) {
         let Some(tx) = self.0.agents.get().cloned() else { return };
         let home = self.0.home.clone();
         let detected = tokio::task::spawn_blocking(move || {
@@ -744,9 +745,12 @@ mod tests {
     fn features_include_cc_switch_only_when_present() {
         let home = tempfile::tempdir().unwrap();
         let without = Manage::new(home.path().into(), home.path().into());
-        assert_eq!(without.features(), vec!["tools", "providers", "sync", "sessionFork", "agentSettings"]);
+        assert_eq!(without.features(), vec!["tools", "providers", "sync", "sessionFork", "agentSettings", "reprobe"]);
         std::fs::create_dir(home.path().join(".cc-switch")).unwrap();
-        assert_eq!(without.features(), vec!["tools", "providers", "sync", "sessionFork", "agentSettings", "ccSwitch"]);
+        assert_eq!(
+            without.features(),
+            vec!["tools", "providers", "sync", "sessionFork", "agentSettings", "reprobe", "ccSwitch"]
+        );
     }
 
     #[tokio::test]

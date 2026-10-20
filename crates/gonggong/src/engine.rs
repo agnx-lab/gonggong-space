@@ -159,6 +159,27 @@ impl Engine {
         self.0.previews.clone()
     }
 
+    /// `agents.reprobe`: probes the agent again now, whatever is cached, and publishes the new catalog before
+    /// answering. A failed probe keeps the cached one.
+    async fn reprobe(&self, kind: AgentKind) -> anyhow::Result<()> {
+        let home = self.0.config.home.clone();
+        let detected = {
+            let home = home.clone();
+            tokio::task::spawn_blocking(move || {
+                Ok::<_, anyhow::Error>(agents::detect(&home, &LocalSettings::load(&home)?))
+            })
+            .await??
+        };
+        let Some(info) = detected.into_iter().find(|a| a.kind == kind && a.available) else {
+            bail!(t!("这台机器上没有可用的 {kind}", kind = format!("{kind:?}")));
+        };
+        let catalog = self.probe(kind).await?;
+        let key = agents::catalog_key(kind, info.version.as_deref());
+        crate::local::save_catalog(&home, kind, crate::local::CachedCatalog { key, catalog })?;
+        self.0.manage.refresh_agents().await;
+        Ok(())
+    }
+
     /// What the agent's adapter offers (models and their thought levels), from a throwaway session.
     pub async fn probe(&self, kind: AgentKind) -> anyhow::Result<AgentCatalog> {
         let agent = self.throwaway_agent(kind).await?;
@@ -461,6 +482,13 @@ impl Handler for Engine {
             ServerToDaemon::ToolsCmd(cmd) => self.0.manage.tools(cmd, out),
             ServerToDaemon::ProvidersCmd(cmd) => self.0.manage.providers(*cmd, out),
             ServerToDaemon::CcSwitchRead { request_id } => self.0.manage.ccswitch_read(request_id, out),
+            ServerToDaemon::AgentsReprobe { request_id, kind } => {
+                let (this, out) = (self.clone(), out.clone());
+                tokio::spawn(async move {
+                    let error = this.reprobe(kind).await.err().map(|e| format!("{e:#}"));
+                    out.send(DaemonToServer::AgentsReprobeResult { request_id, ok: error.is_none(), error });
+                });
+            }
             ServerToDaemon::CcSwitchApply { request_id, keys, set_default } => {
                 self.0.manage.ccswitch_apply(request_id, keys, set_default, out)
             }
