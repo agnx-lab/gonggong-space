@@ -181,16 +181,19 @@ function GitPage() {
             accounts.map((a) => (
               <GroupRow
                 key={a.id}
+                className="settings-account-row"
                 label={
-                  <span className="settings-account">
+                  <span className="settings-account" title={`${accountLabel(a)} ${a.login}`}>
                     <Icon name={a.provider} />
                     <span>{accountLabel(a)}</span>
                     <span className="settings-account__login">{a.login}</span>
                   </span>
                 }
-                description={a.baseUrl === 'https://github.com' ? undefined : a.baseUrl}
+                description={
+                  a.baseUrl === 'https://github.com' ? undefined : <span title={a.baseUrl}>{a.baseUrl}</span>
+                }
               >
-                <span className="gs-value-line">
+                <span className="gs-value-line settings-account__ops">
                   {a.status === 'invalid' ? (
                     <span className="settings-account__bad">{t('需要重新连接')}</span>
                   ) : null}

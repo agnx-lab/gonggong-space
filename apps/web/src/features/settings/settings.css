@@ -10,10 +10,28 @@
   font-weight: 500;
   color: var(--label-secondary);
 }
+/* A long host or login truncates on a narrow screen instead of pushing 断开 out of the dialog. */
+.settings-account-row > .ui-group__text {
+  min-width: 0;
+}
 .settings-account {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--space-6);
+  min-width: 0;
+}
+.settings-account > svg {
+  flex: none;
+}
+.settings-account > span,
+.settings-account-row .ui-group__desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-account__ops {
+  flex: none;
 }
 .settings-account__login {
   color: var(--label-secondary);
