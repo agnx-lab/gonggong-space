@@ -24,9 +24,49 @@
   color: #fff;
   font-size: var(--text-callout-size);
 }
-.ui-lightbox__bar .ui-btn,
+/* The scrim is near-black in both themes: toolbar controls get a translucent white fill, not the light control fill. */
+.ui-lightbox__bar .ui-btn {
+  background: #ffffff2e;
+  color: #fff;
+}
+.ui-lightbox__bar .ui-btn:hover {
+  background: #ffffff47;
+}
 .ui-lightbox__bar .ui-close {
   color: #fff;
+}
+.ui-lightbox__count {
+  flex: none;
+  color: #ffffffb3;
+  font-variant-numeric: tabular-nums;
+}
+.ui-lightbox__nav {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-top: -22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #ffffff2e;
+  color: #fff;
+  cursor: pointer;
+}
+.ui-lightbox__nav:hover:not(:disabled) {
+  background: #ffffff47;
+}
+.ui-lightbox__nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.ui-lightbox__nav--prev {
+  left: var(--space-16);
+}
+.ui-lightbox__nav--next {
+  right: var(--space-16);
 }
 .ui-lightbox__title {
   flex: 1;

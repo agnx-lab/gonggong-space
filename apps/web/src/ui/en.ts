@@ -3,6 +3,8 @@ export default {
   搜索: 'Search',
   缩小: 'Zoom out',
   放大: 'Zoom in',
+  上一张: 'Previous',
+  下一张: 'Next',
   没有项目: 'No items',
   操作: 'Actions',
   折叠: 'Collapse',

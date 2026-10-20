@@ -24,6 +24,7 @@ export function MessageAttachments({ list, from }: { list: Attachment[]; from: s
   const [zoomed, setZoomed] = useState<Attachment | null>(null)
   if (!list.length) return null
   const media = list.filter((a) => ['image', 'video'].includes(kindOf(a)))
+  const images = media.filter((a) => kindOf(a) === 'image')
   const docs = list.filter((a) => !media.includes(a))
   const open = (attachment: Attachment) => openTab({ kind: 'file', source: { attachment, from } })
   return (
@@ -63,8 +64,9 @@ export function MessageAttachments({ list, from }: { list: Attachment[]; from: s
       ) : null}
       {zoomed ? (
         <Lightbox
-          src={attachmentUrl(zoomed.id)}
-          alt={zoomed.name}
+          items={images.map((a) => ({ src: attachmentUrl(a.id), alt: a.name }))}
+          index={images.indexOf(zoomed)}
+          onIndexChange={(n) => setZoomed(images[n] ?? null)}
           onClose={() => setZoomed(null)}
           actions={
             <>

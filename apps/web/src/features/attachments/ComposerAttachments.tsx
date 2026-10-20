@@ -162,6 +162,7 @@ export function AttachmentChips({ uploads }: { uploads: Uploads }) {
   const [viewKey, setViewKey] = useState<number | null>(null)
   if (!uploads.items.length) return null
   const viewing = uploads.items.find((i) => i.key === viewKey)
+  const viewable = uploads.items.filter((i) => i.thumb)
   const image = uploads.items.some((i) => i.image)
   return (
     <div className="att-chips">
@@ -194,7 +195,12 @@ export function AttachmentChips({ uploads }: { uploads: Uploads }) {
         </span>
       ))}
       {viewing?.thumb ? (
-        <Lightbox src={viewing.thumb} alt={viewing.name} onClose={() => setViewKey(null)} />
+        <Lightbox
+          items={viewable.map((i) => ({ src: i.thumb as string, alt: i.name }))}
+          index={viewable.indexOf(viewing)}
+          onIndexChange={(n) => setViewKey(viewable[n]?.key ?? null)}
+          onClose={() => setViewKey(null)}
+        />
       ) : null}
       <span className="att-chips__note">
         {`${t('{n} / {max} · 写入工作区 .gonggong/attachments/，不进 git', { n: uploads.items.length, max: MAX_ATTACHMENTS })}${image ? t(' · 图片：agent 支持时同时以 ACP 图片发送') : ''}`}
