@@ -122,7 +122,7 @@ export function QuestionCard({ run, set }: { run: RunDto; set: QuestionSetDto })
   const ready = set.questions.every((question) => answered(question, draftOf(question)))
 
   return (
-    <div className="question">
+    <div className="question" data-pending-id={pending ? set.id : undefined}>
       <div className="question__head">
         <div className="question__title">
           <Icon name="bubble-question" size={14} />

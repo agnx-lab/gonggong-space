@@ -709,7 +709,7 @@ export function ChatView({
               <PreviewTags groupId={group.id} />
             </div>
             <LiveRunsBar runs={runList} onLocate={locate} />
-            <PendingDock runs={runList} onLocate={locate} />
+            <PendingDock runs={runList} root={box} onLocate={locate} />
             <ProviderBanner group={group} />
             <MessageComposer group={group} dropFiles={dropFiles} onSent={onSent} />
           </>
