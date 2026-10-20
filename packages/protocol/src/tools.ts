@@ -96,6 +96,30 @@ export const PreviewGuiArgs = z.object({
 
 export const PreviewCloseArgs = z.object({ preview: z.string().describe('preview_expose 返回的预览 id') })
 
+const progressStage = z.object({
+  name: z.string().min(1).max(40).describe('阶段名，如 排队、构建、部署、完成'),
+  status: z
+    .enum(['pending', 'running', 'done', 'failed', 'skipped'])
+    .describe('等待 / 进行中 / 完成 / 失败 / 跳过'),
+})
+export const ProgressCardArgs = z.object({
+  id: z.string().describe('要更新的卡片 id（上次 progress_card 返回）；不传则新建一张').optional(),
+  title: z.string().min(1).max(80).describe('标题，如「部署 luke-server 到 test」；新建时必填').optional(),
+  stages: z
+    .array(progressStage)
+    .min(1)
+    .max(12)
+    .describe('全部阶段及当前状态（整体替换）；新建时必填')
+    .optional(),
+  percent: z.number().int().min(0).max(100).nullable().describe('总进度百分比；null 清除').optional(),
+  detail: z.string().max(500).nullable().describe('一行说明，如构建号、失败原因；null 清除').optional(),
+  link: z
+    .object({ label: z.string().min(1).max(40), url: z.string().url() })
+    .nullable()
+    .describe('一个链接，如构建日志、预览二维码；null 清除')
+    .optional(),
+})
+
 export const HandOffArgs = z.object({
   bot: z.string().min(1).max(64).describe('接手的 Bot 名字（get_group_info 列出的目标群 Bot）'),
   task: z.string().min(1).max(2000).describe('交代给它的任务：要做什么、需要的上下文、做到什么程度算完成'),
@@ -382,6 +406,14 @@ export const GONGGONG_TOOLS = {
     title: GONGGONG_TOOL_TITLES.preview_close,
     description: '关闭一个预览链接（服务本身不停止）。',
     input: PreviewCloseArgs,
+  },
+  progress_card: {
+    title: GONGGONG_TOOL_TITLES.progress_card,
+    description:
+      '在群里发一张可实时更新的进度卡片（如构建、部署），之后传 id 更新同一张，不必每次发新消息；飞书群同步显示。' +
+      '只更新传入的字段，stages 整体替换。适合需要轮询外部状态的长任务：每次查到新状态就更新，结束时把阶段标为完成或失败并写明原因。' +
+      '本 Bot 在之后的轮次也可以继续更新这张卡片。',
+    input: ProgressCardArgs,
   },
   hand_off: {
     title: GONGGONG_TOOL_TITLES.hand_off,

@@ -20,6 +20,7 @@ import {
 } from '../../db/schema.js'
 import { remember } from '../../lib/lru.js'
 import { sysParams } from '../admin/params.js'
+import type { MessageMeta } from '../messages/service.js'
 import { snapshotFile } from '../previews/service.js'
 import { botApp, mainApp } from './apps.js'
 import {
@@ -28,6 +29,7 @@ import {
   isPending,
   type PreviewState,
   previewCard,
+  progressCard,
   questionCard,
   REPLY_ELEMENT,
   runCard,
@@ -453,7 +455,7 @@ async function syncRun(ctx: Ctx, runId: string) {
 
 async function cardLink(
   ctx: Ctx,
-  kind: 'run_card' | 'question' | 'approval' | 'preview' | 'reaction',
+  kind: 'run_card' | 'question' | 'approval' | 'preview' | 'progress' | 'reaction',
   key: { runId?: string; refId?: string },
 ) {
   const [link] = await ctx.db
@@ -814,6 +816,45 @@ async function syncPreviewCards(ctx: Ctx, groupId: string) {
       refId: p.id,
     })
   }
+}
+
+/**
+ * Called on every progress_card write: mirrors the card to the bound chat as the bot's app, patched in place and
+ * throttled to CARD_THROTTLE_MS until it settles.
+ */
+export async function mirrorProgress(ctx: Ctx, groupId: string, messageId: string) {
+  if ((await sysParams(ctx.db)).demoMode || !(await boundChat(ctx.db, groupId))?.syncOutbound) return
+  enqueue(ctx, groupId, () => syncProgressCard(ctx, groupId, messageId))
+}
+
+async function syncProgressCard(ctx: Ctx, groupId: string, messageId: string) {
+  const chat = await boundChat(ctx.db, groupId)
+  const [m] = await ctx.db.select().from(messages).where(eq(messages.id, messageId))
+  const p = (m?.meta as MessageMeta | undefined)?.progress
+  if (!chat?.syncOutbound || !p) return
+  const app = await appOfBot(ctx, p.botId)
+  if (!app) return
+  const existing = await cardLink(ctx, 'progress', { refId: messageId })
+  const { throttle } = state(ctx)
+  const last = throttle.get(messageId)
+  const wait = last ? last.at + CARD_THROTTLE_MS - Date.now() : 0
+  const settled = p.status !== 'running'
+  if (existing && !settled && wait > 0) {
+    if (!last?.timer && last)
+      last.timer = setTimeout(() => {
+        last.timer = undefined
+        enqueue(ctx, groupId, () => syncProgressCard(ctx, groupId, messageId))
+      }, wait).unref()
+    return
+  }
+  clearTimeout(last?.timer)
+  const [bot] = await ctx.db.select({ name: bots.name }).from(bots).where(eq(bots.id, p.botId))
+  await putCard(ctx, app, { chatId: chat.chatId }, existing, progressCard({ ...p, bot: bot?.name ?? '' }), {
+    kind: 'progress',
+    refId: messageId,
+  })
+  if (settled) throttle.delete(messageId)
+  else throttle.set(messageId, { at: Date.now() })
 }
 
 /** The preview's latest snapshot as a Feishu image; uploaded once per snapshot, skipped when Feishu refuses. */

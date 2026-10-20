@@ -714,6 +714,7 @@ mod tests {
                 "preview_expose",
                 "preview_gui",
                 "preview_close",
+                "progress_card",
                 "hand_off",
                 "schedule_create",
                 "schedule_list",

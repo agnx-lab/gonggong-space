@@ -1,4 +1,5 @@
 export const en = {
+  '进度 {n}%': 'Progress {n}%',
   // Daemon and request guards
   'missing machine token': 'missing machine token',
   'machine token revoked': 'machine token revoked',
