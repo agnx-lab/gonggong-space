@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.5 — 2026-10-20
+
+- 刷新模型：Bot 设置页「刷新模型」让所在机器立即重新探测 agent 的可选模型；`~/.codex/config.toml`、`~/.claude/settings.json` 改动后，机器自动重新探测，不必重启 / Refresh models: a "Refresh models" button in Bot settings makes the machine probe the agent's models again now; editing `~/.codex/config.toml` or `~/.claude/settings.json` triggers a re-probe automatically, no restart needed
+
 ## v0.3.4 — 2026-10-19
 
 - 上下文与压缩：圆环按 Claude Code 实际压缩点（窗口 − 输出预留 − 13k）标记与变色，关闭自动压缩时提示停下点；压缩开始/结束上报，群里显示「已自动压缩 167k → 12k」，运行过程可看压缩摘要；压缩可附保留重点；上下文占用不再计入用量；桌面端工作区与概览显示占用圆环 / Context & compaction: the ring marks and colours by where Claude Code really compacts (or where it stops when auto-compaction is off); compactions are reported in the group and the run process with their summary; manual compaction takes instructions; occupancy no longer counts as usage; context rings in the desktop app
