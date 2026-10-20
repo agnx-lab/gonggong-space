@@ -1,5 +1,5 @@
 import type { CommandCandidatesDto, FileCandidatesDto, GroupDto } from '@gonggong/protocol'
-import { useEffect, useState } from 'react'
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
@@ -230,6 +230,35 @@ function Lead({ c }: { c: Candidate }) {
   )
 }
 
+const POP_MAX = 360
+const POP_MIN = 120
+const POP_GAP = 8
+
+/**
+ * Height the upward popover may take: up to the top of what is visible, which on a phone is the visual viewport the
+ * keyboard leaves, not the layout viewport.
+ */
+function useRoomAbove(ref: RefObject<HTMLElement | null>) {
+  const [room, setRoom] = useState(POP_MAX)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const vv = window.visualViewport
+    const measure = () => {
+      const top = vv?.offsetTop ?? 0
+      setRoom(Math.max(POP_MIN, Math.min(POP_MAX, el.getBoundingClientRect().bottom - top - POP_GAP)))
+    }
+    measure()
+    vv?.addEventListener('resize', measure)
+    vv?.addEventListener('scroll', measure)
+    return () => {
+      vv?.removeEventListener('resize', measure)
+      vv?.removeEventListener('scroll', measure)
+    }
+  }, [ref])
+  return room
+}
+
 /** The @ / candidates on the Pane MentionPicker: glass list, section heads, avatar rows, highlight on the active row. */
 export function CandidatePopover({
   id,
@@ -246,9 +275,23 @@ export function CandidatePopover({
   onPick: (c: Candidate) => void
 }) {
   const flat = sections.flatMap((s) => s.items)
+  const list = useRef<HTMLDivElement>(null)
+  const maxHeight = useRoomAbove(list)
+  // Scrolls the list only: scrollIntoView would also scroll the page, which a mobile keyboard has already shifted.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run when the highlight moves or the list resizes
+  useLayoutEffect(() => {
+    const el = list.current
+    const row = el?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (!el || !row) return
+    const bottom = row.offsetTop + row.offsetHeight
+    if (row.offsetTop < el.scrollTop) el.scrollTop = row.offsetTop
+    else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight
+  }, [active, maxHeight])
   return (
     <div
+      ref={list}
       id={id}
+      style={{ maxHeight }}
       className="pn-mentionpicker mention-pop"
       role="listbox"
       aria-label={char === '/' ? t('/ 命令') : t('@ 候选')}
@@ -268,8 +311,6 @@ export function CandidatePopover({
               role="option"
               tabIndex={-1}
               aria-selected={active === c}
-              // Keyboard navigation through long lists (e.g. every Claude skill) keeps the active item in view.
-              ref={active === c ? (el) => el?.scrollIntoView?.({ block: 'nearest' }) : undefined}
               className="pn-mentionpicker__item mention-pop__item"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onPick(c)}
