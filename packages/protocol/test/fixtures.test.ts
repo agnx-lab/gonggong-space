@@ -5,6 +5,7 @@ import { z } from 'zod'
 import {
   AGENT_SETTING_FIELDS,
   DaemonBotDto,
+  DaemonPluginRes,
   DaemonSkillRes,
   DaemonToServer,
   ServerToDaemon,
@@ -22,6 +23,7 @@ const tunnel = { open: TunnelOpen, head: TunnelHead, reset: TunnelReset }
 const http = {
   'daemon-bots': z.array(DaemonBotDto),
   'daemon-skill': DaemonSkillRes,
+  'daemon-plugin': DaemonPluginRes,
   'sync-changes': SyncChangesRes,
   'sync-missing': SyncMissingRes,
 }

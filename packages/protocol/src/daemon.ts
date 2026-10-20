@@ -208,6 +208,12 @@ export type SkillRef = z.infer<typeof SkillRef>
 /** `GET /api/daemon/skills/:versionId` */
 export const DaemonSkillRes = z.object({ files: z.array(SkillFile) })
 export type DaemonSkillRes = z.infer<typeof DaemonSkillRes>
+/** Plugin files for a run (plan 插件体系-方案); the daemon fetches them by `versionId`, cached by `digest`. */
+export const PluginRef = z.object({ name: z.string(), versionId: z.string(), digest: z.string() })
+export type PluginRef = z.infer<typeof PluginRef>
+/** `GET /api/daemon/plugins/:versionId` */
+export const DaemonPluginRes = z.object({ files: z.array(SkillFile) })
+export type DaemonPluginRes = z.infer<typeof DaemonPluginRes>
 
 /** The bot owner's preferred protocol; the daemon tries it first, then falls back to the other (ssh ↔ https). */
 export const GitProtocol = z.enum(['auto', 'ssh', 'https'])
@@ -298,6 +304,11 @@ export const RunStart = z.object({
   mcpServers: z.array(McpServer),
   /** Platform → team → group skills merged by name; applied every turn (content) and on adapter start (the set). */
   skills: z.array(SkillRef).default([]),
+  /**
+   * Plugins enabled in the group that this bot may use (only sent to daemons with the `plugins` feature): each is
+   * loaded like a Claude plugin named `name`; Codex links its skills as `<name>-<skill>`. Same timing as `skills`.
+   */
+  plugins: z.array(PluginRef).default([]),
   /** An agent command (`/compact …`): sent verbatim as the prompt so the adapter runs it; `prompt` is not composed. */
   command: z.string().nullable().default(null),
   /** Force groups only (null in partition groups). */
@@ -704,6 +715,7 @@ export const DaemonFeature = z.enum([
   'sessionFork',
   'agentSettings',
   'reprobe',
+  'plugins',
 ])
 export type DaemonFeature = z.infer<typeof DaemonFeature>
 

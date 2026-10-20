@@ -45,6 +45,7 @@ import {
 } from './daemon.js'
 import { I18nText } from './i18n.js'
 import { LiveRun } from './live-run.js'
+import { MessageCard } from './plugins.js'
 import { GroupSchedulesDto } from './schedules.js'
 import { RunSecret, SecretCard } from './secrets.js'
 import { RunSyncDone, SyncStatusDto } from './sync.js'
@@ -798,6 +799,8 @@ export const MessageDto = z.object({
   mcpSecret: McpSecretCard.optional(),
   /** A bot's 填写密钥 card (secret_request). */
   secretCard: SecretCard.optional(),
+  /** Generic card (plan 插件体系-方案); unknown kinds are shown as the body. */
+  card: MessageCard.optional(),
 })
 export type MessageDto = z.infer<typeof MessageDto>
 
@@ -1045,8 +1048,14 @@ export const QuestionSetDto = z.object({
   answeredAt: z.string().nullable(),
   expiresAt: z.string(),
   createdAt: z.string(),
+  /** 倾向: members' leanings while pending, for reference only (not votes); the answerer still decides. */
+  leanings: z
+    .array(z.object({ questionId: z.string(), choice: z.number().int(), userId: z.string(), name: z.string() }))
+    .default([]),
 })
 export type QuestionSetDto = z.infer<typeof QuestionSetDto>
+/** POST /api/runs/:runId/questions/:setId/leanings — toggles the caller's leaning on one option. */
+export const LeanReq = z.object({ questionId: z.string(), choice: z.number().int().min(0) })
 
 export const AnswerQuestionsReq = z.object({
   answers: z.array(Answer),
@@ -1529,6 +1538,8 @@ export const SystemParams = GroupParams.extend({
   /** Public demo site: no public preview links or Feishu preview cards, no full tier, no remote control,
    * accounts and shared data stay as they are for everyone but the sysadmin. */
   demoMode: z.boolean(),
+  /** Plugin system master switch (plan 插件体系-方案): off = no plugin UI, nothing sent to daemons. */
+  pluginsEnabled: z.boolean(),
 })
 export type SystemParams = z.infer<typeof SystemParams>
 /** Params a team may override for its groups (plan D9). */
@@ -1567,7 +1578,13 @@ export const UpdateSystemParamsReq = SystemParams.partial()
 export const SYSTEM_PARAM_VIEW: {
   key: Exclude<
     keyof SystemParams,
-    'registrationOpen' | 'singleTeamMode' | 'teamCreation' | 'feishuAutoSignup' | 'publicUrl' | 'demoMode'
+    | 'registrationOpen'
+    | 'singleTeamMode'
+    | 'teamCreation'
+    | 'feishuAutoSignup'
+    | 'publicUrl'
+    | 'demoMode'
+    | 'pluginsEnabled'
   >
   label: string
   unit: string

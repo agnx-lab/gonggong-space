@@ -119,6 +119,19 @@ export const Question = z.object({
   options: z.array(z.string()),
   /** Index into options for choice questions. */
   recommended: z.number().int().nullable(),
+  /**
+   * Design-enhanced options (plan 插件体系-方案 §5), aligned with `options` by index: a short description, colour
+   * swatches, or an image (a workspace-relative path). Absent = plain options, as before.
+   */
+  optionMeta: z
+    .array(
+      z.object({
+        description: z.string().max(120).nullable().default(null),
+        swatch: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(6).default([]),
+        image: z.string().max(500).nullable().default(null),
+      }),
+    )
+    .optional(),
 })
 export type Question = z.infer<typeof Question>
 export const MAX_QUESTIONS = 4

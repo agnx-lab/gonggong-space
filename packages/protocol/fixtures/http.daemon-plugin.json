@@ -1,0 +1,14 @@
+{
+  "files": [
+    {
+      "path": "gonggong-plugin.json",
+      "content": "{}",
+      "encoding": "utf8"
+    },
+    {
+      "path": "skills/web-prototype/SKILL.md",
+      "content": "---\nname: web-prototype\ndescription: x\n---\n",
+      "encoding": "utf8"
+    }
+  ]
+}
