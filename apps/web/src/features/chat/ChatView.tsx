@@ -19,6 +19,7 @@ import { useWorkspace } from '../../app/workspace'
 import { cx } from '../../lib/cx'
 import { named } from '../../lib/lazy'
 import { realtime } from '../../lib/realtime'
+import { useHeightVar } from '../../lib/useHeightVar'
 import {
   Button,
   ChatHeader,
@@ -164,6 +165,9 @@ export function ChatView({
   const me = useSession((s) => s.user)
   const meId = me?.id
   const box = useRef<HTMLDivElement>(null)
+  const banners = useRef<HTMLDivElement>(null)
+  // The day separator sticks just below however many prompts are pinned above the messages.
+  useHeightVar(banners, box, '--banners-h')
   const stick = useRef(true)
   const olderAnchor = useRef<{ id: string; height: number } | null>(null)
   /** What the view had shown at the last render, to count arrivals while scrolled up. */
@@ -593,7 +597,7 @@ export function ChatView({
             </div>
           ) : null}
           <div className="chat-scroll" ref={box} onScroll={onScroll}>
-            <div className="chat-view__banners">
+            <div className="chat-view__banners" ref={banners}>
               {readOnly ? <ReadOnlyBanner group={group} /> : null}
               {closed && !readOnly ? (
                 <PinnedBanner

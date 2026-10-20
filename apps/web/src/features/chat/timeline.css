@@ -59,8 +59,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+  /* Several prompts must not take over the view: past this they scroll among themselves. */
+  flex: none;
+  max-height: min(30vh, 220px);
+  overflow-y: auto;
   padding: var(--space-8) var(--space-20) 0;
   pointer-events: none;
+}
+.chat-view__banners > * {
+  flex: none;
 }
 .chat-view__banners:empty {
   display: none;
@@ -149,8 +156,9 @@
   padding-block: var(--space-6);
   background: linear-gradient(var(--content-bg) 70%, transparent);
 }
+/* Below the pinned prompts, however many there are (--banners-h is measured by ChatView). */
 .chat-scroll:has(.chat-view__banners > *) .pn-msglist > .pn-notice--date {
-  top: 46px;
+  top: var(--banners-h, 46px);
 }
 /* Stuck over the messages it must read as a floating capsule, never as text colliding with an author row:
    an opaque content-bg fill with the glass shadow, so nothing shows through. */
