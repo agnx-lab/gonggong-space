@@ -1,0 +1,57 @@
+.pd-dock {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--space-8) var(--space-16) 0;
+  padding: 2px;
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  background: var(--group-bg);
+}
+.pd-dock__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--orange, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+.pd-dock__head:hover {
+  background: var(--control-fill);
+}
+.pd-dock__chevron {
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+.pd-dock__head[aria-expanded="false"] .pd-dock__chevron {
+  transform: rotate(180deg);
+}
+.pd-dock__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  max-height: 45vh;
+  margin: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+  list-style: none;
+}
+.pd-item__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.pd-item__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}

@@ -246,6 +246,7 @@ export default {
   '无人回答，agent 已按推荐项继续': 'No answer; the agent went on with the recommended options',
   提问已作废: 'Question void',
   '待处理 {n} 项': '{n} {n:request|requests} waiting',
+  定位: 'Locate',
   筛选过程: 'Filter process',
   需处理: 'Requests',
   '命令#filter': 'Commands',

@@ -57,6 +57,7 @@ import { LiveRunsBar } from './LiveRunsBar'
 import { MentionNames } from './Markdown'
 import { branchableRuns } from './MessageActions'
 import { MessageComposer } from './MessageComposer'
+import { PendingDock } from './PendingDock'
 import { ProviderBanner } from './ProviderBanner'
 import { repoName } from './repo'
 import {
@@ -702,6 +703,7 @@ export function ChatView({
               <PreviewTags groupId={group.id} />
             </div>
             <LiveRunsBar runs={runList} onLocate={locate} />
+            <PendingDock runs={runList} onLocate={locate} />
             <ProviderBanner group={group} />
             <MessageComposer group={group} dropFiles={dropFiles} onSent={onSent} />
           </>
