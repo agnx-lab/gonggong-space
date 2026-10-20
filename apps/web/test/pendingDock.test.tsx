@@ -1,5 +1,5 @@
 import type { ApprovalDto, BotDto, QuestionSetDto, RunDto } from '@gonggong/protocol'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
@@ -133,9 +133,64 @@ describe('PendingDock', () => {
     expect(items[1]?.textContent).toContain('允许改 fixture 吗？')
   })
 
-  it('is read-only for someone who may not decide', () => {
+  it('pins only what I may decide; others wait read-only on their own cards', () => {
+    const runs = [
+      run({ approvals: [approval()] }),
+      run({
+        id: 'r2',
+        botId: 'b2',
+        status: 'awaiting_approval',
+        approvals: [approval({ id: 'a2', runId: 'r2' })],
+      }),
+      run({
+        id: 'r3',
+        botId: 'b2',
+        originUserId: 'u1',
+        status: 'awaiting_answer',
+        questions: [set({ runId: 'r3' })],
+      }),
+    ]
+    login('u2')
+    const { unmount } = render(<PendingDock runs={runs} onLocate={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: /待处理 2 项/ }))
+    expect(screen.getAllByTestId('pending-item').map((i) => i.textContent?.includes('测试 Bot'))).toEqual([
+      true,
+      true,
+    ])
+    unmount()
     login('u3')
-    render(<PendingDock runs={[run({ approvals: [approval()] })]} onLocate={() => {}} />)
-    expect((screen.getByRole('button', { name: '批准' }) as HTMLButtonElement).disabled).toBe(true)
+    const { container } = render(<PendingDock runs={runs} onLocate={() => {}} />)
+    expect(container.textContent).toBe('')
+  })
+
+  describe('on a phone', () => {
+    let listeners: Record<string, () => void>
+    let viewport: {
+      height: number
+      addEventListener: (k: string, f: () => void) => void
+      removeEventListener: () => void
+    }
+    beforeEach(() => {
+      listeners = {}
+      viewport = {
+        height: 800,
+        addEventListener: (k, f) => (listeners[k] = f),
+        removeEventListener: () => {},
+      }
+      vi.stubGlobal('visualViewport', viewport)
+      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('max-width'), media: q }))
+    })
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('starts folded even for one item, and folds again when the keyboard opens', () => {
+      render(<PendingDock runs={[run({ approvals: [approval()] })]} onLocate={() => {}} />)
+      const head = screen.getByRole('button', { name: /待处理 1 项/ })
+      expect(head.getAttribute('aria-expanded')).toBe('false')
+      fireEvent.click(head)
+      expect(screen.getByText('go build ./...')).toBeTruthy()
+      viewport.height = 450
+      act(() => listeners.resize?.())
+      expect(head.getAttribute('aria-expanded')).toBe('false')
+    })
   })
 })
