@@ -667,4 +667,17 @@ export const en = {
   '{bot} 无响应，无法分支': "{bot} did not respond, can't branch",
   '分支失败：{error}': 'Branching failed: {error}',
   未知错误: 'Unknown error',
+
+  // Manual git in a group
+  '仅绑定了仓库的分区模式群可以使用 Git 操作':
+    'Git operations are only available in partition groups with a repo',
+  '{bot} 离线，无法读取 Git 信息': "{bot} is offline, can't read git",
+  '{bot} 离线，无法执行 Git 操作': "{bot} is offline, can't run the git operation",
+  '{bot} 未响应，Git 操作结果未知': "{bot} did not respond; the git operation's outcome is unknown",
+  '{bot} 正在运行，等运行结束后再操作': '{bot} is running; try again once the run ends',
+  推送基准分支需要再次确认: 'Pushing the base branch needs a second confirmation',
+  操作不存在: 'Operation not found',
+  该操作已处理: 'This operation was already handled',
+  该操作已过期: 'This operation has expired',
+  '只有 Bot 主人可以处理 Git 操作申请': 'Only the Bot owner can decide git requests',
 } satisfies Record<string, string>
