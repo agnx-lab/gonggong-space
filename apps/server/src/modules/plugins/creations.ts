@@ -12,7 +12,12 @@ import { triggerRuns } from '../runs/trigger.js'
 import { botStates, groupPluginList, pluginBlocker, requirePluginsOn } from './service.js'
 
 /** The picked one of `list`; null only when the plugin offers none. */
-function pick<T extends { id: string }>(list: T[], id: string | null, missing: MessageKey, unknown: MessageKey) {
+function pick<T extends { id: string }>(
+  list: T[],
+  id: string | null,
+  missing: MessageKey,
+  unknown: MessageKey,
+) {
   if (id === null) return list.length ? fail('invalid', missing) : null
   return list.find((x) => x.id === id) ?? fail('invalid', unknown)
 }
@@ -41,7 +46,11 @@ function instructions(m: PluginManifest, card: CreationCard) {
     `@${card.botName} 请用插件「${m.title}」（${m.name} v${m.version}）创作。`,
     `Skill：Claude 用 ${m.name}:${m.entry}；Codex 用 ${m.entry}（目录 .agents/skills/${m.name}-${m.entry}）。`,
     ...(card.template ? [`模板：${card.template.title}（${card.template.id}）`] : []),
-    ...(ds ? [`设计系统：${ds.title}（${ds.id}），先读取 skill 目录下的 ${ds.dir}/DESIGN.md 和 ${ds.dir}/tokens.css。`] : []),
+    ...(ds
+      ? [
+          `设计系统：${ds.title}（${ds.id}），先读取 skill 目录下的 ${ds.dir}/DESIGN.md 和 ${ds.dir}/tokens.css。`,
+        ]
+      : []),
     `先出 2–3 个视觉方向：${card.directions ? '是' : '否'}`,
     ...(card.inputs.length ? ['参数：', ...card.inputs.map((i) => `- ${i.label}：${i.value}`)] : []),
     '产物写到 design/<slug>/index.html（slug 用简短的英文小写和连字符），完成后用 preview_static 发布，再简短说明做了什么。',
@@ -49,7 +58,12 @@ function instructions(m: PluginManifest, card: CreationCard) {
 }
 
 /** POST /api/groups/:id/creations: a creation card from the requester @-ing the bot, which triggers its turn. */
-export async function createCreation(ctx: Ctx, me: { id: string; name: string }, groupId: string, req: CreationReq) {
+export async function createCreation(
+  ctx: Ctx,
+  me: { id: string; name: string },
+  groupId: string,
+  req: CreationReq,
+) {
   const { group } = await requireMember(ctx, groupId, me.id)
   await requirePluginsOn(ctx.db)
   const found =
@@ -78,7 +92,11 @@ export async function createCreation(ctx: Ctx, me: { id: string; name: string },
   }
   const row = await ctx.db.transaction(async (tx) => {
     const id = randomUUID()
-    const files = await claimAttachments(tx, req.attachmentIds, { uploaderId: me.id, groupId: group.id, messageId: id })
+    const files = await claimAttachments(tx, req.attachmentIds, {
+      uploaderId: me.id,
+      groupId: group.id,
+      messageId: id,
+    })
     const meta: MessageMeta = { mentions: [bot.id], card, ...(files.length > 0 && { attachments: files }) }
     const [inserted] = await tx
       .insert(messages)

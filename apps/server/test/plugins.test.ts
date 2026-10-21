@@ -2,9 +2,9 @@ import {
   type GroupPluginDto,
   type MessageDto,
   PLUGIN_MAX_BYTES,
-  PROTOCOL_VERSION,
   type PluginDto,
   type PluginManifest,
+  PROTOCOL_VERSION,
   type QuestionSetDto,
   type RunStart,
   type WebEvent,
@@ -17,8 +17,8 @@ import {
   groupPlugins,
   machines,
   messages,
-  pluginVersions,
   plugins,
+  pluginVersions,
   questionSets,
   runs,
   teamMembers,
@@ -55,7 +55,12 @@ const manifest = (o: ManifestIn = {}) => ({
   entry: 'web-prototype',
   templates: [{ id: 'saas', title: 'SaaS 落地页', preview: 'previews/saas.png' }],
   designSystems: [
-    { id: 'neutral-modern', title: '中性现代', swatches: ['#111111', '#ffffff'], dir: 'systems/neutral-modern' },
+    {
+      id: 'neutral-modern',
+      title: '中性现代',
+      swatches: ['#111111', '#ffffff'],
+      dir: 'systems/neutral-modern',
+    },
   ],
   inputs: [
     { id: 'title', label: '主标题', type: 'string', required: true },
@@ -145,7 +150,13 @@ const userMessage = async (w: World, botId: string, body = '@bot 做一版') =>
   (
     await t.db
       .insert(messages)
-      .values({ groupId: w.group.id, kind: 'user', authorUserId: w.eve.id, body, meta: { mentions: [botId] } })
+      .values({
+        groupId: w.group.id,
+        kind: 'user',
+        authorUserId: w.eve.id,
+        body,
+        meta: { mentions: [botId] },
+      })
       .returning()
   )[0]!
 
@@ -282,7 +293,9 @@ describe('group plugins', () => {
     const platform = await upload(w)
     await upload(w, pkg(manifest({ name: 'deck', category: 'deck' })))
     const team = (
-      await (await w.as(w.bob)).post<PluginDto>(`/api/teams/${w.team}/plugins`, {
+      await (
+        await w.as(w.bob)
+      ).post<PluginDto>(`/api/teams/${w.team}/plugins`, {
         files: pkg(manifest({ version: '2.0.0' })),
       })
     ).body
@@ -291,7 +304,9 @@ describe('group plugins', () => {
     await eve.post(base, { files: pkg(manifest({ name: 'poster', category: 'poster' })) })
 
     const list = async () => (await mia.get<GroupPluginDto[]>(base)).body
-    expect((await list()).map((p) => [p.manifest.name, p.layer, p.manifest.version, p.enabledInGroup])).toEqual([
+    expect(
+      (await list()).map((p) => [p.manifest.name, p.layer, p.manifest.version, p.enabledInGroup]),
+    ).toEqual([
       ['deck', 'platform', '1.0.0', false],
       ['poster', 'group', '1.0.0', false],
       ['web-prototype', 'team', '2.0.0', false],
@@ -309,7 +324,10 @@ describe('group plugins', () => {
   it('tells per bot why it cannot use a plugin: agent, offline, daemon, secret', async () => {
     const w = await world()
     await switchOn(w)
-    const p = await upload(w, pkg(manifest({ agents: ['claude'], minDaemon: '0.8.0', secrets: ['FIGMA_TOKEN'] })))
+    const p = await upload(
+      w,
+      pkg(manifest({ agents: ['claude'], minDaemon: '0.8.0', secrets: ['FIGMA_TOKEN'] })),
+    )
     const ready = await groupBot(w, { name: 'ready' })
     const codex = await groupBot(w, { name: 'codex', agentKind: 'codex' })
     await groupBot(w, { name: 'offline' })
@@ -349,7 +367,13 @@ describe('group plugins', () => {
 
   it('checks blockers in a fixed order (unit)', () => {
     const m = PluginManifestOf({ agents: ['claude'], minDaemon: '0.8.0', secrets: ['A_KEY'] })
-    const ok = { agentKind: 'claude', online: true, features: ['plugins'], daemonVersion: '0.8.0', env: { A_KEY: 'x' } }
+    const ok = {
+      agentKind: 'claude',
+      online: true,
+      features: ['plugins'],
+      daemonVersion: '0.8.0',
+      env: { A_KEY: 'x' },
+    }
     expect(pluginBlocker(m, ok)).toBeNull()
     expect(pluginBlocker(m, { ...ok, agentKind: 'codex', online: false })).toBe('agent')
     expect(pluginBlocker(m, { ...ok, online: false, features: [] })).toBe('offline')
@@ -422,7 +446,9 @@ describe('plugins in run.start', () => {
     await triggerRuns(t.ctx, await userMessage(w, bot.id))
     const [run] = await t.db.select().from(runs).where(eq(runs.botId, bot.id))
     const build = () =>
-      t.db.transaction(async (tx) => (await buildRunStart(tx, bot, run!, false, new Date(0), ['plugins'])).msg)
+      t.db.transaction(
+        async (tx) => (await buildRunStart(tx, bot, run!, false, new Date(0), ['plugins'])).msg,
+      )
 
     const on = await build()
     expect(on.plugins.map((x) => x.name)).toEqual(['web-prototype'])

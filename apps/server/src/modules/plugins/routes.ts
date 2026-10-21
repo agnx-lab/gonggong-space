@@ -75,7 +75,10 @@ function layerRoutes(ctx: Ctx, app: FastifyInstance, base: string, authorize: Au
 function groupRoutes(ctx: Ctx, app: FastifyInstance) {
   type P = { Params: { id: string; pluginId?: string } }
   const list = async (groupId: string, userId: string): Promise<GroupPluginDto[]> => {
-    const [rows, states] = await Promise.all([groupPluginList(ctx.db, groupId), botStates(ctx, groupId, userId)])
+    const [rows, states] = await Promise.all([
+      groupPluginList(ctx.db, groupId),
+      botStates(ctx, groupId, userId),
+    ])
     return rows.map((r) => ({
       ...pluginDto(r),
       enabledInGroup: r.enabledInGroup,

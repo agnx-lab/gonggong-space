@@ -127,7 +127,10 @@ export const Question = z.object({
     .array(
       z.object({
         description: z.string().max(120).nullable().default(null),
-        swatch: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(6).default([]),
+        swatch: z
+          .array(z.string().regex(/^#[0-9a-fA-F]{6}$/))
+          .max(6)
+          .default([]),
         image: z.string().max(500).nullable().default(null),
       }),
     )

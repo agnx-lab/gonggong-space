@@ -35,7 +35,11 @@ export async function recallMessage(ctx: Ctx, user: { id: string; name: string }
   const row = await ctx.db.transaction(async (tx) => {
     const [row] = (await tx
       .update(messages)
-      .set({ recalledAt: ctx.now(), body: '', meta: sql`${messages.meta} - 'attachments' - 'quote' - 'card'` })
+      .set({
+        recalledAt: ctx.now(),
+        body: '',
+        meta: sql`${messages.meta} - 'attachments' - 'quote' - 'card'`,
+      })
       .where(and(eq(messages.id, m.id), isNull(messages.recalledAt)))
       .returning()) as MessageRow[]
     if (!row) return fail('conflict', '该消息已撤回')

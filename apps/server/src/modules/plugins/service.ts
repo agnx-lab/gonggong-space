@@ -12,7 +12,16 @@ import {
 import { and, asc, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import type { Db } from '../../db/client.js'
-import { bots, groupBots, groupPlugins, groups, machines, plugins, pluginVersions, users } from '../../db/schema.js'
+import {
+  bots,
+  groupBots,
+  groupPlugins,
+  groups,
+  machines,
+  plugins,
+  pluginVersions,
+  users,
+} from '../../db/schema.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { sysParams } from '../admin/params.js'
@@ -152,7 +161,14 @@ export async function savePlugin(ctx: Ctx, l: Layer, s: PluginSnapshot, actorId:
     return { plugin, created: !!made, revision }
   })
   if (saved.revision)
-    await log(ctx, actorId, l, saved.created ? 'plugin.create' : 'plugin.update', saved.plugin, saved.revision)
+    await log(
+      ctx,
+      actorId,
+      l,
+      saved.created ? 'plugin.create' : 'plugin.update',
+      saved.plugin,
+      saved.revision,
+    )
   return saved
 }
 
@@ -228,7 +244,11 @@ export type BotState = {
 export function pluginBlocker(m: PluginManifest, b: BotState): PluginBlocker | null {
   if (!(m.agents as string[]).includes(b.agentKind)) return 'agent'
   if (!b.online) return 'offline'
-  if (!b.features.includes('plugins') || !b.daemonVersion || compareVersions(b.daemonVersion, m.minDaemon) < 0)
+  if (
+    !b.features.includes('plugins') ||
+    !b.daemonVersion ||
+    compareVersions(b.daemonVersion, m.minDaemon) < 0
+  )
     return 'daemon'
   if (m.secrets.some((name) => !(name in b.env))) return 'secret'
   return null
@@ -283,12 +303,15 @@ export async function runPlugins(
 ): Promise<PluginRef[]> {
   const [list, [machine]] = await Promise.all([
     groupPluginList(db, groupId),
-    db
-      .select({ version: machines.daemonVersion })
-      .from(machines)
-      .where(eq(machines.id, machineId)),
+    db.select({ version: machines.daemonVersion }).from(machines).where(eq(machines.id, machineId)),
   ])
-  const state = { agentKind: bot.agentKind, online: true, features, daemonVersion: machine?.version ?? null, env }
+  const state = {
+    agentKind: bot.agentKind,
+    online: true,
+    features,
+    daemonVersion: machine?.version ?? null,
+    env,
+  }
   return list
     .filter((r) => r.enabledInGroup && !pluginBlocker(r.version.manifest, state))
     .map((r) => ({ name: r.plugin.name, versionId: r.version.id, digest: r.version.digest }))

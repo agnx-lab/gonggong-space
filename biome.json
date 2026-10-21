@@ -16,7 +16,8 @@
       "!website/.vitepress/cache",
       "!videos",
       "!website/scripts/shots-workbench.data.json",
-      "!apps/web/src/ui/im/twemoji"
+      "!apps/web/src/ui/im/twemoji",
+      "!plugins/*/*/skills"
     ]
   },
   "formatter": {

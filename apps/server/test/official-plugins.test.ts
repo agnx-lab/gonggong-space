@@ -42,6 +42,7 @@ describe('official plugin web-prototype', () => {
   })
 
   it('carries no open-design specifics', () => {
-    for (const f of walk(skillDir)) expect(readFileSync(f, 'utf8'), f).not.toMatch(/data-od-id|lint-artifact|<artifact>/)
+    for (const f of walk(skillDir))
+      expect(readFileSync(f, 'utf8'), f).not.toMatch(/data-od-id|lint-artifact|<artifact>/)
   })
 })

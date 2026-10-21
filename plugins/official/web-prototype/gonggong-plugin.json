@@ -8,10 +8,22 @@
   "minDaemon": "0.3.5",
   "entry": "web-prototype",
   "templates": [
-    { "id": "saas", "title": "SaaS 落地页", "description": "产品首屏、核心功能、数据或口碑、价格对比，以行动按钮收尾" },
+    {
+      "id": "saas",
+      "title": "SaaS 落地页",
+      "description": "产品首屏、核心功能、数据或口碑、价格对比，以行动按钮收尾"
+    },
     { "id": "event", "title": "活动报名页", "description": "时间地点、议程、适合谁来，页面以报名表单收尾" },
-    { "id": "brand", "title": "品牌官网首页", "description": "品牌主张、品牌故事、产品线与动态，留白多、节奏舒缓" },
-    { "id": "docs", "title": "产品文档首页", "description": "搜索、文档入口、快速开始与更新日志，信息清晰好扫读" }
+    {
+      "id": "brand",
+      "title": "品牌官网首页",
+      "description": "品牌主张、品牌故事、产品线与动态，留白多、节奏舒缓"
+    },
+    {
+      "id": "docs",
+      "title": "产品文档首页",
+      "description": "搜索、文档入口、快速开始与更新日志，信息清晰好扫读"
+    }
   ],
   "designSystems": [
     {
@@ -30,10 +42,22 @@
     }
   ],
   "inputs": [
-    { "id": "title", "label": "主标题", "type": "string", "required": true, "placeholder": "一句话说清这是什么" },
+    {
+      "id": "title",
+      "label": "主标题",
+      "type": "string",
+      "required": true,
+      "placeholder": "一句话说清这是什么"
+    },
     { "id": "points", "label": "核心卖点", "type": "text", "placeholder": "每行一条" },
     { "id": "audience", "label": "目标受众", "type": "string", "placeholder": "例如：中小团队的产品经理" },
-    { "id": "tone", "label": "语气", "type": "select", "options": ["专业", "亲切", "活泼"], "default": "专业" }
+    {
+      "id": "tone",
+      "label": "语气",
+      "type": "select",
+      "options": ["专业", "亲切", "活泼"],
+      "default": "专业"
+    }
   ],
   "license": "Apache-2.0",
   "source": {

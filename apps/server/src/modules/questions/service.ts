@@ -7,10 +7,10 @@ import { fail } from '../../lib/errors.js'
 import { startSweep } from '../../lib/sweep.js'
 import { timeoutMin } from '../approvals/service.js'
 import { claimAttachments } from '../attachments/service.js'
+import { requireMember } from '../groups/service.js'
 import { notify, resolveNotifications } from '../notifications/notify.js'
 import { publishRun } from '../runs/dto.js'
 import { runStep } from '../runs/step.js'
-import { requireMember } from '../groups/service.js'
 import { leaningsOf, questionSetDto } from './dto.js'
 
 type QuestionSet = typeof questionSets.$inferSelect
@@ -127,7 +127,13 @@ export async function answerQuestions(
  * POST /api/runs/:runId/questions/:id/leanings: any group member toggles a leaning on an option of a pending card
  * (倾向, for reference only); the card is pushed again.
  */
-export async function toggleLeaning(ctx: Ctx, user: { id: string }, runId: string, id: string, lean: { questionId: string; choice: number }) {
+export async function toggleLeaning(
+  ctx: Ctx,
+  user: { id: string },
+  runId: string,
+  id: string,
+  lean: { questionId: string; choice: number },
+) {
   const [row] = await scoped(ctx).where(and(eq(questionSets.id, id), eq(questionSets.runId, runId)))
   if (!row) return fail('not_found', '提问不存在')
   await requireMember(ctx, row.run.groupId, user.id)

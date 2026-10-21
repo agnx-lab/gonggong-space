@@ -1050,7 +1050,9 @@ export const QuestionSetDto = z.object({
   createdAt: z.string(),
   /** 倾向: members' leanings while pending, for reference only (not votes); the answerer still decides. */
   leanings: z
-    .array(z.object({ questionId: z.string(), choice: z.number().int(), userId: z.string(), name: z.string() }))
+    .array(
+      z.object({ questionId: z.string(), choice: z.number().int(), userId: z.string(), name: z.string() }),
+    )
     .default([]),
 })
 export type QuestionSetDto = z.infer<typeof QuestionSetDto>

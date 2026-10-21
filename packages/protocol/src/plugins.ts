@@ -28,7 +28,10 @@ export const PluginInput = z.object({
   required: z.boolean().default(false),
   /** Choices of a `select`. */
   options: z.array(z.string().min(1).max(40)).max(12).default([]),
-  default: z.union([z.string().max(2000), z.boolean()]).nullable().default(null),
+  default: z
+    .union([z.string().max(2000), z.boolean()])
+    .nullable()
+    .default(null),
   placeholder: z.string().max(80).nullable().default(null),
 })
 export type PluginInput = z.infer<typeof PluginInput>
@@ -69,11 +72,18 @@ export const PluginManifest = z.object({
   designSystems: z.array(PluginDesignSystem).max(20).default([]),
   inputs: z.array(PluginInput).max(12).default([]),
   /** Env var names of secrets it needs (plan 团队密钥-方案); runs without them do not get the plugin. */
-  secrets: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/)).max(10).default([]),
+  secrets: z
+    .array(z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/))
+    .max(10)
+    .default([]),
   license: z.string().min(1).max(40),
   /** Where it came from, shown with the license (e.g. an open-design template at a pinned commit). */
   source: z
-    .object({ name: z.string().max(80), url: z.string().url(), revision: z.string().max(64).nullable().default(null) })
+    .object({
+      name: z.string().max(80),
+      url: z.string().url(),
+      revision: z.string().max(64).nullable().default(null),
+    })
     .nullable()
     .default(null),
 })
@@ -147,4 +157,3 @@ export type CreationCard = z.infer<typeof CreationCard>
 /** Generic message card; new kinds join the union and old clients fall back to the body. */
 export const MessageCard = z.discriminatedUnion('type', [CreationCard])
 export type MessageCard = z.infer<typeof MessageCard>
-

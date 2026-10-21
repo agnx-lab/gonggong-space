@@ -148,7 +148,9 @@ export async function runDtoLoader(ctx: Ctx, rows: CardRow[]): Promise<(r: CardR
     const p = params.get(r.groupId) as GroupParams
     return runDto(r, {
       approvals: aps.filter((x) => x.a.runId === r.id).map((x) => approvalDto(x.a, x.name)),
-      questions: qs.filter((x) => x.q.runId === r.id).map((x) => questionSetDto(x.q, x.name, files, leanings)),
+      questions: qs
+        .filter((x) => x.q.runId === r.id)
+        .map((x) => questionSetDto(x.q, x.name, files, leanings)),
       hopMax: p.chainMaxHops,
       offlineWaitMin: p.offlineWaitMin,
     })
