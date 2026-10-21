@@ -114,9 +114,18 @@ export default {
   '已移除 {kind}（{platform}）': 'Removed {kind} ({platform})',
   '当前版本 {version}': 'Current version {version}',
   尚未发布: 'Not released yet',
+  版本说明: 'Release notes',
+  编辑版本说明: 'Edit release notes',
+  保存版本说明: 'Save release notes',
+  '保存中…': 'Saving…',
+  请填写版本说明: 'Enter release notes',
+  版本说明已保存: 'Release notes saved',
+  '填写本版本的更新内容，支持 Markdown。': 'Enter the changes in this version. Markdown is supported.',
+  '未填写版本说明。桌面端和 daemon 升级时不会显示具体更新内容。':
+    'No release notes yet. Desktop and daemon upgrades will not show the specific changes.',
   拖入发布产物: 'Drop release artifacts',
-  '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*（安装包、更新包与 .sig 签名）拖到这里。文件名决定平台与版本；更高的版本会替换整个发布。':
-    'After running scripts/release.sh, drop the gonggong-*, gg-cast-* and Gonggong_* files (installers, update packages and .sig signatures) from dist/<version>/ here. File names determine platform and version; a higher version replaces the whole release.',
+  '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*（安装包、更新包与 .sig 签名）拖到这里；RELEASE_NOTES.md 可作为本版本更新说明上传。文件名决定平台与版本；更高的版本会替换整个发布。':
+    'After running scripts/release.sh, drop the gonggong-*, gg-cast-* and Gonggong_* files (installers, update packages and .sig signatures) from dist/<version>/ here; RELEASE_NOTES.md can be uploaded as this release’s notes. File names determine platform and version; a higher version replaces the whole release.',
   各平台发布文件: 'Release files by platform',
   平台: 'Platform',
   标识: 'ID',

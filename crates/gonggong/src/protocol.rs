@@ -1538,6 +1538,8 @@ pub struct UpgradeInfo {
     pub version: String,
     pub url: String,
     pub sha256: String,
+    #[serde(rename = "releaseNotes", default, skip_serializing_if = "Option::is_none")]
+    pub release_notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

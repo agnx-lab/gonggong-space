@@ -1408,6 +1408,8 @@ export const DaemonBuild = z.object({
 })
 export const DaemonRelease = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+$/, '版本号需为 x.y.z'),
+  /** Markdown shown by the desktop updater and the daemon's upgrade prompt; absent on older releases. */
+  releaseNotes: z.string().trim().min(1).optional(),
   /** Keyed by `<os>-<arch>` as the daemon reports them, e.g. `macos-aarch64`, `linux-x86_64`. */
   builds: z.record(z.string(), DaemonBuild),
   /** gg-cast (desktop preview publisher) per platform, downloaded by the daemon on its first live preview. */
@@ -1420,6 +1422,14 @@ export const DaemonRelease = z.object({
   signature: z.record(z.string(), DaemonBuild).optional(),
 })
 export type DaemonRelease = z.infer<typeof DaemonRelease>
+export const ReleaseNotesReq = z.object({
+  releaseNotes: z.string().trim().min(1, '填写版本说明').max(100_000, '版本说明不能超过 100000 个字符'),
+})
+export type ReleaseNotesReq = z.infer<typeof ReleaseNotesReq>
+export const DaemonReleaseNotesReq = ReleaseNotesReq.extend({
+  version: DaemonRelease.shape.version,
+})
+export type DaemonReleaseNotesReq = z.infer<typeof DaemonReleaseNotesReq>
 /** `<os>-<arch>` built by scripts/release.sh. */
 export const RELEASE_PLATFORMS = [
   'macos-aarch64',

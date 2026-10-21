@@ -433,3 +433,17 @@ code,
   z-index: 50;
   width: 344px;
 }
+.dk-update .ui-notif__body {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+.dk-update__notes {
+  max-height: 180px;
+  margin: var(--space-6) 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: var(--label-secondary);
+}

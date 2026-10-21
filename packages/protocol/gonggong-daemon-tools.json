@@ -140,6 +140,28 @@
     }
   },
   {
+    "name": "client_release_notes",
+    "title": "更新客户端版本说明",
+    "description": "写入或更新当前空间已发布版本的 Markdown 更新说明，桌面端与 daemon 的下一次更新检查会拿到具体内容。必须指定当前发布版本；只有系统管理员发起的对话可以使用。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "要更新说明的已发布版本，如 0.3.5；必须与当前发布版本一致"
+        },
+        "releaseNotes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100000,
+          "description": "完整的 Markdown 版本说明，会展示在桌面端和 daemon 升级提示里"
+        }
+      },
+      "required": ["version", "releaseNotes"]
+    }
+  },
+  {
     "name": "feishu_send_card",
     "title": "发送飞书卡片",
     "description": "以本 Bot 的飞书应用身份，往本群绑定的飞书群发一张自定义消息卡片，回复在触发本轮的消息下；卡片引用的工作区图片会自动上传并换成 img_key。本群未绑定飞书群时不可用。普通回复不需要它，最终回复会自动同步到飞书。",

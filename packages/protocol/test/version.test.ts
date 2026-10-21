@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AgentInfo, compareVersions, DaemonRelease, parseReleaseFile } from '../src/index.js'
+import { AgentInfo, compareVersions, DaemonRelease, parseReleaseFile, UpgradeInfo } from '../src/index.js'
 
 describe('compareVersions', () => {
   it('orders dotted numeric versions, ignoring pre-release / build suffixes', () => {
@@ -12,21 +12,38 @@ describe('compareVersions', () => {
 })
 
 describe('contracts', () => {
+  const release = {
+    version: '0.2.0',
+    builds: { 'macos-aarch64': { url: '/downloads/gg', sha256: 'a'.repeat(64) } },
+  }
+
   it('AgentInfo.minVersion defaults to null for daemons that do not report it', () => {
     const a = AgentInfo.parse({ kind: 'claude', available: true, version: '2.1.4', path: '/bin/claude' })
     expect(a.minVersion).toBeNull()
   })
 
   it('DaemonRelease requires a semver and a sha256 per build', () => {
-    const ok = {
-      version: '0.2.0',
-      builds: { 'macos-aarch64': { url: '/downloads/gg', sha256: 'a'.repeat(64) } },
-    }
-    expect(DaemonRelease.parse(ok)).toEqual(ok)
-    expect(DaemonRelease.safeParse({ ...ok, version: 'latest' }).success).toBe(false)
+    expect(DaemonRelease.parse(release)).toEqual(release)
+    expect(DaemonRelease.safeParse({ ...release, version: 'latest' }).success).toBe(false)
     expect(
-      DaemonRelease.safeParse({ ...ok, builds: { 'macos-aarch64': { url: '/x', sha256: 'nope' } } }).success,
+      DaemonRelease.safeParse({ ...release, builds: { 'macos-aarch64': { url: '/x', sha256: 'nope' } } }).success,
     ).toBe(false)
+  })
+
+  it('accepts release notes on releases and upgrades, and old payloads without them', () => {
+    const notes = '## 0.2.0\n\n- 模型选择更准确'
+    expect(DaemonRelease.parse({ ...release, releaseNotes: notes }).releaseNotes).toBe(notes)
+    expect(UpgradeInfo.parse({ version: '0.2.0', url: '/downloads/gg', sha256: 'a'.repeat(64) }).releaseNotes).toBe(
+      undefined,
+    )
+    expect(
+      UpgradeInfo.parse({
+        version: '0.2.0',
+        url: '/downloads/gg',
+        sha256: 'a'.repeat(64),
+        releaseNotes: notes,
+      }).releaseNotes,
+    ).toBe(notes)
   })
 })
 

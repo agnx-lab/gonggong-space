@@ -14,7 +14,8 @@
 # absolute release download URLs (daemons whose server publishes no build check it), github/latest.json the Tauri
 # updater feed of the desktop app (Gonggong_<v>_<arch>.app.tar.gz + .sig, signed with TAURI_SIGNING_PRIVATE_KEY /
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD; default ~/.tauri/gonggong.key, which has no password). --github then runs `gh release create v<version>` with every artifact and the
-# notes file (default dist/<version>/RELEASE_NOTES.md, copied from docs/release-notes/v<version>.md).
+# notes file (--notes, else docs/release-notes/v<version>.md); its Markdown is copied to dist and embedded in both
+# manifests. Missing notes warn but do not block publishing.
 # The Windows desktop installer is built by .github/workflows/desktop-windows.yml once the release is published; it
 # adds its windows-x86_64 entry to latest.json.
 # macOS builds need a macOS host with rustup targets; Linux (glibc ≥ 2.31) and Windows (mingw-w64) build in Docker.
@@ -30,7 +31,13 @@ while [ $# -gt 0 ]; do
     --publish) publish="$2"; shift 2 ;;
     --github) github=1; shift ;;
     --allow-dirty) allow_dirty=1; shift ;;
-    --notes) notes="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift 2 ;;
+    --notes)
+      case "$2" in
+        /*) notes="$2" ;;
+        *) notes="$PWD/$2" ;;
+      esac
+      shift 2
+      ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -44,6 +51,14 @@ version="$(gonggong_version)"
 out="$ROOT/dist/$version"
 repo="${GONGGONG_GITHUB_REPO:-yoqu/gonggong-space}"
 rm -rf "$out" && mkdir -p "$out"
+[ -n "$notes" ] || notes="$ROOT/docs/release-notes/v$version.md"
+if [ -f "$notes" ]; then
+  cp "$notes" "$out/RELEASE_NOTES.md"
+  notes="$out/RELEASE_NOTES.md"
+else
+  echo "warning: release notes not found: ${notes:-docs/release-notes/v$version.md}; publishing without notes" >&2
+  notes=""
+fi
 # <os>-<arch> as the daemon reports it (std::env::consts) → Rust target.
 PLATFORMS=(
   macos-aarch64:aarch64-apple-darwin
@@ -207,7 +222,10 @@ entries() {
   done
   echo "{$json}"
 }
-manifest() { echo "{\"version\":\"$version\",\"builds\":$(entries artifact "$1"),\"cast\":$(entries cast_artifact "$1")}"; }
+manifest() {
+  node "$ROOT/scripts/release/manifest.mjs" release "$version" "$notes" \
+    "$(entries artifact "$1")" "$(entries cast_artifact "$1")"
+}
 manifest "${GONGGONG_DOWNLOAD_BASE:-/downloads}" > manifest.json
 gh_base="https://github.com/$repo/releases/download/v$version"
 mkdir -p github
@@ -219,9 +237,9 @@ for file in Gonggong_"$version"_*.app.tar.gz; do
   platforms+="$sep\"darwin-$arch\":{\"signature\":\"$(tr -d '\n' < "$file.sig")\",\"url\":\"$gh_base/$file\"}" sep=","
 done
 if [ -n "$platforms" ]; then
-  echo "{\"version\":\"$version\",\"notes\":\"https://github.com/$repo/releases/tag/v$version\",\"pub_date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"platforms\":{$platforms}}" > github/latest.json
+  node "$ROOT/scripts/release/manifest.mjs" updater "$version" "$notes" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "{$platforms}" > github/latest.json
 fi
-[ -f "$ROOT/docs/release-notes/v$version.md" ] && cp "$ROOT/docs/release-notes/v$version.md" RELEASE_NOTES.md
 echo "== dist/$version"
 ls -l "$out" "$out/github"
 
@@ -244,11 +262,14 @@ if [ -n "$publish" ]; then
 fi
 
 if [ -n "$github" ]; then
-  notes="${notes:-$out/RELEASE_NOTES.md}"
-  [ -f "$notes" ] || { echo "error: release notes not found: $notes" >&2; exit 1; }
   [ -f github/latest.json ] || echo "warning: no desktop build, the release has no app update feed (latest.json)" >&2
   # github/manifest.json and github/latest.json upload as manifest.json and latest.json.
-  gh release create "v$version" gonggong-"$version"-* gg-cast-"$version"-* Gonggong_"$version"_* SHA256SUMS \
-    github/*.json --repo "$repo" --title "共工空间 v$version" --notes-file "$notes"
+  if [ -n "$notes" ]; then
+    gh release create "v$version" gonggong-"$version"-* gg-cast-"$version"-* Gonggong_"$version"_* SHA256SUMS \
+      github/*.json --repo "$repo" --title "共工空间 v$version" --notes-file "$notes"
+  else
+    gh release create "v$version" gonggong-"$version"-* gg-cast-"$version"-* Gonggong_"$version"_* SHA256SUMS \
+      github/*.json --repo "$repo" --title "共工空间 v$version" --notes "本版本未提供具体更新说明。"
+  fi
   echo "released v$version on github.com/$repo"
 fi

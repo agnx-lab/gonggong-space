@@ -1,5 +1,5 @@
 use gonggong::protocol::UpgradeInfo;
-use gonggong::upgrade::{CURRENT, StageError, Upgrader, is_newer, stage};
+use gonggong::upgrade::{CURRENT, StageError, Upgrader, is_newer, notes_summary, stage};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -27,7 +27,7 @@ fn sha(bytes: &[u8]) -> String {
 }
 
 fn info(version: &str, url: &str, sha256: String) -> UpgradeInfo {
-    UpgradeInfo { version: version.into(), url: url.into(), sha256 }
+    UpgradeInfo { version: version.into(), url: url.into(), sha256, release_notes: None }
 }
 
 #[test]
@@ -38,6 +38,19 @@ fn only_strictly_newer_versions_count() {
     assert!(!is_newer("0.1", "0.1.0"));
     assert!(!is_newer("0.0.9", "0.1.0"));
     assert!(!is_newer("0.1.0-rc1", "0.1.0"));
+}
+
+#[test]
+fn summarizes_release_notes_for_the_daemon_log() {
+    assert_eq!(notes_summary(None), None);
+    assert_eq!(notes_summary(Some(" \n ")), None);
+    assert_eq!(
+        notes_summary(Some("## 0.3.5\n\n- 修复更新提示\n- 增加说明")),
+        Some("## 0.3.5 - 修复更新提示 - 增加说明".into())
+    );
+    let long = notes_summary(Some(&"更".repeat(400))).unwrap();
+    assert!(long.ends_with('…'));
+    assert_eq!(long.chars().count(), 301);
 }
 
 #[tokio::test]

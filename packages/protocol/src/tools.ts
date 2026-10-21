@@ -1,7 +1,14 @@
 import { z } from 'zod'
 import { SkillFile } from './daemon.js'
 import { GONGGONG_TOOL_TITLES } from './tool-titles.js'
-import { KNOWLEDGE_BODY_MAX, KNOWLEDGE_TAGS_MAX, KNOWLEDGE_TITLE_MAX, SKILL_MAX_FILES } from './web.js'
+import {
+  DaemonRelease,
+  KNOWLEDGE_BODY_MAX,
+  KNOWLEDGE_TAGS_MAX,
+  KNOWLEDGE_TITLE_MAX,
+  ReleaseNotesReq,
+  SKILL_MAX_FILES,
+} from './web.js'
 
 /**
  * Tools of the built-in `gonggong` MCP server answered by the server (the daemon forwards them; `ask_group_members`
@@ -635,6 +642,10 @@ export const ClientReleasePublishArgs = z.object({
       '要发布的产物路径（工作区内的相对路径，如 dist/0.3.1/gonggong-0.3.1-macos-aarch64）；文件名须是 scripts/release.sh 的产物名',
     ),
 })
+export const ClientReleaseNotesArgs = z.object({
+  version: DaemonRelease.shape.version.describe('要更新说明的已发布版本，如 0.3.5；必须与当前发布版本一致'),
+  releaseNotes: ReleaseNotesReq.shape.releaseNotes.describe('完整的 Markdown 版本说明，会展示在桌面端和 daemon 升级提示里'),
+})
 
 export const FEISHU_CARD_IMAGES_MAX = 10
 
@@ -694,6 +705,13 @@ export const DAEMON_TOOLS = {
       '或桌面端更新包 Gonggong_<版本>_*.app.tar.gz 及其 .sig 签名、*-setup.exe.sig）上传到当前空间，' +
       '成员的 daemon 随后自动升级、桌面端从这里检查更新、可在网页下载安装包。一次一个文件，有多个就逐个调用；只有系统管理员发起的对话可以发布。',
     input: ClientReleasePublishArgs,
+  },
+  client_release_notes: {
+    title: '更新客户端版本说明',
+    description:
+      '写入或更新当前空间已发布版本的 Markdown 更新说明，桌面端与 daemon 的下一次更新检查会拿到具体内容。' +
+      '必须指定当前发布版本；只有系统管理员发起的对话可以使用。',
+    input: ClientReleaseNotesArgs,
   },
   feishu_send_card: {
     title: GONGGONG_TOOL_TITLES.feishu_send_card,

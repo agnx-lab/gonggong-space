@@ -8,9 +8,11 @@ import {
   ClientDownloads,
   compareVersions,
   DaemonRelease,
+  DaemonReleaseNotesReq,
   type MachineInfo,
   parseReleaseFile,
   ReleaseKind,
+  ReleaseNotesReq,
   type UpgradeInfo,
 } from '@gonggong/protocol'
 import { and, eq } from 'drizzle-orm'
@@ -29,6 +31,7 @@ const KEY = 'daemonRelease'
 const FILE = /^\w[\w.-]*$/
 /** A gg-cast build is ~30 MB (libwebrtc); leave room for debug-ish builds without accepting anything. */
 const MAX_FILE_MB = 300
+const MAX_NOTES_MB = 1
 const downloads = () => join(dataDir(), 'downloads')
 
 /** The published daemon build (plan D17), or null before a sysadmin publishes one. */
@@ -49,7 +52,11 @@ export function upgradeFor(
 ): UpgradeInfo | null {
   const build = release?.builds[`${machine.os}-${machine.arch}`]
   if (!release || !build || compareVersions(release.version, daemonVersion) <= 0) return null
-  return { version: release.version, ...build }
+  return {
+    version: release.version,
+    ...build,
+    ...(release.releaseNotes && { releaseNotes: release.releaseNotes }),
+  }
 }
 
 async function saveRelease(ctx: Ctx, release: DaemonRelease) {
@@ -69,6 +76,34 @@ async function removeHosted(url: string) {
 async function storeReleaseFile(ctx: Ctx, actorId: string, req: FastifyRequest) {
   const part = await req.file({ limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: 1 } })
   if (!part) return fail('invalid', '缺少文件')
+  if (part.filename === 'RELEASE_NOTES.md') {
+    const chunks: Buffer[] = []
+    let size = 0
+    try {
+      for await (const chunk of part.file) {
+        size += chunk.length
+        if (size > MAX_NOTES_MB * 1024 * 1024) {
+          return fail('invalid', '版本说明不能超过 {mb} MB', { mb: MAX_NOTES_MB })
+        }
+        chunks.push(chunk)
+      }
+    } finally {
+      part.file.resume()
+    }
+    const releaseNotes = Buffer.concat(chunks).toString('utf8').trim()
+    if (!releaseNotes) return fail('invalid', '版本说明不能为空')
+    const current = await daemonRelease(ctx)
+    if (!current) return fail('invalid', '请先上传一个发布产物，再上传版本说明')
+    const release = { ...current, releaseNotes }
+    await saveRelease(ctx, release)
+    await audit(ctx, {
+      category: 'admin',
+      actorUserId: actorId,
+      action: 'daemon.release.notes',
+      detail: { version: current.version, source: 'upload' },
+    })
+    return release
+  }
   const file = parseReleaseFile(part.filename)
   const current = await daemonRelease(ctx)
   if (!file || (current && compareVersions(file.version, current.version) < 0)) {
@@ -114,7 +149,7 @@ async function storeReleaseFile(ctx: Ctx, actorId: string, req: FastifyRequest) 
   await saveRelease(ctx, release)
   if (current && !same) await Promise.all(hostedUrls(current).map(removeHosted))
   await audit(ctx, { category: 'admin', actorUserId: actorId, action: 'daemon.release.upload', detail: file })
-  return release
+  return release.releaseNotes ? release : { ...release, warning: '未提供版本说明，请补充 RELEASE_NOTES.md' }
 }
 
 const hostedUrls = (r: DaemonRelease) =>
@@ -158,7 +193,12 @@ export function releaseRoutes(ctx: Ctx) {
         if (compareVersions(release.version, current) <= 0) return reply.code(204).send()
         const proto = String(req.headers['x-forwarded-proto'] ?? req.protocol).split(',')[0]
         const url = pkg.url.startsWith('/') ? `${proto}://${req.host}${pkg.url}` : pkg.url
-        return { version: release.version, url, signature: signature.trim() }
+        return {
+          version: release.version,
+          url,
+          signature: signature.trim(),
+          ...(release.releaseNotes && { notes: release.releaseNotes }),
+        }
       },
     )
 
@@ -181,20 +221,49 @@ export function releaseRoutes(ctx: Ctx) {
       return storeReleaseFile(ctx, actor.id, req)
     })
 
+    app.put('/api/admin/daemon-release/notes', async (req) => {
+      const actor = await requireSysadmin(ctx, req)
+      const { releaseNotes } = ReleaseNotesReq.parse(req.body)
+      const current = await daemonRelease(ctx)
+      if (!current) return fail('not_found', '还没有已发布的版本')
+      const release = { ...current, releaseNotes }
+      await saveRelease(ctx, release)
+      await audit(ctx, {
+        category: 'admin',
+        actorUserId: actor.id,
+        action: 'daemon.release.notes',
+        detail: { version: current.version, source: 'edit' },
+      })
+      return release
+    })
+
     // The gonggong MCP `client_release_publish` of a live run: its bot's machine uploads a file it built, on behalf
     // of whoever asked, who must be a sysadmin (the same right as uploading in the admin console).
     app.post<{ Params: { runId: string } }>('/api/daemon/runs/:runId/release-files', async (req) => {
-      const machine = await requireMachine(ctx, req)
-      const [row] = await ctx.db
-        .select({ status: runs.status, origin: users })
-        .from(runs)
-        .innerJoin(bots, eq(bots.id, runs.botId))
-        .innerJoin(users, eq(users.id, runs.originUserId))
-        .where(and(eq(runs.id, idParam(req.params.runId, '运行不存在')), eq(bots.machineId, machine.id)))
-      if (!row || !LIVE.includes(row.status)) return fail('not_found', '运行不存在或已结束')
-      if (row.origin.role !== 'sysadmin' || row.origin.disabledAt)
-        return fail('forbidden', '只有系统管理员发起的运行可以发布客户端')
-      return storeReleaseFile(ctx, row.origin.id, req)
+      const actorId = await releaseRunActor(ctx, req)
+      return storeReleaseFile(ctx, actorId, req)
+    })
+
+    // The gonggong MCP `client_release_notes`: a sysadmin's live run may fill the notes of the current release.
+    app.post<{ Params: { runId: string } }>('/api/daemon/runs/:runId/release-notes', async (req) => {
+      const actorId = await releaseRunActor(ctx, req)
+      const { version, releaseNotes } = DaemonReleaseNotesReq.parse(req.body)
+      const current = await daemonRelease(ctx)
+      if (!current) return fail('not_found', '还没有已发布的版本')
+      if (current.version !== version)
+        return fail('conflict', '当前发布版本是 {current}，不是 {version}', {
+          current: current.version,
+          version,
+        })
+      const release = { ...current, releaseNotes }
+      await saveRelease(ctx, release)
+      await audit(ctx, {
+        category: 'admin',
+        actorUserId: actorId,
+        action: 'daemon.release.notes',
+        detail: { version, source: 'mcp' },
+      })
+      return release
     })
 
     app.delete<{ Params: { kind: string; platform: string } }>(
@@ -239,4 +308,19 @@ export function releaseRoutes(ctx: Ctx) {
         .send(createReadStream(path))
     })
   }
+}
+
+/** The sysadmin behind a live run on the calling machine, for the two MCP release tools. */
+async function releaseRunActor(ctx: Ctx, req: FastifyRequest<{ Params: { runId: string } }>) {
+  const machine = await requireMachine(ctx, req)
+  const [row] = await ctx.db
+    .select({ status: runs.status, origin: users })
+    .from(runs)
+    .innerJoin(bots, eq(bots.id, runs.botId))
+    .innerJoin(users, eq(users.id, runs.originUserId))
+    .where(and(eq(runs.id, idParam(req.params.runId, '运行不存在')), eq(bots.machineId, machine.id)))
+  if (!row || !LIVE.includes(row.status)) return fail('not_found', '运行不存在或已结束')
+  if (row.origin.role !== 'sysadmin' || row.origin.disabledAt)
+    return fail('forbidden', '只有系统管理员发起的运行可以发布客户端')
+  return row.origin.id
 }

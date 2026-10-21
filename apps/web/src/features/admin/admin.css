@@ -148,6 +148,34 @@ a.ui-sidebar__item:hover:not([aria-current]) {
 .admin-table__warn {
   color: var(--tint-orange-text);
 }
+.admin-release-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-16);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-field);
+  background: var(--content-bg);
+}
+.admin-release-notes__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+.admin-release-notes__head h3 {
+  margin: 0;
+  font-size: var(--text-headline-size);
+}
+.admin-release-notes__body {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: var(--label-secondary);
+}
 .admin-agents {
   display: flex;
   gap: var(--space-8);

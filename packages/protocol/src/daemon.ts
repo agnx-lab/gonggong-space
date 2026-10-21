@@ -964,7 +964,13 @@ export type DaemonToServer = z.infer<typeof DaemonToServer>
 
 // ── server → daemon ─────────────────────────────────────────────────────────
 /** Published daemon build for this machine's OS/arch (plan D17); the daemon verifies sha256 before replacing itself. */
-export const UpgradeInfo = z.object({ version: z.string(), url: z.string(), sha256: z.string() })
+export const UpgradeInfo = z.object({
+  version: z.string(),
+  url: z.string(),
+  sha256: z.string(),
+  /** Optional so older servers and fixtures remain compatible. */
+  releaseNotes: z.string().trim().min(1).optional(),
+})
 export type UpgradeInfo = z.infer<typeof UpgradeInfo>
 
 export const Welcome = z.object({

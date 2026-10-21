@@ -219,6 +219,8 @@ async fn handle(
                 Some(forward(backends.api.as_ref().as_ref(), asker.as_ref(), name, args).await)
             } else if name == "client_release_publish" {
                 Some(publish_release(backends.api.as_ref().as_ref(), asker.as_ref(), args).await)
+            } else if name == "client_release_notes" {
+                Some(update_release_notes(backends.api.as_ref().as_ref(), asker.as_ref(), args).await)
             } else if name == "feishu_send_card" {
                 Some(send_feishu_card(backends.api.as_ref().as_ref(), asker.as_ref(), args).await)
             } else if DAEMON.names.contains(name) {
@@ -393,6 +395,33 @@ async fn publish_release(api: Option<&Config>, asker: &dyn Asker, args: &Value) 
 }
 
 #[derive(Deserialize)]
+struct ReleaseNotesArgs {
+    version: String,
+    #[serde(rename = "releaseNotes")]
+    release_notes: String,
+}
+
+/// Writes the current release's notes on behalf of a run a sysadmin started.
+async fn update_release_notes(api: Option<&Config>, asker: &dyn Asker, args: &Value) -> Result<String, String> {
+    let a = ReleaseNotesArgs::deserialize(args).map_err(|e| format!("参数无效：{e}"))?;
+    if a.release_notes.trim().is_empty() {
+        return Err("版本说明不能为空".into());
+    }
+    let api = api.ok_or("未连接服务器，无法更新版本说明")?;
+    let (run_id, _) = asker.active_run().ok_or(NOT_RUNNING)?;
+    let body = post_json(
+        api,
+        &format!("/api/daemon/runs/{run_id}/release-notes"),
+        &json!({ "version": a.version, "releaseNotes": a.release_notes }),
+    )
+    .await
+    .map_err(|e| format!("更新版本说明失败：{e}"))?
+    .map_err(|reason| format!("服务器拒绝了版本说明：{reason}"))?;
+    let version = body["version"].as_str().unwrap_or(&a.version);
+    Ok(format!("已更新 {version} 的版本说明（{} 字）", a.release_notes.chars().count()))
+}
+
+#[derive(Deserialize)]
 struct FeishuCardArgs {
     card: Value,
     #[serde(default)]
@@ -430,6 +459,22 @@ async fn post_form(api: &Config, path: &str, form: reqwest::multipart::Form) -> 
     let url = format!("{}{path}", api.server.trim_end_matches('/'));
     let send = async {
         let res = tls::http()?.post(url).bearer_auth(&api.token).multipart(form).timeout(UPLOAD_TIMEOUT).send().await?;
+        let status = res.status();
+        let body: Value = res.json().await.unwrap_or(Value::Null);
+        anyhow::Ok((status, body))
+    };
+    let (status, body) = send.await.map_err(|e| format!("{e:#}"))?;
+    if !status.is_success() {
+        return Ok(Err(body["message"].as_str().map_or_else(|| status.to_string(), String::from)));
+    }
+    Ok(Ok(body))
+}
+
+/// POSTs JSON as the machine: Err when it could not be sent, Ok(Err(reason)) when the server refused it.
+async fn post_json(api: &Config, path: &str, body: &Value) -> Result<Result<Value, String>, String> {
+    let url = format!("{}{path}", api.server.trim_end_matches('/'));
+    let send = async {
+        let res = tls::http()?.post(url).bearer_auth(&api.token).json(body).timeout(FORWARD_TIMEOUT).send().await?;
         let status = res.status();
         let body: Value = res.json().await.unwrap_or(Value::Null);
         anyhow::Ok((status, body))
@@ -820,6 +865,7 @@ mod tests {
                 "service_stop",
                 "preview_static",
                 "client_release_publish",
+                "client_release_notes",
                 "feishu_send_card",
                 "preview_miniprogram"
             ]
@@ -958,6 +1004,30 @@ mod tests {
         }
         assert_eq!(publish_release(Some(&api), &Fake::default(), &args).await, Err(NOT_RUNNING.into()));
         assert!(is_builtin("mcp__gonggong__preview_static") && !is_builtin("mcp__gonggong__client_release_publish"));
+    }
+
+    #[tokio::test]
+    async fn updates_release_notes_for_the_live_run() {
+        let (base, seen) = fake_server(r###"{"version":"0.3.1","releaseNotes":"## 0.3.1"}"###).await;
+        let dir = tempfile::tempdir().unwrap();
+        let live =
+            Fake(Mutex::default(), Mutex::default(), Some(("r1".into(), dir.path().to_path_buf())), Mutex::default());
+        let api = config(base);
+        let args = json!({ "version": "0.3.1", "releaseNotes": "## 0.3.1\n\n- 修复" });
+
+        let text = update_release_notes(Some(&api), &live, &args).await.unwrap();
+        assert_eq!(text, "已更新 0.3.1 的版本说明（14 字）");
+        let req = seen.lock().unwrap()[0].clone();
+        assert!(req.starts_with("POST /api/daemon/runs/r1/release-notes HTTP/1.1"), "{req}");
+        assert!(req.to_ascii_lowercase().contains("authorization: bearer mt_1"));
+        assert!(req.contains(r###""releaseNotes":"## 0.3.1\n\n- 修复""###), "{req}");
+        assert!(req.contains(r###""version":"0.3.1""###), "{req}");
+        assert_eq!(
+            update_release_notes(Some(&api), &live, &json!({ "version": "0.3.1", "releaseNotes": " " })).await,
+            Err("版本说明不能为空".into())
+        );
+        assert_eq!(update_release_notes(Some(&api), &Fake::default(), &args).await, Err(NOT_RUNNING.into()));
+        assert!(is_builtin("mcp__gonggong__client_release_notes"));
     }
 
     #[tokio::test]

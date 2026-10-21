@@ -18,6 +18,8 @@ struct Fake {
     /// Status of `/repos/<repo>/releases/latest`.
     status: StatusCode,
     tag: &'static str,
+    body: &'static str,
+    manifest_notes: bool,
     /// Platforms the release manifest has builds for.
     platforms: Vec<String>,
     requests: Vec<String>,
@@ -40,6 +42,7 @@ async fn handle(
             f.user_agent = req.headers().get("user-agent").map(|v| v.to_str().unwrap().to_string());
             let body = serde_json::json!({
                 "tag_name": f.tag,
+                "body": f.body,
                 "assets": [
                     { "name": "SHA256SUMS", "browser_download_url": format!("{base}/dl/SHA256SUMS") },
                     { "name": "manifest.json", "browser_download_url": format!("{base}/dl/manifest.json") },
@@ -54,7 +57,11 @@ async fn handle(
                 .map(|p| (p.clone(), serde_json::json!({ "url": format!("{base}/dl/gg"), "sha256": sha(BUILD) })))
                 .collect();
             let version = f.tag.trim_start_matches('v');
-            (StatusCode::OK, serde_json::json!({ "version": version, "builds": builds }).to_string().into())
+            let mut manifest = serde_json::json!({ "version": version, "builds": builds });
+            if f.manifest_notes {
+                manifest["releaseNotes"] = "## GitHub 更新\n\n- 从 manifest 读取".into();
+            }
+            (StatusCode::OK, manifest.to_string().into())
         }
         "/dl/gg" => (StatusCode::OK, Bytes::from_static(BUILD)),
         _ => (StatusCode::NOT_FOUND, Bytes::new()),
@@ -67,8 +74,15 @@ async fn handle(
 async fn serve(tag: &'static str, status: StatusCode) -> (String, Arc<Mutex<Fake>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
-    let fake =
-        Arc::new(Mutex::new(Fake { status, tag, platforms: vec![platform()], requests: vec![], user_agent: None }));
+    let fake = Arc::new(Mutex::new(Fake {
+        status,
+        tag,
+        body: "",
+        manifest_notes: true,
+        platforms: vec![platform()],
+        requests: vec![],
+        user_agent: None,
+    }));
     let (state, url) = (fake.clone(), base.clone());
     tokio::spawn(async move {
         loop {
@@ -94,8 +108,19 @@ async fn finds_the_build_for_this_platform_in_a_newer_release() {
     let info = source.latest("0.2.0").await.unwrap().unwrap();
     assert_eq!((info.version.as_str(), info.sha256.as_str()), ("9.0.0", sha(BUILD).as_str()));
     assert_eq!(info.url, format!("{base}/dl/gg"));
+    assert_eq!(info.release_notes.as_deref(), Some("## GitHub 更新\n\n- 从 manifest 读取"));
     let f = fake.lock().unwrap();
     assert!(f.user_agent.as_deref().is_some_and(|ua| ua.starts_with("gonggong/")), "{:?}", f.user_agent);
+}
+
+#[tokio::test]
+async fn falls_back_to_the_github_release_body_when_the_manifest_has_no_notes() {
+    let (base, fake) = serve("v9.0.0", StatusCode::OK).await;
+    fake.lock().unwrap().manifest_notes = false;
+    fake.lock().unwrap().body = "## 9.0.0\n\n- GitHub Release 说明";
+    let source = GithubSource::new(&base, "team/app").unwrap();
+    let info = source.latest("0.2.0").await.unwrap().unwrap();
+    assert_eq!(info.release_notes.as_deref(), Some("## 9.0.0\n\n- GitHub Release 说明"));
 }
 
 #[tokio::test]

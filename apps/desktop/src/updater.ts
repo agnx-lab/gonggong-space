@@ -14,7 +14,7 @@ export type UpdatePhase =
   | { phase: 'checking' }
   | { phase: 'latest' }
   | { phase: 'downloading'; version: string }
-  | { phase: 'ready'; version: string }
+  | { phase: 'ready'; version: string; notes?: string }
   | { phase: 'installing'; version: string }
   | { phase: 'error'; message: string }
 
@@ -39,7 +39,10 @@ export async function checkForUpdate() {
     set({ phase: 'downloading', version: update.version })
     await update.download()
     downloaded = update
-    useUpdate.setState({ state: { phase: 'ready', version: update.version }, dismissed: false })
+    useUpdate.setState({
+      state: { phase: 'ready', version: update.version, notes: update.body?.trim() || undefined },
+      dismissed: false,
+    })
   } catch (e) {
     set({ phase: 'error', message: String(e) })
   }

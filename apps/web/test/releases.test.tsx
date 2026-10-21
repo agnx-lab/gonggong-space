@@ -189,4 +189,28 @@ describe('管理后台 · 客户端发布', () => {
     await waitFor(() => expect(cells('macos-aarch64')[2]).toBe('未发布'))
     expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
   })
+
+  it('shows release notes, saves an online edit and accepts RELEASE_NOTES.md', async () => {
+    const calls = mockApi({
+      'GET /admin/daemon-release': release,
+      'GET /admin/machines': [],
+      'PUT /admin/daemon-release/notes': { ...release, releaseNotes: '## 0.2.0\n\n- 在线修改' },
+    })
+    const sent = fakeXhr(() => ({ status: 200, body: { ...release, releaseNotes: '## 0.2.0\n\n- 文件说明' } }))
+    const { container } = renderPage()
+    expect(await screen.findByText(/未填写版本说明/)).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: '编辑版本说明' }))
+    const editor = screen.getByRole('textbox', { name: '版本说明' })
+    fireEvent.change(editor, { target: { value: '## 0.2.0\n\n- 在线修改' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存版本说明' }))
+    await waitFor(() => expect(calls.some((call) => call.path === '/admin/daemon-release/notes')).toBe(true))
+    expect(await screen.findByText(/在线修改/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑版本说明' }))
+    expect(screen.getByRole('textbox', { name: '版本说明' })).toBeTruthy()
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['## 0.2.0'], 'RELEASE_NOTES.md')] } })
+    await waitFor(() => expect(sent).toEqual(['/api/admin/daemon-release/files RELEASE_NOTES.md']))
+  })
 })

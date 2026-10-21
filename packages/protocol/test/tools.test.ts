@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  ClientReleaseNotesArgs,
   daemonToolList,
   GetRunArgs,
   gonggongToolList,
@@ -56,5 +57,11 @@ describe('gonggong tools', () => {
     expect(ServiceStartArgs.safeParse({ name: 'Web', command: 'x' }).success).toBe(false)
     expect(ServiceStartArgs.safeParse({ name: '../x', command: 'x' }).success).toBe(false)
     expect(ServiceStartArgs.safeParse({ name: 'web', command: '' }).success).toBe(false)
+  })
+
+  it('client release notes target one published version', () => {
+    expect(ClientReleaseNotesArgs.safeParse({ version: '0.3.5', releaseNotes: '## 更新' }).success).toBe(true)
+    expect(ClientReleaseNotesArgs.safeParse({ version: 'latest', releaseNotes: '## 更新' }).success).toBe(false)
+    expect(ClientReleaseNotesArgs.safeParse({ version: '0.3.5', releaseNotes: '  ' }).success).toBe(false)
   })
 })

@@ -5,7 +5,8 @@
   "upgrade": {
     "version": "0.2.0",
     "url": "https://gonggong.corp.cn/downloads/gonggong-0.2.0-aarch64-apple-darwin",
-    "sha256": "abababababababababababababababababababababababababababababababab"
+    "sha256": "abababababababababababababababababababababababababababababababab",
+    "releaseNotes": "## 0.2.0\n\n- 修复更新提示"
   },
   "tunnel": true,
   "release": true

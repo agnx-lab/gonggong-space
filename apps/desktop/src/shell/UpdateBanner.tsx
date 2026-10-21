@@ -46,7 +46,12 @@ export function UpdateBanner() {
           <NotificationBanner
             app={{ name: t('共工空间'), icon: <img src={logo} alt="" width={20} height={20} /> }}
             title={t('发现新版本')}
-            body={t('新版本 v{v} 已下载，重启以更新', { v: state.version })}
+            body={
+              <>
+                <div>{t('新版本 v{v} 已下载，重启以更新', { v: state.version })}</div>
+                {state.notes ? <pre className="dk-update__notes">{state.notes}</pre> : null}
+              </>
+            }
             actions={[
               { label: t('立即重启'), onClick: restart.request },
               { label: t('稍后'), onClick: () => useUpdate.setState({ dismissed: true }) },

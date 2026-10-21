@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import { t } from '../../i18n'
 import { api, errorText } from '../../lib/api'
 import { toastError } from '../../lib/errors'
-import { Alert, AlertDialog, type DropFile, DropZone, Spinner, Table, Tag, toast } from '../../ui'
+import { Alert, AlertDialog, Button, type DropFile, DropZone, Spinner, Table, Tag, Textarea, toast } from '../../ui'
 import { fmtSize, postForm } from '../attachments/api'
 import { OS_LABEL } from '../machines/model'
 import { AdminPage } from './AdminPage'
@@ -64,11 +64,17 @@ export function ReleasesPage() {
   const [uploads, setUploads] = useState<DropFile[]>([])
   const [removing, setRemoving] = useState<{ kind: ReleaseKind; platform: string } | null>(null)
   const [error, setError] = useState('')
+  const [editingNotes, setEditingNotes] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
 
   useEffect(() => {
     api
       .get<DaemonRelease | null>('/admin/daemon-release')
-      .then(setRelease)
+      .then((r) => {
+        setRelease(r)
+        setNotes(r?.releaseNotes ?? '')
+      })
       .catch((e) => setError(errorText(e)))
     api
       .get<AdminMachineDto[]>('/admin/machines')
@@ -86,7 +92,7 @@ export function ReleasesPage() {
       ...files.map((f) => ({ name: f.name, size: fmtSize(f.size), progress: 0 })),
     ])
     for (const [i, file] of files.entries()) {
-      if (!parseReleaseFile(file.name)) {
+      if (file.name !== 'RELEASE_NOTES.md' && !parseReleaseFile(file.name)) {
         set(i, {
           progress: undefined,
           error: t('不是发布产物，文件名应形如 gonggong-0.2.0-macos-aarch64 或 Gonggong_0.2.0_aarch64.dmg'),
@@ -96,15 +102,38 @@ export function ReleasesPage() {
       const form = new FormData()
       form.append('file', file)
       try {
-        setRelease(
-          await postForm<DaemonRelease>('/api/admin/daemon-release/files', form, (p) =>
-            set(i, { progress: p }),
-          ).done,
-        )
+        const next = await postForm<DaemonRelease & { warning?: string }>(
+          '/api/admin/daemon-release/files',
+          form,
+          (p) => set(i, { progress: p }),
+        ).done
+        setRelease(next)
+        setNotes(next.releaseNotes ?? '')
+        if (next.warning) toast({ type: 'warning', message: next.warning })
         set(i, { progress: 100 })
       } catch (e) {
         set(i, { progress: undefined, error: errorText(e) })
       }
+    }
+  }
+
+  async function saveNotes() {
+    const releaseNotes = notes.trim()
+    if (!releaseNotes) {
+      toast({ type: 'warning', message: t('请填写版本说明') })
+      return
+    }
+    setSavingNotes(true)
+    try {
+      const next = await api.put<DaemonRelease>('/admin/daemon-release/notes', { releaseNotes })
+      setRelease(next)
+      setNotes(next.releaseNotes ?? '')
+      setEditingNotes(false)
+      toast({ type: 'success', message: t('版本说明已保存') })
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setSavingNotes(false)
     }
   }
 
@@ -152,12 +181,44 @@ export function ReleasesPage() {
       }
     >
       {error ? <Alert variant="error" description={error} /> : null}
+      {release ? (
+        <div className="admin-release-notes">
+          <div className="admin-release-notes__head">
+            <h3>{t('版本说明')}</h3>
+            {!editingNotes ? (
+              <Button size="small" variant="plain" onClick={() => setEditingNotes(true)}>
+                {t('编辑版本说明')}
+              </Button>
+            ) : (
+              <Button size="small" variant="primary" disabled={savingNotes} onClick={() => void saveNotes()}>
+                {savingNotes ? t('保存中…') : t('保存版本说明')}
+              </Button>
+            )}
+          </div>
+          {editingNotes ? (
+            <Textarea
+              aria-label={t('版本说明')}
+              rows={8}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={t('填写本版本的更新内容，支持 Markdown。')}
+            />
+          ) : release.releaseNotes ? (
+            <pre className="admin-release-notes__body">{release.releaseNotes}</pre>
+          ) : (
+            <Alert
+              variant="warning"
+              description={t('未填写版本说明。桌面端和 daemon 升级时不会显示具体更新内容。')}
+            />
+          )}
+        </div>
+      ) : null}
       <DropZone
         multiple
         onFiles={(files) => void upload(files)}
         title={t('拖入发布产物')}
         description={t(
-          '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*（安装包、更新包与 .sig 签名）拖到这里。文件名决定平台与版本；更高的版本会替换整个发布。',
+          '运行 scripts/release.sh 后，把 dist/<版本>/ 里的 gonggong-*、gg-cast-* 与 Gonggong_*（安装包、更新包与 .sig 签名）拖到这里；RELEASE_NOTES.md 可作为本版本更新说明上传。文件名决定平台与版本；更高的版本会替换整个发布。',
         )}
         files={uploads}
         onRemove={(i) => setUploads((list) => list.filter((_, j) => j !== i))}

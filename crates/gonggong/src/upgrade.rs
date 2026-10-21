@@ -34,6 +34,18 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
     parts(candidate) > parts(current)
 }
 
+/// A log-safe one-line summary of release notes (the full Markdown stays on the desktop).
+pub fn notes_summary(notes: Option<&str>) -> Option<String> {
+    let text = notes?.lines().map(str::trim).filter(|line| !line.is_empty()).collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return None;
+    }
+    const MAX: usize = 300;
+    let mut chars = text.chars();
+    let prefix: String = chars.by_ref().take(MAX).collect();
+    Some(if chars.next().is_some() { format!("{prefix}…") } else { prefix })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StageError {
     #[error("sha256 mismatch: expected {expected}, got {actual}")]
@@ -179,6 +191,10 @@ impl Upgrader {
         if !is_newer(&info.version, CURRENT) {
             return false;
         }
+        match notes_summary(info.release_notes.as_deref()) {
+            Some(notes) => tracing::info!(version = info.version, release_notes = notes, "daemon update available"),
+            None => tracing::info!(version = info.version, "daemon update available"),
+        }
         {
             let mut s = self.state.lock().unwrap();
             let v = Some(&info.version);
@@ -258,6 +274,9 @@ impl Upgrader {
         if !is_newer(&info.version, CURRENT) {
             return;
         }
+        if let Some(notes) = notes_summary(info.release_notes.as_deref()) {
+            tracing::info!(version = info.version, release_notes = notes, "daemon update required");
+        }
         match stage(&self.home, &self.server, &self.http, &info).await {
             Ok(path) => {
                 self.state.lock().unwrap().staged = Some((info.version, path));
@@ -288,6 +307,8 @@ pub struct GithubSource {
 struct Release {
     tag_name: String,
     #[serde(default)]
+    body: String,
+    #[serde(default)]
     assets: Vec<Asset>,
 }
 
@@ -300,6 +321,8 @@ struct Asset {
 #[derive(serde::Deserialize)]
 struct Manifest {
     version: String,
+    #[serde(default, rename = "releaseNotes")]
+    release_notes: Option<String>,
     builds: std::collections::HashMap<String, Build>,
 }
 
@@ -370,6 +393,14 @@ impl GithubSource {
         let Some(build) = manifest.builds.get(&platform()).filter(|_| is_newer(&manifest.version, current)) else {
             return Ok(None);
         };
-        Ok(Some(UpgradeInfo { version: manifest.version, url: build.url.clone(), sha256: build.sha256.clone() }))
+        Ok(Some(UpgradeInfo {
+            version: manifest.version,
+            url: build.url.clone(),
+            sha256: build.sha256.clone(),
+            release_notes: manifest
+                .release_notes
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| (!release.body.trim().is_empty()).then(|| release.body.clone())),
+        }))
     }
 }

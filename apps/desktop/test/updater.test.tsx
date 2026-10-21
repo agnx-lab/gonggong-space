@@ -13,6 +13,7 @@ const m = vi.mocked(ipc)
 function fakeUpdate(calls: string[]) {
   return {
     version: '0.2.0',
+    body: '## 更新内容\n\n- 修复模型选择\n- 支持多张图片',
     download: vi.fn(async () => {
       calls.push('download')
     }),
@@ -49,6 +50,8 @@ it('downloads an update at launch, offers a restart and can be put off', async (
   const stop = startUpdater()
   const banner = await screen.findByRole('alert')
   expect(banner.textContent).toContain('新版本 v0.2.0 已下载，重启以更新')
+  expect(banner.textContent).toContain('修复模型选择')
+  expect(banner.textContent).toContain('支持多张图片')
   expect(calls).toEqual(['download'])
   fireEvent.click(within(banner).getByRole('button', { name: '稍后' }))
   expect(screen.queryByRole('alert')).toBeNull()

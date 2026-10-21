@@ -18,6 +18,7 @@ afterEach(() => t.close())
 const sha = (c: string) => c.repeat(64)
 const release: DaemonRelease = {
   version: '0.2.0',
+  releaseNotes: '## 0.2.0\n\n- 修复更新提示',
   builds: {
     'macos-aarch64': { url: '/downloads/gonggong-0.2.0-macos-aarch64', sha256: sha('a') },
     'linux-x86_64': { url: 'https://cdn.example.com/gonggong-0.2.0-linux', sha256: sha('b') },
@@ -31,12 +32,16 @@ describe('upgradeFor', () => {
       version: '0.2.0',
       url: '/downloads/gonggong-0.2.0-macos-aarch64',
       sha256: sha('a'),
+      releaseNotes: release.releaseNotes,
     })
     expect(upgradeFor(release, { os: 'linux', arch: 'x86_64' }, '0.1.9')?.sha256).toBe(sha('b'))
     expect(upgradeFor(release, mac, '0.2.0')).toBeNull()
     expect(upgradeFor(release, mac, '0.3.0')).toBeNull()
     expect(upgradeFor(release, { os: 'windows', arch: 'x86_64' }, '0.1.0')).toBeNull()
     expect(upgradeFor(null, mac, '0.1.0')).toBeNull()
+    expect(
+      upgradeFor({ ...release, releaseNotes: undefined }, mac, '0.1.0'),
+    ).not.toHaveProperty('releaseNotes')
   })
 })
 
@@ -145,15 +150,19 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
   })
 
   const digest = (data: string) => createHash('sha256').update(data).digest('hex')
-  async function upload(cookie: string, name: string, data: string) {
+  async function upload(cookie: string, name: string, data: string, notes?: string) {
     const form = new FormData()
     form.set('file', new Blob([data]), name)
+    if (notes !== undefined) form.set('releaseNotes', notes)
     const res = await fetch(t.url('/api/admin/daemon-release/files'), {
       method: 'POST',
       headers: { cookie },
       body: form,
     })
-    return { status: res.status, body: (await res.json()) as DaemonRelease & { message?: string } }
+    return {
+      status: res.status,
+      body: (await res.json()) as DaemonRelease & { message?: string; warning?: string },
+    }
   }
   const admin = async () => t.seed.cookie((await t.seed.user({ role: 'sysadmin' })).id)
   const downloaded = (file: string) => join(dir, 'downloads', file)
@@ -164,9 +173,10 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
     expect((await upload(member, 'gonggong-0.2.0-macos-aarch64', 'x')).status).toBe(403)
 
     const first = await upload(cookie, 'gonggong-0.2.0-macos-aarch64', 'daemon')
+    expect(first.body.releaseNotes).toBeUndefined()
     expect(first.status).toBe(200)
     const cast = await upload(cookie, 'gg-cast-0.2.0-macos-aarch64', 'cast')
-    expect(cast.body).toEqual({
+    expect(cast.body).toMatchObject({
       version: '0.2.0',
       builds: {
         'macos-aarch64': { url: '/downloads/gonggong-0.2.0-macos-aarch64', sha256: digest('daemon') },
@@ -198,7 +208,7 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
     await upload(cookie, 'gonggong-0.2.0-macos-aarch64', 'old')
     await upload(cookie, 'gg-cast-0.2.0-linux-x86_64', 'old-cast')
     const next = await upload(cookie, 'gonggong-0.3.0-linux-x86_64', 'new')
-    expect(next.body).toEqual({
+    expect(next.body).toMatchObject({
       version: '0.3.0',
       builds: { 'linux-x86_64': { url: '/downloads/gonggong-0.3.0-linux-x86_64', sha256: digest('new') } },
       cast: {},
@@ -211,6 +221,37 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
     expect(older.body.message).toContain('0.3.0')
     expect((await upload(cookie, 'gonggong.exe', 'x')).status).toBe(400)
     expect(existsSync(downloaded('gonggong.exe'))).toBe(false)
+  })
+
+  it('uploads RELEASE_NOTES.md, keeps it with the version, and lets it be edited later', async () => {
+    const cookie = await admin()
+    const notes = '## 0.2.0\n\n- 更新说明会上传到客户端'
+    const initial = await upload(cookie, 'gonggong-0.2.0-macos-aarch64', 'daemon')
+    expect(initial.status).toBe(200)
+    expect(initial.body.warning).toContain('RELEASE_NOTES.md')
+    expect((await upload(cookie, 'RELEASE_NOTES.md', notes)).body.releaseNotes).toBe(notes)
+    expect((await upload(cookie, 'gg-cast-0.2.0-macos-aarch64', 'cast')).body.releaseNotes).toBe(notes)
+
+    const next = await upload(cookie, 'RELEASE_NOTES.md', notes + '\n- 发布后还能修改')
+    expect(next.status).toBe(200)
+    expect(next.body.releaseNotes).toBe(notes + '\n- 发布后还能修改')
+    const put = await t.app.inject({
+      method: 'PUT',
+      url: '/api/admin/daemon-release/notes',
+      headers: { cookie },
+      payload: { releaseNotes: '  直接在线编辑  ' },
+    })
+    expect(put.statusCode).toBe(200)
+    expect(put.json().releaseNotes).toBe('直接在线编辑')
+    const read = await t.app.inject({ url: '/api/admin/daemon-release', headers: { cookie } })
+    expect(read.json().releaseNotes).toBe('直接在线编辑')
+  })
+
+  it('warns without blocking a release that has no notes', async () => {
+    const cookie = await admin()
+    const res = await upload(cookie, 'gonggong-0.2.0-macos-aarch64', 'daemon')
+    expect(res.status).toBe(200)
+    expect(res.body.warning).toContain('RELEASE_NOTES.md')
   })
 
   it('offers desktop installers and daemon builds to signed-in members', async () => {
@@ -244,6 +285,7 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
     expect((await feed('darwin/aarch64/0.3.1')).statusCode).toBe(404)
 
     expect((await upload(cookie, 'Gonggong_0.3.2_aarch64.app.tar.gz', 'app')).status).toBe(200)
+    await upload(cookie, 'RELEASE_NOTES.md', '## 0.3.2\n\n- 桌面更新说明')
     // Without its signature the package cannot be verified: still none, so the app falls back to GitHub.
     expect((await feed('darwin/aarch64/0.3.1')).statusCode).toBe(404)
     await upload(cookie, 'Gonggong_0.3.2_aarch64.app.tar.gz.sig', 'c2ln\n')
@@ -253,6 +295,7 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
       version: '0.3.2',
       url: 'https://gg.example.com/downloads/Gonggong_0.3.2_aarch64.app.tar.gz',
       signature: 'c2ln',
+      notes: '## 0.3.2\n\n- 桌面更新说明',
     })
     expect((await feed('darwin/aarch64/0.3.2')).statusCode).toBe(204)
     expect((await feed('darwin/x86_64/0.3.1')).statusCode).toBe(404)
@@ -328,5 +371,54 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
     })
     const [log] = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'daemon.release.upload'))
     expect(log?.actorUserId).toBe(admin.id)
+  })
+
+  it('updates release notes from a sysadmin live run (gonggong MCP client_release_notes)', async () => {
+    const adminUser = await t.seed.user({ role: 'sysadmin', name: '管理员' })
+    const member = await t.seed.user()
+    const { machine, token } = await t.seed.machine(member.id)
+    const { token: other } = await t.seed.machine(member.id)
+    const bot = await t.seed.bot({ ownerId: member.id, machineId: machine.id })
+    const group = await t.seed.group({ createdBy: adminUser.id, memberIds: [member.id], botIds: [bot.id] })
+    const [msg] = await t.db
+      .insert(messages)
+      .values({ groupId: group.id, kind: 'user', authorUserId: adminUser.id, body: '发布客户端' })
+      .returning()
+    const run = async (originUserId: string, status = 'running') =>
+      (
+        await t.db
+          .insert(runs)
+          .values({ groupId: group.id, botId: bot.id, triggerMessageId: msg!.id, originUserId, status })
+          .returning()
+      )[0]!
+    const send = async (runId: string, bearer: string, payload: unknown) => {
+      const res = await t.app.inject({
+        method: 'POST',
+        url: `/api/daemon/runs/${runId}/release-notes`,
+        headers: { authorization: `Bearer ${bearer}` },
+        payload: payload as object,
+      })
+      return { status: res.statusCode, body: res.json() }
+    }
+
+    const cookie = await admin()
+    await upload(cookie, 'gonggong-0.3.1-macos-aarch64', 'daemon')
+    const mine = await run(adminUser.id)
+    const notes = { version: '0.3.1', releaseNotes: '## 0.3.1\n\n- 从 MCP 写入' }
+    expect((await send(mine.id, other, notes)).status).toBe(404)
+    expect((await send((await run(member.id)).id, token, notes)).status).toBe(403)
+    expect((await send((await run(adminUser.id, 'completed')).id, token, notes)).status).toBe(404)
+    expect(
+      (await send(mine.id, token, { ...notes, version: '0.3.0' })).body.message,
+    ).toContain('当前发布版本是 0.3.1')
+    expect((await send(mine.id, token, { ...notes, releaseNotes: '  ' })).status).toBe(400)
+    const ok = await send(mine.id, token, notes)
+    expect(ok.status).toBe(200)
+    expect(ok.body.releaseNotes).toBe(notes.releaseNotes)
+    const [log] = await t.db.select().from(auditLogs).where(eq(auditLogs.action, 'daemon.release.notes'))
+    expect(log).toMatchObject({
+      actorUserId: adminUser.id,
+      detail: { version: '0.3.1', source: 'mcp' },
+    })
   })
 })
