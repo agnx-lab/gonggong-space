@@ -47,6 +47,17 @@ pub(crate) async fn exclude(cwd: &Path, pattern: &str) -> Result<(), String> {
     tokio::fs::write(&file, format!("{current}{sep}{pattern}\n")).await.map_err(|e| e.to_string())
 }
 
+/// Removes a line added by [`exclude`]; the rest of the file is kept as is.
+pub(crate) async fn unexclude(cwd: &Path, pattern: &str) -> Result<(), String> {
+    let file = cwd.join(git(cwd, &["rev-parse", "--git-path", "info/exclude"]).await?.trim());
+    let Ok(current) = tokio::fs::read_to_string(&file).await else { return Ok(()) };
+    if !current.lines().any(|l| l.trim() == pattern) {
+        return Ok(());
+    }
+    let kept: String = current.lines().filter(|l| l.trim() != pattern).map(|l| format!("{l}\n")).collect();
+    tokio::fs::write(&file, kept).await.map_err(|e| e.to_string())
+}
+
 /// Raw stdout, for `-z` output whose paths may not be UTF-8.
 pub(crate) async fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     run_git_raw(dir, args, None).await

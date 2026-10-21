@@ -1,6 +1,7 @@
 use gonggong::bots::Bot;
 use gonggong::protocol::{
-    DaemonSkillRes, DaemonToServer, ServerToDaemon, SyncChangesRes, SyncMissingRes, TunnelHead, TunnelOpen, TunnelReset,
+    DaemonPluginRes, DaemonSkillRes, DaemonToServer, ServerToDaemon, SyncChangesRes, SyncMissingRes, TunnelHead,
+    TunnelOpen, TunnelReset,
 };
 use gonggong::tunnel::{Frame, FrameType};
 use serde::Serialize;
@@ -32,6 +33,7 @@ fn every_shared_fixture_round_trips() {
             ["http", "sync-changes"] => round_trip::<SyncChangesRes>(&raw, &name),
             ["http", "sync-missing"] => round_trip::<SyncMissingRes>(&raw, &name),
             ["http", "daemon-skill"] => round_trip::<DaemonSkillRes>(&raw, &name),
+            ["http", "daemon-plugin"] => round_trip::<DaemonPluginRes>(&raw, &name),
             ["data", "agent-setting-fields"] => {
                 // The daemon's field table is its only source: it must match the contract's exactly.
                 assert_eq!(serde_json::to_value(gonggong::agent_settings::FIELDS).unwrap(), raw, "{name}");

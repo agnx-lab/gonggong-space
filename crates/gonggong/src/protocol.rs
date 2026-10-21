@@ -300,6 +300,18 @@ pub struct DaemonSkillRes {
     pub files: Vec<SkillFile>,
 }
 
+/// A plugin enabled for the run; its files are fetched by `version_id` and cached by `digest`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginRef {
+    pub name: String,
+    pub version_id: String,
+    pub digest: String,
+}
+
+/// `GET /api/daemon/plugins/:versionId`
+pub type DaemonPluginRes = DaemonSkillRes;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
     pub author: String,
@@ -323,6 +335,20 @@ pub struct Question {
     pub title: String,
     pub options: Vec<String>,
     pub recommended: Option<u32>,
+    /// Aligned with `options` by index; empty = plain options (left off the wire).
+    #[serde(rename = "optionMeta", default, skip_serializing_if = "Vec::is_empty")]
+    pub option_meta: Vec<OptionMeta>,
+}
+
+/// A design-enhanced option: a short description, colour swatches (`#rrggbb`), an image (workspace-relative path).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OptionMeta {
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub swatch: Vec<String>,
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -622,6 +648,9 @@ pub struct RunStart {
     pub mcp_servers: Vec<McpServer>,
     #[serde(default)]
     pub skills: Vec<SkillRef>,
+    /// Only sent to daemons announcing [`FEATURE_PLUGINS`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugins: Vec<PluginRef>,
     /// An agent command sent verbatim as the prompt instead of the composed group context.
     #[serde(default)]
     pub command: Option<String>,
@@ -1046,6 +1075,7 @@ pub const FEATURE_SYNC: &str = "sync";
 pub const FEATURE_SESSION_FORK: &str = "sessionFork";
 pub const FEATURE_AGENT_SETTINGS: &str = "agentSettings";
 pub const FEATURE_REPROBE: &str = "reprobe";
+pub const FEATURE_PLUGINS: &str = "plugins";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolsSettings {

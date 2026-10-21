@@ -8,6 +8,7 @@ use crate::git;
 use crate::hosted::Scope;
 use crate::inject;
 use crate::local::{Decision, LocalSettings, Rules};
+use crate::plugins;
 use crate::protocol::{
     AgentCatalog, AgentCommand, AgentKind, Answer, ApprovalRequest, Attachment, Choice, DaemonToServer, McpServer,
     ModelChoice, Question, RunDone, RunEvent, RunOutcome, RunStart, RunStatus, SecretEnv, Tier, Usage, WorkspaceKind,
@@ -66,6 +67,7 @@ struct Planned {
     /// Its session's pinned provider is gone: start a new session instead of resuming.
     removed: bool,
     skills: skills::Installed,
+    plugins: plugins::Installed,
     /// Claude only.
     launch: Option<inject::ClaudeLaunch>,
 }
@@ -110,22 +112,29 @@ async fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Plann
     if let Some(l) = &launch {
         shared.set_compact(l.compact);
     }
-    Some(Planned { req, selection, removed, skills: skills::Installed::default(), launch })
+    Some(Planned { req, selection, removed, skills: Default::default(), plugins: Default::default(), launch })
 }
 
-/// Installs the turn's team skills before its adapter is chosen. None: it fails (and is reported) instead.
+/// Installs the turn's team skills and plugins before its adapter is chosen. None: it fails (and is reported) instead.
 async fn ready(engine: &Inner, shared: &Shared, mut turn: Planned) -> Option<Planned> {
     let Some(api) = &engine.config.api else { return Some(turn) };
     let s = &turn.req.start;
-    let dir = skills::set_dir(&engine.config.home, &s.group_id, &s.bot.id);
-    match skills::install(api, &dir, s.bot.agent_kind, &turn.req.cwd, &s.skills).await {
-        Ok(installed) => {
-            if !installed.skipped.is_empty() {
-                let step = t!("已跳过团队 skill {names}：仓库里已有同名 skill", names = installed.skipped.join("、"));
+    let (home, kind, cwd) = (&engine.config.home, s.bot.agent_kind, &turn.req.cwd);
+    let dir = skills::set_dir(home, &s.group_id, &s.bot.id);
+    let installed = async {
+        let skills = skills::install(api, &dir, kind, cwd, &s.skills).await?;
+        let plugins = plugins::install(api, home, (&s.group_id, &s.bot.id), kind, cwd, &s.plugins).await?;
+        Ok::<_, String>((skills, plugins))
+    };
+    match installed.await {
+        Ok((skills, plugins)) => {
+            if !skills.skipped.is_empty() {
+                let step = t!("已跳过团队 skill {names}：仓库里已有同名 skill", names = skills.skipped.join("、"));
                 let event = RunEvent::Status { status: RunStatus::Running, step };
                 turn.req.out.send(DaemonToServer::RunEvent { run_id: s.run_id.clone(), event });
             }
-            turn.skills = installed;
+            turn.skills = skills;
+            turn.plugins = plugins;
             Some(turn)
         }
         Err(e) => {
@@ -1080,6 +1089,7 @@ async fn connect(
                 selection: first.selection.clone(),
                 launch: first.launch.clone(),
                 skills: first.skills.clone(),
+                plugins: first.plugins.clone(),
                 session: None,
                 mode: None,
                 options: vec![],
@@ -1092,6 +1102,7 @@ async fn connect(
                 match engine.workspaces.occupy(&turn.req, shared).await {
                     Some(_dir) => {
                         conv.skills = turn.skills.clone();
+                        conv.plugins = turn.plugins.clone();
                         conv.launch = turn.launch.clone();
                         conv.turn(turn.req, turn.removed, resume).await?;
                     }
@@ -1109,11 +1120,12 @@ async fn connect(
                         Ok(None) | Err(_) => return Ok(None),
                     }
                 };
-                // Claude only sees the plugin's skill list and its settings as they were when the process started;
+                // Claude only sees the plugins' skill lists and its settings as they were when the process started;
                 // secrets are its process env.
                 if turn.selection != conv.selection
                     || turn.launch != conv.launch
                     || turn.skills.names != conv.skills.names
+                    || turn.plugins != conv.plugins
                     || env_digest(&turn.req.start.env) != secrets
                 {
                     return Ok(Some(turn));
@@ -1143,6 +1155,8 @@ struct Conversation<'a> {
     launch: Option<inject::ClaudeLaunch>,
     /// The team skills of the current turn; their names are those the process started with.
     skills: skills::Installed,
+    /// The plugins the process started with.
+    plugins: plugins::Installed,
     session: Option<SessionId>,
     mode: Option<String>,
     /// The session's config options as last reported, their values when it was opened, and the values we set
@@ -1402,7 +1416,7 @@ impl Conversation<'_> {
         }
         let mut meta = Meta::new();
         meta.insert("systemPrompt".into(), serde_json::json!({ "append": system_prompt(&start.bot) }));
-        let options = claude_options(self.launch.as_ref(), &self.skills);
+        let options = claude_options(self.launch.as_ref(), &self.skills, &self.plugins);
         if !options.is_empty() {
             meta.insert("claudeCode".into(), serde_json::json!({ "options": options }));
         }
@@ -1426,10 +1440,12 @@ impl Conversation<'_> {
 }
 
 /// `_meta.claudeCode.options`: the settings file, the setting sources when the CLI's user-level config is left out
-/// (the adapter's default loads user, project and local; ours are spread over it), the team skills plugin.
+/// (the adapter's default loads user, project and local; ours are spread over it), the team skills plugin and the
+/// group's plugins.
 fn claude_options(
     launch: Option<&inject::ClaudeLaunch>,
     skills: &skills::Installed,
+    plugins: &plugins::Installed,
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut options = serde_json::Map::new();
     if let Some(path) = launch.and_then(inject::ClaudeLaunch::settings_path) {
@@ -1438,8 +1454,11 @@ fn claude_options(
     if launch.is_some_and(|l| !l.inherit_cli) {
         options.insert("settingSources".into(), serde_json::json!(["project", "local"]));
     }
-    if !skills.names.is_empty() {
-        options.insert("plugins".into(), serde_json::json!([{ "type": "local", "path": skills.dir }]));
+    let team = (!skills.names.is_empty()).then_some(&skills.dir);
+    let local: Vec<_> =
+        team.into_iter().chain(&plugins.dirs).map(|p| serde_json::json!({ "type": "local", "path": p })).collect();
+    if !local.is_empty() {
+        options.insert("plugins".into(), local.into());
     }
     options
 }
@@ -1487,10 +1506,10 @@ mod tests {
 
     #[test]
     fn claude_options_leave_out_the_user_config_only_when_asked() {
-        let none = skills::Installed::default();
-        assert!(claude_options(None, &none).is_empty());
-        assert!(claude_options(Some(&launch(true, None)), &none).is_empty(), "the adapter's default sources");
-        let isolated = claude_options(Some(&launch(false, Some("/h/run/claude-x.json"))), &none);
+        let (none, no) = (skills::Installed::default(), plugins::Installed::default());
+        assert!(claude_options(None, &none, &no).is_empty());
+        assert!(claude_options(Some(&launch(true, None)), &none, &no).is_empty(), "the adapter's default sources");
+        let isolated = claude_options(Some(&launch(false, Some("/h/run/claude-x.json"))), &none, &no);
         assert_eq!(isolated["settingSources"], serde_json::json!(["project", "local"]));
         assert_eq!(isolated["settings"], "/h/run/claude-x.json");
     }

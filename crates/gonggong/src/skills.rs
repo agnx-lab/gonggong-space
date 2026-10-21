@@ -109,6 +109,11 @@ pub async fn install(
     Ok(Installed { dir: dir.to_path_buf(), names, skipped })
 }
 
+/// The workspace's repo root: `cwd` or its nearest parent with `.git`.
+pub(crate) fn repo_root(cwd: &Path) -> Option<PathBuf> {
+    roots(cwd).pop().filter(|r| git::is_repo(r))
+}
+
 /// `cwd` and its parents up to the workspace's repo root (the first with `.git`), where agents look for repo skills.
 fn roots(cwd: &Path) -> Vec<PathBuf> {
     let mut out = vec![];
@@ -129,31 +134,37 @@ fn baseline(root: &Path, kind: AgentKind, name: &str) -> Option<PathBuf> {
 }
 
 async fn fetch(api: &Config, r: &SkillRef, dir: &Path) -> Result<(), String> {
-    let e = |e: String| t!("无法下载团队 skill {name}：{e}", name = r.name, e = e);
-    let url = format!("{}/api/daemon/skills/{}", api.server.trim_end_matches('/'), r.version_id);
+    download(api, &format!("skills/{}", r.version_id), dir)
+        .await
+        .map_err(|e| t!("无法下载团队 skill {name}：{e}", name = r.name, e = e))
+}
+
+/// Writes the files of `GET /api/daemon/<path>` into `dir`, replacing it.
+pub(crate) async fn download(api: &Config, path: &str, dir: &Path) -> Result<(), String> {
+    let url = format!("{}/api/daemon/{path}", api.server.trim_end_matches('/'));
     let res: DaemonSkillRes = async {
         tls::http()?.get(url).bearer_auth(&api.token).send().await?.error_for_status()?.json().await.map_err(Into::into)
     }
     .await
-    .map_err(|err: anyhow::Error| e(format!("{err:#}")))?;
+    .map_err(|err: anyhow::Error| format!("{err:#}"))?;
     let _ = tokio::fs::remove_dir_all(dir).await;
     for f in res.files {
         let rel = Path::new(&f.path);
         if !rel.components().all(|c| matches!(c, Component::Normal(_))) {
-            return Err(e(t!("文件路径不合法：{path}", path = f.path)));
+            return Err(t!("文件路径不合法：{path}", path = f.path));
         }
         let bytes = match f.encoding {
             SkillEncoding::Utf8 => f.content.into_bytes(),
-            SkillEncoding::Base64 => BASE64_STANDARD.decode(&f.content).map_err(|err| e(err.to_string()))?,
+            SkillEncoding::Base64 => BASE64_STANDARD.decode(&f.content).map_err(|err| err.to_string())?,
         };
         let path = dir.join(rel);
-        tokio::fs::create_dir_all(path.parent().expect("has a parent")).await.map_err(|err| e(err.to_string()))?;
-        tokio::fs::write(&path, bytes).await.map_err(|err| e(err.to_string()))?;
+        tokio::fs::create_dir_all(path.parent().expect("has a parent")).await.map_err(|err| err.to_string())?;
+        tokio::fs::write(&path, bytes).await.map_err(|err| err.to_string())?;
     }
     Ok(())
 }
 
-async fn unlink(p: &Path) {
+pub(crate) async fn unlink(p: &Path) {
     match p.symlink_metadata() {
         Ok(m) if m.is_dir() => drop(tokio::fs::remove_dir_all(p).await),
         Ok(_) => drop(tokio::fs::remove_file(p).await),
@@ -162,7 +173,7 @@ async fn unlink(p: &Path) {
 }
 
 /// A symlink where possible, so content updates apply without touching the workspace; Windows gets a copy.
-async fn link(target: &Path, at: &Path) -> std::io::Result<()> {
+pub(crate) async fn link(target: &Path, at: &Path) -> std::io::Result<()> {
     tokio::fs::create_dir_all(at.parent().expect("has a parent")).await?;
     #[cfg(unix)]
     return tokio::fs::symlink(target, at).await;

@@ -64,6 +64,7 @@ fn start(run_id: &str, text: &str) -> RunStart {
         new_session_reason: None,
         mcp_servers: vec![],
         skills: vec![],
+        plugins: vec![],
         command: None,
         sync: None,
         env: Default::default(),
@@ -716,6 +717,7 @@ async fn the_injected_ask_tool_waits_for_the_answer_without_an_approval() {
             title: "用哪种语言？".into(),
             options: vec!["Python".into(), "Go".into()],
             recommended: Some(0),
+            option_meta: vec![],
         }]
     );
     // Answers for other runs or requests are ignored.
