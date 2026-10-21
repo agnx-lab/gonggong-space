@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { GitActionReq, GitOperationDto, GitOperationStatus } from '@gonggong/protocol'
+import type { DaemonFeature, GitActionReq, GitOperationDto, GitOperationStatus } from '@gonggong/protocol'
 import { and, eq, inArray, lte, or } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import { bots, gitOperations, groupBots, type groups, runs, users } from '../../db/schema.js'
@@ -10,7 +10,7 @@ import { idParam } from '../../lib/ids.js'
 import { startSweep } from '../../lib/sweep.js'
 import { gitIdentity } from '../bots/git.js'
 import { activeBots } from '../groups/service.js'
-import { memberIds } from '../messages/service.js'
+import { memberIds, postEvent } from '../messages/service.js'
 import { resolveNotifications } from '../notifications/notify.js'
 import { groupRedactor } from '../secrets/resolve.js'
 import { currentRepo, onlineMachine } from '../workspaces/provision.js'
@@ -26,8 +26,12 @@ const LIVE = ['running', 'awaiting_approval', 'awaiting_answer']
 /** Stored once for every reader. */
 const zh = translator('zh')
 
+/** What the bot's daemon must support for an operation: committing chosen paths came with gitOps2. */
+export const featureFor = (op: Pick<GitOperation, 'action' | 'paths'>): DaemonFeature =>
+  op.action === 'commit' && op.paths ? 'gitOps2' : 'gitOps'
+
 /** The bot's workspace in a partition group with a repo: the only place manual git is offered. */
-export async function gitTarget(ctx: Ctx, group: Group, rawBotId: string) {
+export async function gitTarget(ctx: Ctx, group: Group, rawBotId: string, feature: DaemonFeature = 'gitOps') {
   const botId = idParam(rawBotId, 'Bot 不存在')
   const repo = group.mode === 'partition' ? await currentRepo(ctx, group.id, botId) : null
   if (!repo) return fail('conflict', '仅绑定了仓库的分区模式群可以使用 Git 操作')
@@ -46,9 +50,9 @@ export async function gitTarget(ctx: Ctx, group: Group, rawBotId: string) {
   if (!row) return fail('not_found', '该 Bot 不在群内')
   if (row.state === 'unbound' || row.state === 'confirm')
     return fail('conflict', '{bot} 尚未设置工作区', { bot: row.bot.name })
-  // A daemon predating manual git ignores its messages: say so now rather than after the request times out.
+  // A daemon predating the feature ignores its messages: say so now rather than after the request times out.
   const machineId = row.bot.machineId
-  if (machineId && ctx.hub.isOnline(machineId) && !ctx.hub.features(machineId).includes('gitOps'))
+  if (machineId && ctx.hub.isOnline(machineId) && !ctx.hub.features(machineId).includes(feature))
     return fail('conflict', '{bot} 所在机器的客户端版本过旧，升级后才能使用 Git 操作', { bot: row.bot.name })
   return {
     group,
@@ -81,13 +85,18 @@ export async function assertIdle(ctx: Ctx, t: GitTarget) {
 
 const busy = (bot: string) => fail('conflict', '{bot} 正在运行，等运行结束后再操作', { bot })
 
+const subject = (message: string | null) => {
+  const line = (message ?? '').split('\n')[0] ?? ''
+  return line.length > 60 ? `${line.slice(0, 60)}…` : line
+}
+
 /** One line naming the action, for the owner's notification (git verbs read the same in both languages). */
-export function summary(op: Pick<GitOperation, 'action' | 'branch' | 'remote' | 'message'>) {
+export function summary(op: Pick<GitOperation, 'action' | 'branch' | 'remote' | 'message' | 'paths'>) {
   if (op.action === 'checkout') return `checkout ${op.branch}`
   if (op.action === 'push') return `push ${op.branch} → ${op.remote}`
   if (op.action === 'commit') {
-    const line = (op.message ?? '').split('\n')[0] ?? ''
-    return `commit「${line.length > 60 ? `${line.slice(0, 60)}…` : line}」`
+    const n = op.paths?.length
+    return `commit「${subject(op.message)}」${n ? ` (${n} ${n === 1 ? 'file' : 'files'})` : ''}`
   }
   return op.action
 }
@@ -97,6 +106,17 @@ export const fields = (req: GitActionReq) => ({
   branch: 'branch' in req ? req.branch : null,
   remote: req.action === 'push' ? req.remote : null,
   message: req.action === 'commit' ? req.message : null,
+  paths: req.action === 'commit' ? (req.paths ?? null) : null,
+})
+
+/** The operation's audit detail; `files` counts the chosen paths of a commit. */
+export const auditDetail = (op: GitOperation) => ({
+  operationId: op.id,
+  botId: op.botId,
+  action: op.action,
+  branch: op.branch,
+  remote: op.remote,
+  ...(op.paths && { files: op.paths.length }),
 })
 
 export async function operationDtos(ctx: Ctx, rows: GitOperation[]): Promise<GitOperationDto[]> {
@@ -119,6 +139,7 @@ export async function operationDtos(ctx: Ctx, rows: GitOperation[]): Promise<Git
     branch: r.branch,
     remote: r.remote,
     message: r.message,
+    paths: r.paths,
     pushesBase: r.pushesBase,
     status: r.status as GitOperationStatus,
     requestedBy: who(r.requestedBy),
@@ -162,6 +183,7 @@ export async function execute(ctx: Ctx, op: GitOperation, t: GitTarget) {
           branch: op.branch,
           remote: op.remote,
           message: op.message,
+          paths: op.paths,
           identity: op.action === 'commit' ? gitIdentity(t.bot) : null,
         },
         'git.action.result',
@@ -193,16 +215,34 @@ export async function execute(ctx: Ctx, op: GitOperation, t: GitTarget) {
     actorUserId: op.decidedBy ?? op.requestedBy,
     groupId: op.groupId,
     action: 'git.run',
-    detail: {
-      operationId: op.id,
-      botId: op.botId,
-      action: op.action,
-      branch: op.branch,
-      remote: op.remote,
-      status: done.status,
-    },
+    detail: { ...auditDetail(op), status: done.status },
   })
-  return { operation: await publishOperation(ctx, done), busy: !!res?.busy }
+  const operation = await publishOperation(ctx, done)
+  if (done.status === 'succeeded') await announce(ctx, operation, t.bot.name)
+  return { operation, busy: !!res?.busy }
+}
+
+/** Tells the whole group what a manual write changed in the bot's workspace. */
+function announce(ctx: Ctx, op: GitOperationDto, bot: string) {
+  const who = {
+    user: op.requestedBy.name,
+    bot,
+    approval: op.decidedBy ? { key: '（{owner} 批准）', params: { owner: op.decidedBy.name } } : '',
+  }
+  const branch = op.branch ?? ''
+  if (op.action === 'checkout')
+    return postEvent(ctx, op.groupId, '{user} 将 {bot} 切换到 {branch}{approval}', { ...who, branch })
+  if (op.action === 'pull') return postEvent(ctx, op.groupId, '{user} 为 {bot} 拉取了更新{approval}', who)
+  if (op.action === 'commit')
+    return postEvent(ctx, op.groupId, '{user} 提交了 {bot} 的改动：{subject}{approval}', {
+      ...who,
+      subject: subject(op.message),
+    })
+  return postEvent(ctx, op.groupId, '{user} 将 {bot} 的 {branch} 推送到 {remote}{approval}', {
+    ...who,
+    branch,
+    remote: op.remote ?? '',
+  })
 }
 
 /** Overdue requests the owner never decided. */

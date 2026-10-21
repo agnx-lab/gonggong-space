@@ -2,6 +2,7 @@ import {
   type FilesTreeDto,
   type FileTextDto,
   type GitCompareDto,
+  type GitDiffDto,
   type GitLogDto,
   type GitOperationDto,
   type GitOperationsDto,
@@ -9,7 +10,7 @@ import {
   PROTOCOL_VERSION,
   type ServerToDaemon,
 } from '@gonggong/protocol'
-import { eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { auditLogs, groupBots, groupRepos, groups, messages, notifications, runs } from '../src/db/schema.js'
 import { expireGitOperations } from '../src/modules/git/service.js'
@@ -27,7 +28,7 @@ afterEach(() => t.close())
 
 type GitAsk = Extract<ServerToDaemon, { t: `git.${string}` }>
 
-async function daemon(token: string, features = ['gitOps']) {
+async function daemon(token: string, features = ['gitOps', 'gitOps2']) {
   const ws = t.ws('/ws/daemon')
   const box = inbox(ws)
   await box.opened
@@ -100,6 +101,16 @@ async function world() {
 const ops = (w: Awaited<ReturnType<typeof world>>) =>
   w.members.get<GitOperationsDto>(`/api/groups/${w.group.id}/git/operations`)
 
+/** The group's system event lines, oldest first. */
+const groupEvents = async (groupId: string) =>
+  (
+    await t.db
+      .select({ body: messages.body, meta: messages.meta })
+      .from(messages)
+      .where(and(eq(messages.groupId, groupId), eq(messages.kind, 'event')))
+      .orderBy(asc(messages.seq))
+  ).map((m) => m.body)
+
 describe('git reads', () => {
   it('tells an older daemon apart at once instead of waiting for it', async () => {
     const w = await world()
@@ -109,6 +120,68 @@ describe('git reads', () => {
     expect(JSON.stringify(refs.body)).toContain('客户端版本过旧')
     const act = await w.owners.post(`${w.base}/actions`, { action: 'pull' })
     expect(act.status).toBe(409)
+  })
+
+  it('needs a daemon with gitOps2 for diff, refresh and committing chosen paths', async () => {
+    const w = await world()
+    await daemon(w.token, ['gitOps'])
+    const old = { status: 409, body: { message: 'cc 所在机器的客户端版本过旧，升级后才能使用 Git 操作' } }
+    expect(await w.members.get(`${w.base}/diff?from=HEAD`)).toMatchObject(old)
+    expect(await w.members.post(`${w.base}/refresh`, { fetch: true })).toMatchObject(old)
+    const pick = { action: 'commit', message: 'x', paths: ['a.ts'] }
+    expect(await w.owners.post(`${w.base}/actions`, pick)).toMatchObject(old)
+    expect(await w.members.post(`${w.base}/actions`, pick)).toMatchObject(old)
+    expect((await ops(w)).body.operations).toEqual([])
+  })
+
+  it('relays a diff to members, redacted', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    const one = w.members.get<GitDiffDto>(`${w.base}/diff?from=HEAD&path=%2Fsrc%2Fa.ts`)
+    const r1 = await d.next('git.diff')
+    expect(r1).toMatchObject({
+      groupId: w.group.id,
+      botId: w.bot.id,
+      workspace: { repo: { url: 'git@git.corp:pay/pay.git' } },
+      from: 'HEAD',
+      to: null,
+      path: 'src/a.ts',
+      maxBytes: 1024 * 1024,
+    })
+    const patch = '+token ghp_abcdefghijklmnopqrstuvwxyz0123456789AB\n'
+    d.send({ t: 'git.diff.result', requestId: r1.requestId, patch, truncated: true, error: null })
+    expect(await one).toEqual({ status: 200, body: { patch: `+token ${MASK}\n`, truncated: true } })
+
+    const range = w.members.get<GitDiffDto>(`${w.base}/diff?from=main&to=feat%2Fx`)
+    const r2 = await d.next('git.diff')
+    expect(r2).toMatchObject({ from: 'main', to: 'feat/x', path: null })
+    d.send({ t: 'git.diff.result', requestId: r2.requestId, patch: null, truncated: false, error: null })
+    expect((await range).body).toEqual({ patch: null, truncated: false })
+
+    const bad = w.members.get(`${w.base}/diff?from=nope`)
+    const r3 = await d.next('git.diff')
+    d.send({ t: 'git.diff.result', requestId: r3.requestId, patch: null, truncated: false, error: 'bad ref' })
+    expect(await bad).toMatchObject({ status: 409, body: { message: 'bad ref' } })
+    expect((await w.outsiders.get(`${w.base}/diff?from=HEAD`)).status).toBe(404)
+    expect((await w.members.get(`${w.base}/diff`)).status).toBe(400)
+  })
+
+  it('lets any member refresh the git status, even while the bot runs', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    await w.run('running')
+    const fetched = w.members.post(`${w.base}/refresh`, { fetch: true })
+    const r1 = await d.next('git.refresh')
+    expect(r1).toMatchObject({ groupId: w.group.id, botId: w.bot.id, fetch: true })
+    d.send({ t: 'git.refresh.result', requestId: r1.requestId, error: null })
+    expect((await fetched).status).toBe(204)
+
+    const plain = w.members.post(`${w.base}/refresh`)
+    const r2 = await d.next('git.refresh')
+    expect(r2.fetch).toBe(false)
+    d.send({ t: 'git.refresh.result', requestId: r2.requestId, error: 'could not resolve host' })
+    expect(await plain).toMatchObject({ status: 409, body: { message: 'could not resolve host' } })
+    expect((await w.outsiders.post(`${w.base}/refresh`)).status).toBe(404)
   })
 
   it('relays refs, log, tree, text and compare to members', async () => {
@@ -236,10 +309,58 @@ describe('git actions', () => {
     expect(logs[0]).toMatchObject({ category: 'admin', actorUserId: w.owner.id, groupId: w.group.id })
     expect(JSON.stringify(logs[0]!.detail)).not.toContain('ghp_')
 
+    expect(op.body.paths).toBeNull()
+    expect(req.paths).toBeNull()
+    const [event] = await t.db.select().from(messages).where(eq(messages.kind, 'event'))
+    expect(event).toMatchObject({
+      groupId: w.group.id,
+      body: '王磊 提交了 cc 的改动：修复退款',
+      meta: {
+        i18n: {
+          key: '{user} 提交了 {bot} 的改动：{subject}{approval}',
+          params: { user: '王磊', bot: 'cc', subject: '修复退款', approval: '' },
+        },
+      },
+    })
+
     const fail = w.owners.post<GitOperationDto>(`${w.base}/actions`, { action: 'pull' })
-    await d.act({ ok: false, output: null, error: 'not a fast-forward' })
+    expect((await d.act({ ok: false, output: null, error: 'not a fast-forward' })).paths).toBeNull()
     expect((await fail).body).toMatchObject({ status: 'failed', error: 'not a fast-forward' })
     expect((await ops(w)).body.operations.map((o) => o.status)).toEqual(['failed', 'succeeded'])
+    expect(await groupEvents(w.group.id)).toHaveLength(1)
+  })
+
+  it('commits only the chosen paths, for the owner and on approval', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    const paths = ['src/a.ts', 'src/gone.ts']
+    const res = w.owners.post<GitOperationDto>(`${w.base}/actions`, {
+      action: 'commit',
+      message: '改两处',
+      paths,
+    })
+    expect(await d.act()).toMatchObject({ action: 'commit', message: '改两处', paths })
+    expect((await res).body).toMatchObject({ status: 'succeeded', paths })
+    const [log] = await t.db.select().from(auditLogs)
+    expect(log!.detail).toMatchObject({ action: 'commit', files: 2 })
+
+    const asked = await w.members.post<GitOperationDto>(`${w.base}/actions`, {
+      action: 'commit',
+      message: '只改一处\n\n细节',
+      paths: ['src/a.ts'],
+    })
+    expect(asked.body).toMatchObject({ status: 'pending_approval', paths: ['src/a.ts'] })
+    const [note] = await t.db.select().from(notifications).where(eq(notifications.userId, w.owner.id))
+    expect(note!.payload).toMatchObject({ summary: 'commit「只改一处」 (1 file)' })
+    const approved = w.owners.post<GitOperationDto>(`/api/git-operations/${asked.body.id}/decide`, {
+      approve: true,
+    })
+    expect((await d.act()).paths).toEqual(['src/a.ts'])
+    expect((await approved).body.status).toBe('succeeded')
+    expect(await groupEvents(w.group.id)).toEqual([
+      '王磊 提交了 cc 的改动：改两处',
+      '陈晨 提交了 cc 的改动：只改一处（王磊 批准）',
+    ])
   })
 
   it("fails the owner's action when the machine is offline", async () => {
@@ -289,6 +410,7 @@ describe('git actions', () => {
     expect((await w.owners.post(decide, { approve: true })).status).toBe(409)
     const actions = (await t.db.select().from(auditLogs)).map((l) => l.action)
     expect(actions).toEqual(['git.request', 'git.decide', 'git.run'])
+    expect(await groupEvents(w.group.id)).toEqual(['陈晨 将 cc 切换到 feat/x（王磊 批准）'])
   })
 
   it('rejects and expires member requests', async () => {
@@ -309,6 +431,7 @@ describe('git actions', () => {
     expect(list.find((o) => o.id === b.body.id)?.status).toBe('expired')
     const notes = await t.db.select().from(notifications).where(eq(notifications.userId, w.owner.id))
     expect(notes.every((n) => n.resolvedAt)).toBe(true)
+    expect(await groupEvents(w.group.id)).toEqual([])
   })
 
   it('refuses while the bot, or a bot sharing its directory, has a live run', async () => {
@@ -368,6 +491,16 @@ describe('git actions', () => {
     })
     await d.act()
     expect((await approved).body.status).toBe('succeeded')
+
+    const pull = w.owners.post(`${w.base}/actions`, { action: 'pull' })
+    await d.act()
+    await pull
+    expect(await groupEvents(w.group.id)).toEqual([
+      '王磊 将 cc 的 main 推送到 origin',
+      '王磊 将 cc 的 feat/x 推送到 origin',
+      '陈晨 将 cc 的 main 推送到 origin（王磊 批准）',
+      '王磊 为 cc 拉取了更新',
+    ])
   })
 
   it('lists pending operations plus the latest 20 settled ones, newest first', async () => {

@@ -262,6 +262,8 @@ export const gitOperations = pgTable(
     branch: text('branch'),
     remote: text('remote'),
     message: text('message'),
+    /** A commit of these work-tree paths only; null = every change. */
+    paths: jsonb('paths').$type<string[]>(),
     /** A push of the group's protected base branch. */
     pushesBase: boolean('pushes_base').notNull().default(false),
     /** GitOperationStatus */

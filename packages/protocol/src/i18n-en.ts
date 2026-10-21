@@ -73,6 +73,13 @@ export const protocolEn = {
   '{bot} 已自动压缩上下文': '{bot} compacted its context automatically',
   '{bot} 已压缩上下文': '{bot} compacted its context',
   '{bot} 压缩上下文失败：{error}': '{bot} failed to compact its context: {error}',
+  '{user} 将 {bot} 切换到 {branch}{approval}': '{user} switched {bot} to {branch}{approval}',
+  '{user} 为 {bot} 拉取了更新{approval}': '{user} pulled updates for {bot}{approval}',
+  '{user} 提交了 {bot} 的改动：{subject}{approval}':
+    '{user} committed the changes of {bot}: {subject}{approval}',
+  '{user} 将 {bot} 的 {branch} 推送到 {remote}{approval}':
+    '{user} pushed {branch} of {bot} to {remote}{approval}',
+  '（{owner} 批准）': ' (approved by {owner})',
   正在压缩上下文: 'Compacting context',
   '/cd 仅分区模式可用；强制同步群里非托管工作区的 Bot 为「不参与」':
     '/cd is only available in partition mode; in force-sync groups, Bots without a managed workspace sit out',
