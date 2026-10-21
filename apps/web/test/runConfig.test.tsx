@@ -100,6 +100,7 @@ const bot: BotDto = {
   effort: null,
   catalog: CATALOG,
 }
+const makeBot = (o: Partial<BotDto>): BotDto => ({ ...bot, ...o })
 
 const state = (o: Partial<GroupBotStateDto> = {}): GroupBotStateDto => ({
   botId: 'b1',
@@ -150,6 +151,72 @@ describe('run config chips', () => {
     })
     type('@cc 再来')
     expect(chip().textContent).toContain('Sonnet · 中')
+  })
+
+  it('shows only the longer name when bot names share a prefix', async () => {
+    const feedback = makeBot({ id: 'b2', name: '共工空间反馈' })
+    const feedback2 = makeBot({ id: 'b3', name: '共工空间反馈2号' })
+    mockApi({ 'GET /bots/b2/catalog': { catalog: CATALOG }, 'GET /bots/b3/catalog': { catalog: CATALOG } })
+    useWorkspace.setState({ bots: [feedback, feedback2] })
+    render(<MessageComposer group={{ ...group, botIds: ['b2', 'b3'] }} onSent={() => {}} />)
+    type('@共工空间反馈2号 处理')
+    expect(screen.getAllByRole('button', { name: /的模型与推理强度$/ })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '共工空间反馈2号 的模型与推理强度' })).toBeTruthy()
+  })
+
+  it('shows only the shorter name when the longer bot is not mentioned', async () => {
+    const feedback = makeBot({ id: 'b2', name: '共工空间反馈' })
+    const feedback2 = makeBot({ id: 'b3', name: '共工空间反馈2号' })
+    mockApi({ 'GET /bots/b2/catalog': { catalog: CATALOG } })
+    useWorkspace.setState({ bots: [feedback, feedback2] })
+    render(<MessageComposer group={{ ...group, botIds: ['b2', 'b3'] }} onSent={() => {}} />)
+    type('@共工空间反馈 处理')
+    expect(screen.getAllByRole('button', { name: /的模型与推理强度$/ })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '共工空间反馈 的模型与推理强度' })).toBeTruthy()
+  })
+
+  it('shows both in mention order when both are mentioned', () => {
+    const feedback = makeBot({ id: 'b2', name: '共工空间反馈' })
+    const feedback2 = makeBot({ id: 'b3', name: '共工空间反馈2号' })
+    mockApi({ 'GET /bots/b2/catalog': { catalog: CATALOG }, 'GET /bots/b3/catalog': { catalog: CATALOG } })
+    useWorkspace.setState({ bots: [feedback, feedback2] })
+    render(<MessageComposer group={{ ...group, botIds: ['b2', 'b3'] }} onSent={() => {}} />)
+    type('@共工空间反馈2号 先看，@共工空间反馈 再看')
+    expect(
+      screen
+        .getAllByRole('button', { name: /的模型与推理强度$/ })
+        .map((item) => item.getAttribute('aria-label')),
+    ).toEqual(['共工空间反馈2号 的模型与推理强度', '共工空间反馈 的模型与推理强度'])
+  })
+
+  it('sends options only for the bots actually mentioned', async () => {
+    const feedback = makeBot({ id: 'b2', name: '共工空间反馈' })
+    const feedback2 = makeBot({ id: 'b3', name: '共工空间反馈2号' })
+    const calls = mockApi({
+      'GET /bots/b3/catalog': { catalog: CATALOG },
+      'POST /groups/g1/messages': { id: 'm2' } as MessageDto,
+    })
+    useWorkspace.setState({ bots: [feedback, feedback2] })
+    render(<MessageComposer group={{ ...group, botIds: ['b2', 'b3'] }} onSent={() => {}} />)
+    type('@共工空间反馈2号 处理')
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole('button', { name: /的模型与推理强度$/ })
+          .every((item) => !item.hasAttribute('disabled')),
+      ).toBe(true),
+    )
+    for (const item of screen.getAllByRole('button', { name: /的模型与推理强度$/ })) {
+      fireEvent.click(item)
+      pick('Opus')
+    }
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1))
+    const sent = calls.find((c) => c.method === 'POST')
+    if (!sent) throw new Error('message was not sent')
+    expect((sent.body as { runOptions?: unknown }).runOptions).toEqual({
+      b3: { model: 'opus' },
+    })
   })
 
   it('follow the group default and can save a pick as it', async () => {
