@@ -1,6 +1,7 @@
 import type { GitBranch, GitRefsDto } from '@gonggong/protocol'
 import { type ReactNode, useState } from 'react'
 import { t } from '../../i18n'
+import { ago } from '../../lib/time'
 import { Icon, SearchField, Spinner } from '../../ui'
 import './git.css'
 
@@ -70,13 +71,16 @@ export function RefList({
             className="git-refs__item"
             data-ref={b.name}
             aria-current={marked(b) || undefined}
-            title={b.subject || b.name}
+            title={b.subject ? `${b.name}\n${b.subject}` : b.name}
             onClick={() => onPick(b, b.name)}
           >
             <span className="git-refs__check">
               {marked(b) ? <Icon name="check" size={12} weight={2} /> : null}
             </span>
-            <span className="git-refs__name">{b.name}</span>
+            <span className="git-refs__main">
+              <span className="git-refs__name">{b.name}</span>
+              {b.subject ? <span className="git-refs__meta">{`${b.subject} · ${ago(b.at)}`}</span> : null}
+            </span>
             {b.upstream ? <Counts b={b} /> : null}
           </button>
         ))}

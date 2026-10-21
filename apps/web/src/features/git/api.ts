@@ -27,6 +27,11 @@ export async function refreshGit(groupId: string, botId: string, fetch = false) 
   await api.post(`${gitBase(groupId, botId)}/refresh`, { fetch })
 }
 
+/** A refresh on opening a git view: the view works on the last status anyway, so a failure stays silent. */
+export const refreshGitQuietly = (groupId: string, botId: string) => {
+  refreshGit(groupId, botId).catch(() => {})
+}
+
 /** A full commit hash reads better shortened; branch names stay as they are. */
 export const shortRev = (rev: string) => (/^[0-9a-f]{40}$/i.test(rev) ? rev.slice(0, 7) : rev)
 
@@ -50,10 +55,14 @@ export function useGitRefs(groupId: string, botId: string) {
 }
 
 /**
- * Runs (owner) or requests (anyone else) a git action; resolves whether the server took it. A busy bot's 409 and
- * other refusals toast the server's message.
+ * Runs (owner) or requests (anyone else) a git action; resolves the operation, or null when the server refused it
+ * (a busy bot's 409 and other refusals toast the server's message).
  */
-export async function runGitAction(groupId: string, botId: string, req: GitActionReq) {
+export async function runGitAction(
+  groupId: string,
+  botId: string,
+  req: GitActionReq,
+): Promise<GitOperationDto | null> {
   try {
     const op = await api.post<GitOperationDto>(`${gitBase(groupId, botId)}/actions`, req)
     putGitOperation(op)
@@ -62,13 +71,15 @@ export async function runGitAction(groupId: string, botId: string, req: GitActio
       const owner = bots.find((b) => b.id === botId)?.ownerName ?? ''
       toast({ type: 'info', message: t('已提交申请，等待 Bot 主人 {name} 审批', { name: owner }) })
     } else gitOperationSettled(op, bots)
-    // A failed one keeps its dialog open, so the message can be fixed and tried again.
-    return op.status !== 'failed'
+    return op
   } catch (e) {
     toastError(e)
-    return false
+    return null
   }
 }
+
+/** Whether a dialog can close: a failed or refused operation keeps it open, to fix and try again. */
+export const gitActionTaken = (op: GitOperationDto | null) => !!op && op.status !== 'failed'
 
 export async function decideGitOperation(id: string, approve: boolean) {
   try {

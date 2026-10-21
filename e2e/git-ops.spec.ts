@@ -77,8 +77,8 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
 
     await test.step('the owner switches to a remote branch from the bar', async () => {
       await item.getByRole('button', { name: `切换 ${botName} 的分支` }).click()
+      // A clean work tree switches without asking.
       await page.getByRole('button', { name: /origin\/feat\/x/ }).click()
-      await page.getByRole('dialog', { name: '切换分支' }).getByRole('button', { name: '切换' }).click()
       await expect(item).toContainText('feat/x', { timeout: 30_000 })
     })
 

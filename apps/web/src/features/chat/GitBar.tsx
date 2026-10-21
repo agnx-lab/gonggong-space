@@ -1,17 +1,19 @@
 import type { GroupBotStateDto, GroupDto, RepoStatus } from '@gonggong/protocol'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { loadBotStates, loadGitOperations, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { copyWithToast } from '../../lib/clipboard'
 import { realtime } from '../../lib/realtime'
 import { ago } from '../../lib/time'
 import { Icon, type IconName, Popover } from '../../ui'
+import { refreshGitQuietly } from '../git/api'
 import { BranchPicker, GitActions } from '../git/GitControls'
 import { GitOperationsPanel, PendingBadge } from '../git/GitOperations'
 import { openTab } from '../workbench/open'
 import { ContextMeter } from './ContextMeter'
 
 const WORKSPACE_LABEL = { managed: t('托管'), cd: t('本机目录') }
+const FOCUS_REFRESH_MS = 30_000
 
 function Commits({ icon, name, n }: { icon: IconName; name: string; n: number }) {
   return (
@@ -300,6 +302,22 @@ export function GitBar({ group }: { group: GroupDto }) {
     load()
     // Updates pushed while the socket was down are lost: catch up on reconnect.
     return realtime.onReconnect(load)
+  }, [group.id, botKey, showGit])
+
+  // The status is only taken after each turn: re-read it when the user comes back, as files may have changed since.
+  const focusedAt = useRef(0)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-bind when the group's bots change
+  useEffect(() => {
+    if (!showGit) return
+    const onFocus = () => {
+      const now = Date.now()
+      if (now - focusedAt.current < FOCUS_REFRESH_MS) return
+      focusedAt.current = now
+      const shown = useWorkspace.getState().botStates[group.id] ?? {}
+      for (const id of group.botIds) if (shown[id]?.git) refreshGitQuietly(group.id, id)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [group.id, botKey, showGit])
 
   if (!group.botIds.length) return null
