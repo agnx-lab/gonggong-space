@@ -97,6 +97,7 @@ const op = (o: Partial<GitOperationDto> = {}): GitOperationDto => ({
   branch: 'main',
   remote: 'origin',
   message: null,
+  paths: null,
   pushesBase: true,
   status: 'pending_approval',
   requestedBy: { id: 'u2', name: '老李' },

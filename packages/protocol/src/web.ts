@@ -480,13 +480,32 @@ export const GitCompareQuery = z.object({
 })
 export const GitCompareDto = z.object({ changes: z.array(GitChange) })
 export type GitCompareDto = z.infer<typeof GitCompareDto>
+/** GET …/git/diff?from=&to=&path= — the unified patch (see GitDiff); `to` omitted = the work tree, `path` = one file. */
+export const GitDiffQuery = z.object({
+  from: z.string().min(1).max(255),
+  to: z.string().min(1).max(255).optional(),
+  path: z.string().min(1).max(4096).optional(),
+})
+export const GitDiffDto = z.object({ patch: z.string().nullable(), truncated: z.boolean() })
+export type GitDiffDto = z.infer<typeof GitDiffDto>
+/**
+ * POST …/git/refresh — any member: re-reads the bot's git status (pushed as a bot state update); `fetch` fetches the
+ * remotes first. Not refused while a run is live (it never touches the work tree). Answers 204.
+ */
+export const GitRefreshReq = z.object({ fetch: z.boolean().default(false) })
+export type GitRefreshReq = z.infer<typeof GitRefreshReq>
 
 const gitBranchName = z.string().trim().min(1).max(255)
 /** POST …/git/actions. `confirmBase`: the owner's second confirmation to push the protected base branch. */
 export const GitActionReq = z.discriminatedUnion('action', [
   z.object({ action: z.literal('checkout'), branch: gitBranchName }),
   z.object({ action: z.literal('pull') }),
-  z.object({ action: z.literal('commit'), message: z.string().trim().min(1, '请填写提交说明').max(10_000) }),
+  z.object({
+    action: z.literal('commit'),
+    message: z.string().trim().min(1, '请填写提交说明').max(10_000),
+    /** Work-tree-relative paths to commit (as listed by compare from HEAD); omitted = every change. */
+    paths: z.array(z.string().min(1).max(4096)).min(1).max(5000).optional(),
+  }),
   z.object({
     action: z.literal('push'),
     remote: gitBranchName.default('origin'),
@@ -512,6 +531,8 @@ export const GitOperationDto = z.object({
   branch: z.string().nullable(),
   remote: z.string().nullable(),
   message: z.string().nullable(),
+  /** A commit of these paths only; null = every change. */
+  paths: z.array(z.string()).nullable(),
   /** A push of the protected base branch: approving it is the owner's second confirmation. */
   pushesBase: z.boolean(),
   status: GitOperationStatus,

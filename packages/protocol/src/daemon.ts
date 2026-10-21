@@ -675,6 +675,24 @@ export const GitCompareResult = z.object({
 })
 export type GitCompareResult = z.infer<typeof GitCompareResult>
 
+/** Answer to git.diff: the unified patch (`git diff` format, untracked files included when `to` is the work tree). */
+export const GitDiffResult = z.object({
+  t: z.literal('git.diff.result'),
+  requestId: z.string(),
+  patch: z.string().nullable(),
+  /** The patch was cut at `maxBytes`. */
+  truncated: z.boolean(),
+  error: z.string().nullable(),
+})
+export type GitDiffResult = z.infer<typeof GitDiffResult>
+/** Answer to git.refresh, sent after the fresh status went out as workspace.state. */
+export const GitRefreshResult = z.object({
+  t: z.literal('git.refresh.result'),
+  requestId: z.string(),
+  error: z.string().nullable(),
+})
+export type GitRefreshResult = z.infer<typeof GitRefreshResult>
+
 export const GitActionKind = z.enum(['checkout', 'pull', 'commit', 'push'])
 export type GitActionKind = z.infer<typeof GitActionKind>
 /**
@@ -816,6 +834,8 @@ export const DaemonFeature = z.enum([
   'reprobe',
   'plugins',
   'gitOps',
+  /** git.diff, git.refresh and commit `paths`: a daemon without it would commit everything. */
+  'gitOps2',
 ])
 export type DaemonFeature = z.infer<typeof DaemonFeature>
 
@@ -1040,6 +1060,8 @@ export const DaemonToServer = z.discriminatedUnion('t', [
   GitTreeResult,
   GitReadResult,
   GitCompareResult,
+  GitDiffResult,
+  GitRefreshResult,
   GitActionResult,
   WorkspaceDiffResult,
   QuestionAsk,
@@ -1246,9 +1268,27 @@ export const GitCompare = z.object({
   to: GitRef,
 })
 /**
+ * The patch from `from` to `to` (null = the work tree, untracked files included), of `path` only when given; cut at
+ * `maxBytes`. Never touches the work tree or the index.
+ */
+export const GitDiff = z.object({
+  t: z.literal('git.diff'),
+  ...gitTarget,
+  from: z.string().min(1),
+  to: GitRef,
+  path: z.string().nullable(),
+  maxBytes: z.number().int(),
+})
+/**
+ * Re-reads the workspace git status and sends it as workspace.state (same as after a turn); `fetch` first runs
+ * `git fetch --prune` of every remote, so ahead/behind and remote branches are current. Not held by a turn.
+ */
+export const GitRefresh = z.object({ t: z.literal('git.refresh'), ...gitTarget, fetch: z.boolean() })
+/**
  * A manual write, refused (`busy`) while a turn holds the directory. checkout: switch to `branch` (a remote branch
- * creates its tracking local one); pull: fast-forward only from the upstream; commit: everything, as `identity`;
- * push: `branch` to `remote`, setting the upstream when missing. Never forced.
+ * creates its tracking local one); pull: fast-forward only from the upstream; commit: `paths` only (work tree
+ * relative; deletions and untracked files included) or everything when null, as `identity`; push: `branch` to
+ * `remote`, setting the upstream when missing. Never forced.
  */
 export const GitAction = z.object({
   t: z.literal('git.action'),
@@ -1257,6 +1297,7 @@ export const GitAction = z.object({
   branch: z.string().nullable(),
   remote: z.string().nullable(),
   message: z.string().nullable(),
+  paths: z.array(z.string()).nullable().default(null),
   identity: z.object({ name: z.string(), email: z.string() }).nullable(),
 })
 export type GitAction = z.infer<typeof GitAction>
@@ -1432,6 +1473,8 @@ export const ServerToDaemon = z.discriminatedUnion('t', [
   GitTree,
   GitRead,
   GitCompare,
+  GitDiff,
+  GitRefresh,
   GitAction,
   WorkspaceDiff,
   QuestionAnswer,

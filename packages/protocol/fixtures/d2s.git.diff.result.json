@@ -1,0 +1,7 @@
+{
+  "t": "git.diff.result",
+  "requestId": "q1",
+  "patch": "diff --git a/src/refund.ts b/src/refund.ts\nindex 1111111..2222222 100644\n--- a/src/refund.ts\n+++ b/src/refund.ts\n@@ -1 +1 @@\n-export const a = 1\n+export const a = 2\n",
+  "truncated": false,
+  "error": null
+}

@@ -17,6 +17,14 @@ export const gitUrls = {
   text: (base: string, ref: string, path: string) => `${base}/text?ref=${enc(ref)}&path=${enc(path)}`,
   compare: (base: string, from: string, to: string | null) =>
     `${base}/compare?from=${enc(from)}${to ? `&to=${enc(to)}` : ''}`,
+  /** `to` null = the work tree; `path` null = every file. */
+  diff: (base: string, from: string, to: string | null, path: string | null) =>
+    `${base}/diff?from=${enc(from)}${to ? `&to=${enc(to)}` : ''}${path ? `&path=${enc(path)}` : ''}`,
+}
+
+/** Re-reads a bot's git status (it arrives as a bot state update); `fetch` fetches the remotes first. */
+export async function refreshGit(groupId: string, botId: string, fetch = false) {
+  await api.post(`${gitBase(groupId, botId)}/refresh`, { fetch })
 }
 
 /** A full commit hash reads better shortened; branch names stay as they are. */

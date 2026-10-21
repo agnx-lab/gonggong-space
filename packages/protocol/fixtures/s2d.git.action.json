@@ -16,6 +16,7 @@
   "branch": null,
   "remote": null,
   "message": "修复退款金额",
+  "paths": ["src/refund.ts", "src/new.ts"],
   "identity": {
     "name": "小王的 Claude",
     "email": "b1@bots.gonggong.local"
