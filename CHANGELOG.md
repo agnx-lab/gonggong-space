@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.6 — 2026-10-21
+
+- 手动 Git 操作：Git 状态条切换分支、拉取、提交、推送，非主人发起需 Bot 主人审批，运行中禁止写操作，推送基准分支需二次确认 / Manual Git: switch branches, pull, commit and push from the Git bar; non-owners' requests need the Bot owner's approval, writes are refused during runs, pushing the base branch asks again
+- 提交历史与按分支/提交查看、对比文件树 / Commit history, and file trees at any branch or commit with a compare mode
+- 客户端更新提示显示具体更新说明，后台可上传或编辑 / Client update prompts show the release notes, uploaded or edited in the admin
+
 ## v0.3.5 — 2026-10-21
 
 - 插件：配置中心/团队/群上传与启用插件，「✦ 创作」面板把创作任务交给 Bot，内置「网页原型」插件；系统参数总开关，默认关闭 / Plugins: upload and enable plugins per platform, team and group, hand creative work to Bots from the "✦ Create" panel, official "Web prototype" plugin; behind a system switch, off by default
