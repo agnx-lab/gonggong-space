@@ -217,6 +217,28 @@ describe('git actions', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '提交改动' })).toBeNull())
   })
 
+  it('keeps the commit dialog open when git fails, with its reason', async () => {
+    mockApi(
+      routes({
+        [`POST ${BASE}/actions`]: () =>
+          op({
+            id: 'op-fail',
+            action: 'commit',
+            status: 'failed',
+            error: '没有可提交的改动',
+            requestedBy: { id: 'u1', name: '王磊' },
+          }),
+      }),
+    )
+    render(<GitBar group={group()} />)
+    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
+    fireEvent.change(dialog.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
+    fireEvent.click(dialog.getByRole('button', { name: '提交' }))
+    await waitFor(() => expect(toasts()).toContain('没有可提交的改动'))
+    expect(screen.getByRole('dialog', { name: '提交改动' })).toBeTruthy()
+  })
+
   it('pushes to the current branch, and asks for a second confirmation for the protected base', async () => {
     const calls = mockApi(routes({ [`POST ${BASE}/actions`]: op({ status: 'succeeded' }) }))
     render(<GitBar group={group()} />)

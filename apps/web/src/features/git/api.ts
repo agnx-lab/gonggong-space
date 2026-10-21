@@ -54,7 +54,8 @@ export async function runGitAction(groupId: string, botId: string, req: GitActio
       const owner = bots.find((b) => b.id === botId)?.ownerName ?? ''
       toast({ type: 'info', message: t('已提交申请，等待 Bot 主人 {name} 审批', { name: owner }) })
     } else gitOperationSettled(op, bots)
-    return true
+    // A failed one keeps its dialog open, so the message can be fixed and tried again.
+    return op.status !== 'failed'
   } catch (e) {
     toastError(e)
     return false

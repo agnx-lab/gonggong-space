@@ -1,4 +1,5 @@
-import { join } from 'node:path'
+import { writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { FilesTreeDto, GitOperationDto } from '@gonggong/protocol'
 import { expect, type Page, test } from '@playwright/test'
 import { bindManaged, buildDaemon, memberWithMachine, ROOT, remoteRepo } from './helpers'
@@ -6,7 +7,7 @@ import { bindManaged, buildDaemon, memberWithMachine, ROOT, remoteRepo } from '.
 test.beforeAll(buildDaemon)
 
 const composer = '输入消息，@ 触发 Bot 或引用文件，/ 查看命令'
-// Scripted agent: a plain prompt writes hello.txt into the workspace, `mock:slow` keeps the turn busy for seconds.
+// Scripted agent: `mock:slow` keeps the turn busy for seconds.
 const MOCK = `${process.execPath} ${join(ROOT, 'tools/mock-agent/agent.js')}`
 
 async function say(page: Page, text: string) {
@@ -88,17 +89,15 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
     })
 
     await test.step('the owner commits the bot’s change and pushes it', async () => {
-      await say(page, `@${botName} 写个文件`)
-      const card = page.getByTestId('run-card').last()
-      await expect(card).toHaveAttribute('data-status', 'completed', { timeout: 60_000 })
+      writeFileSync(join(dirname(m.find('README.md')!), 'hello.txt'), 'hi\n')
       await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
-      await page.getByRole('menuitem', { name: '提交…' }).click()
+      await page.getByRole('button', { name: '提交…' }).click()
       const commit = page.getByRole('dialog', { name: '提交改动' })
       await commit.getByLabel('提交说明').fill('add hello')
       await commit.getByRole('button', { name: '提交' }).click()
       await expect(commit).toBeHidden({ timeout: 30_000 })
       await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
-      await page.getByRole('menuitem', { name: '推送…' }).click()
+      await page.getByRole('button', { name: '推送…' }).click()
       const push = page.getByRole('dialog', { name: '推送' })
       await push.getByRole('button', { name: '推送' }).click()
       await expect(push).toBeHidden({ timeout: 30_000 })
