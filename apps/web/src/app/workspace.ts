@@ -1,5 +1,7 @@
 import {
   type BotDto,
+  type GitOperationDto,
+  type GitOperationsDto,
   type GroupBotStateDto,
   type GroupDto,
   LIVE_RUN_STATUSES,
@@ -12,6 +14,7 @@ import {
 } from '@gonggong/protocol'
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
+import { gitOperationSettled } from '../features/git/notify'
 import { otherTeam, refreshTeamsSoon } from '../features/teams/store'
 import { t } from '../i18n'
 import { api } from '../lib/api'
@@ -27,6 +30,8 @@ interface WorkspaceState {
   loaded: boolean
   /** Per-group workspace state of each bot (groupId → botId → state), loaded when a group is opened. */
   botStates: Record<string, Record<string, GroupBotStateDto>>
+  /** Per-group manual git operations, newest first: pending ones and the latest settled. */
+  gitOps: Record<string, GitOperationDto[]>
   /** The group open in the chat view; its new messages don't count as unread. */
   activeGroupId: string | null
   setActiveGroup: (id: string | null) => void
@@ -102,6 +107,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   notifCount: 0,
   loaded: false,
   botStates: {},
+  gitOps: {},
   activeGroupId: null,
   setActiveGroup: (activeGroupId) => set({ activeGroupId }),
   applyEvent(e) {
@@ -153,8 +159,27 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
             : g,
         ),
       }))
+    else if (e.t === 'group.gitOperation') {
+      set((s) => ({ gitOps: { ...s.gitOps, [e.groupId]: upsertOp(s.gitOps[e.groupId], e.operation) } }))
+      gitOperationSettled(e.operation, get().bots)
+    }
   },
 }))
+
+/** Keeps the list newest first; a known operation is replaced in place. */
+export const upsertOp = (list: GitOperationDto[] | undefined, op: GitOperationDto) =>
+  list?.some((o) => o.id === op.id) ? list.map((o) => (o.id === op.id ? op : o)) : [op, ...(list ?? [])]
+
+export function putGitOperation(op: GitOperationDto) {
+  useWorkspace.setState((s) => ({
+    gitOps: { ...s.gitOps, [op.groupId]: upsertOp(s.gitOps[op.groupId], op) },
+  }))
+}
+
+export async function loadGitOperations(groupId: string) {
+  const { operations } = await api.get<GitOperationsDto>(`/groups/${groupId}/git/operations`)
+  useWorkspace.setState((s) => ({ gitOps: { ...s.gitOps, [groupId]: operations } }))
+}
 
 export async function loadBotStates(groupId: string) {
   const list = await api.get<GroupBotStateDto[]>(`/groups/${groupId}/bot-states`)

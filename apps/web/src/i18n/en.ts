@@ -10,6 +10,7 @@ import conversationStats from '../features/conversation-stats/en'
 import diff from '../features/diff/en'
 import feishu from '../features/feishu/en'
 import files from '../features/files/en'
+import git from '../features/git/en'
 import groups from '../features/groups/en'
 import knowledge from '../features/knowledge/en'
 import machines from '../features/machines/en'
@@ -47,6 +48,7 @@ export const en = {
   ...diff,
   ...feishu,
   ...files,
+  ...git,
   ...groups,
   ...knowledge,
   ...machines,

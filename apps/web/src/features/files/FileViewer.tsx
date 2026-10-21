@@ -132,13 +132,15 @@ const Lines = memo(function Lines({
   )
 })
 
-function Download({ url, name, message }: { url: string; name: string; message: string }) {
+function Download({ url, name, message }: { url?: string; name: string; message: string }) {
   return (
     <div className="fv__none">
       <span>{message}</span>
-      <a className="ui-btn ui-btn--small" href={url} download={name}>
-        {t('下载')}
-      </a>
+      {url ? (
+        <a className="ui-btn ui-btn--small" href={url} download={name}>
+          {t('下载')}
+        </a>
+      ) : null}
     </div>
   )
 }
@@ -147,8 +149,8 @@ export interface FileViewerProps {
   name: string
   /** Copied by 复制路径; relative to the workspace root. */
   path: string
-  /** The bytes: media source and download link. */
-  url: string
+  /** The bytes: media source and download link; absent for a version read from git (text only). */
+  url?: string
   kind: ViewKind
   /** Text content for the textual kinds; must be stable across renders. */
   read: () => Promise<TextRead>
@@ -316,15 +318,17 @@ export function FileViewer({
           title={t('复制路径')}
           onClick={copy}
         />
-        <a
-          className="ui-btn ui-btn--small ui-btn--plain ui-btn--icon"
-          href={url}
-          download={name}
-          aria-label={t('下载')}
-          title={t('下载')}
-        >
-          <Icon name="download" size={14} />
-        </a>
+        {url ? (
+          <a
+            className="ui-btn ui-btn--small ui-btn--plain ui-btn--icon"
+            href={url}
+            download={name}
+            aria-label={t('下载')}
+            title={t('下载')}
+          >
+            <Icon name="download" size={14} />
+          </a>
+        ) : null}
         {onOpenTab ? (
           <Button
             size="small"
@@ -362,28 +366,37 @@ export function FileViewer({
   )
 }
 
-/** A file of a bot's workspace in the current group, read through the files routes. */
+/**
+ * A file of a bot's workspace in the current group, read through the files routes; `rev` (a branch or commit)
+ * reads that version through the git routes, which serve text only.
+ */
 export function BotFileViewer({
   botId,
   path,
   line,
+  rev,
   onOpenTab,
 }: {
   botId: string
   path: string
   line?: LineRange
+  rev?: string | null
   onOpenTab?: () => void
 }) {
   const groupId = useWorkbench((s) => s.groupId) ?? ''
-  const base = `/groups/${groupId}/bots/${botId}/files`
-  const query = `?path=${encodeURIComponent(path)}`
-  const read = useCallback(() => api.get<FileTextDto>(`${base}/text${query}`), [base, query])
+  const base = `/groups/${groupId}/bots/${botId}`
+  const query = rev
+    ? `?ref=${encodeURIComponent(rev)}&path=${encodeURIComponent(path)}`
+    : `?path=${encodeURIComponent(path)}`
+  const text = `${base}/${rev ? 'git' : 'files'}/text${query}`
+  const read = useCallback(() => api.get<FileTextDto>(text), [text])
+  const kind = viewKind(path)
   return (
     <FileViewer
       name={baseName(path)}
       path={path}
-      url={`/api${base}/raw${query}`}
-      kind={viewKind(path)}
+      url={rev ? undefined : `/api${base}/files/raw${query}`}
+      kind={rev && !TEXTUAL.includes(kind) ? 'unknown' : kind}
       read={read}
       line={line}
       onOpenTab={onOpenTab}
