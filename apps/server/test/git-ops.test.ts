@@ -27,7 +27,7 @@ afterEach(() => t.close())
 
 type GitAsk = Extract<ServerToDaemon, { t: `git.${string}` }>
 
-async function daemon(token: string) {
+async function daemon(token: string, features = ['gitOps']) {
   const ws = t.ws('/ws/daemon')
   const box = inbox(ws)
   await box.opened
@@ -39,6 +39,7 @@ async function daemon(token: string) {
     daemonVersion: '0.1.0',
     machine: { name: 'mbp', os: 'macos', arch: 'aarch64' },
     agents: [],
+    features,
   })
   expect(await box.next()).toMatchObject({ t: 'welcome' })
   /** The next git request; hello may first trigger workspace messages. */
@@ -100,6 +101,16 @@ const ops = (w: Awaited<ReturnType<typeof world>>) =>
   w.members.get<GitOperationsDto>(`/api/groups/${w.group.id}/git/operations`)
 
 describe('git reads', () => {
+  it('tells an older daemon apart at once instead of waiting for it', async () => {
+    const w = await world()
+    await daemon(w.token, [])
+    const refs = await w.members.get(`${w.base}/refs`)
+    expect(refs.status).toBe(409)
+    expect(JSON.stringify(refs.body)).toContain('客户端版本过旧')
+    const act = await w.owners.post(`${w.base}/actions`, { action: 'pull' })
+    expect(act.status).toBe(409)
+  })
+
   it('relays refs, log, tree, text and compare to members', async () => {
     const w = await world()
     const d = await daemon(w.token)

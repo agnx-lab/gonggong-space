@@ -509,6 +509,8 @@ export const en = {
   'Bot 离线，无法读取工作区改动': "The Bot is offline, can't read workspace changes",
   '{bot} 离线，无法读取文件': "{bot} is offline, can't read files",
   '{bot} 尚未设置工作区': "{bot} doesn't have a workspace yet",
+  '{bot} 所在机器的客户端版本过旧，升级后才能使用 Git 操作':
+    "{bot}'s machine runs an older client; upgrade it to use Git operations",
   缺少文件路径: 'Missing file path',
   缺少文件名: 'Missing file name',
   '{bot} 的文件读取繁忙，请稍后再试': 'File reading on {bot} is busy, try again later',

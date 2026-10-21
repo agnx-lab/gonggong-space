@@ -119,10 +119,13 @@ describe('git status bar', () => {
     )
     useWorkbench.setState({ groupId: 'g1', benches: {} })
     render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
+    // One git menu per bot: its changes come first, next to pull, commit and push.
+    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的 Git 操作' }))
     fireEvent.click(await screen.findByRole('button', { name: '查看 小王的 Claude 的改动' }))
     const tabs = () => useWorkbench.getState().benches.g1?.tabs
     expect(tabs()).toEqual([{ kind: 'diff', botId: 'b1', scope: 'uncommitted', file: null }])
-    fireEvent.click(screen.getByRole('button', { name: '查看 老李的 Codex 的改动' }))
+    fireEvent.click(screen.getByRole('button', { name: '老李的 Codex 的 Git 操作' }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看 老李的 Codex 的改动' }))
     expect(tabs()?.at(-1)).toEqual({ kind: 'diff', botId: 'b2', scope: 'base', file: null })
     expect(
       (screen.getByRole('button', { name: '查看 阿杰的 Claude 的改动' }) as HTMLButtonElement).disabled,

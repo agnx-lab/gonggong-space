@@ -26,6 +26,7 @@ export default {
   '推送…': 'Push…',
   提交历史: 'Commit history',
   操作记录: 'Activity',
+  查看改动: 'View changes',
   执行中: 'Running',
   '待审批 {n}': '{n} to review',
   '{name} 处理': 'Handled by {name}',

@@ -815,6 +815,7 @@ export const DaemonFeature = z.enum([
   'agentSettings',
   'reprobe',
   'plugins',
+  'gitOps',
 ])
 export type DaemonFeature = z.infer<typeof DaemonFeature>
 

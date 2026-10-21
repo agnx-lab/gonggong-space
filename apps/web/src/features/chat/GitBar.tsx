@@ -240,7 +240,9 @@ function Item({
       {s.context ? <ContextMeter groupId={groupId} bot={name} context={s.context} /> : null}
       <span className="git-bar__actions">
         <Location name={name} s={s} repo={group.repo} machine={machine} />
-        {showGit ? (
+        {showGit && git && diff && !hint ? (
+          <GitActions group={group} botId={s.botId} name={name} git={git} onDiff={diff} />
+        ) : showGit ? (
           <Action
             icon="git-branch"
             label={t('查看 {name} 的改动', { name })}
@@ -248,7 +250,6 @@ function Item({
             onClick={diff}
           />
         ) : null}
-        {showGit && git && !hint ? <GitActions group={group} botId={s.botId} name={name} git={git} /> : null}
         <Action icon="folder" label={t('浏览 {name} 的文件', { name })} title={t('文件')} onClick={files} />
       </span>
     </div>

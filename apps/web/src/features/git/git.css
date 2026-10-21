@@ -1,5 +1,8 @@
 /* Manual git: branch picker, action dialogs, operation log */
 .git-bar__branch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   height: 20px;
   padding: 0 var(--space-4);
   border: 0;

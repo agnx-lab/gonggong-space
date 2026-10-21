@@ -4,10 +4,10 @@ use crate::ccswitch;
 use crate::config::{Mirror, Settings};
 use crate::local::LocalSettings;
 use crate::protocol::{
-    AgentCatalog, AgentInfo, Choice, DaemonToServer, FEATURE_AGENT_SETTINGS, FEATURE_CC_SWITCH, FEATURE_PLUGINS,
-    FEATURE_PROVIDERS, FEATURE_REPROBE, FEATURE_SESSION_FORK, FEATURE_SYNC, FEATURE_TOOLS, ModelChoice, ModelMap,
-    ProviderInput, ProviderStateItem, ProvidersAction, ProvidersCmd, ProvidersResult, ToolsAction, ToolsCmd,
-    ToolsSettings,
+    AgentCatalog, AgentInfo, Choice, DaemonToServer, FEATURE_AGENT_SETTINGS, FEATURE_CC_SWITCH, FEATURE_GIT_OPS,
+    FEATURE_PLUGINS, FEATURE_PROVIDERS, FEATURE_REPROBE, FEATURE_SESSION_FORK, FEATURE_SYNC, FEATURE_TOOLS,
+    ModelChoice, ModelMap, ProviderInput, ProviderStateItem, ProvidersAction, ProvidersCmd, ProvidersResult,
+    ToolsAction, ToolsCmd, ToolsSettings,
 };
 use crate::providers::{self, API_KEY, AUTH_TOKEN, INHERIT, Provider, Selection, Store};
 use crate::service::Outbox;
@@ -54,6 +54,7 @@ impl Manage {
             FEATURE_AGENT_SETTINGS.to_string(),
             FEATURE_REPROBE.to_string(),
             FEATURE_PLUGINS.to_string(),
+            FEATURE_GIT_OPS.to_string(),
         ];
         if self.0.cc_switch().is_dir() {
             features.push(FEATURE_CC_SWITCH.into());
@@ -749,12 +750,22 @@ mod tests {
         let without = Manage::new(home.path().into(), home.path().into());
         assert_eq!(
             without.features(),
-            vec!["tools", "providers", "sync", "sessionFork", "agentSettings", "reprobe", "plugins"]
+            vec!["tools", "providers", "sync", "sessionFork", "agentSettings", "reprobe", "plugins", "gitOps"]
         );
         std::fs::create_dir(home.path().join(".cc-switch")).unwrap();
         assert_eq!(
             without.features(),
-            vec!["tools", "providers", "sync", "sessionFork", "agentSettings", "reprobe", "plugins", "ccSwitch"]
+            vec![
+                "tools",
+                "providers",
+                "sync",
+                "sessionFork",
+                "agentSettings",
+                "reprobe",
+                "plugins",
+                "gitOps",
+                "ccSwitch"
+            ]
         );
     }
 

@@ -74,6 +74,7 @@ export function BranchPicker({ groupId, botId, name, git }: BotGit) {
             aria-label={t('切换 {name} 的分支', { name })}
           >
             {git.branch ?? '—'}
+            <Icon name="chevron-down" size={10} />
           </button>
         }
       >
@@ -218,8 +219,17 @@ function PushDialog({
 
 type Open = 'commit' | 'push' | null
 
-/** The bar's git menu: pull, commit, push, history and the operation log; non-owners' actions become requests. */
-export function GitActions({ group, botId, name, git }: Omit<BotGit, 'groupId'> & { group: GroupDto }) {
+/**
+ * The bar's one git menu: the changes, pull, commit, push, history and the operation log; non-owners' actions become
+ * requests.
+ */
+export function GitActions({
+  group,
+  botId,
+  name,
+  git,
+  onDiff,
+}: Omit<BotGit, 'groupId'> & { group: GroupDto; onDiff: () => void }) {
   const [open, setOpen] = useState<Open>(null)
   const groupId = group.id
   const item = (
@@ -227,10 +237,12 @@ export function GitActions({ group, botId, name, git }: Omit<BotGit, 'groupId'> 
     label: string,
     run: () => void,
     close: () => void,
+    aria?: string,
   ) => (
     <button
       type="button"
       className="git-subs__item"
+      aria-label={aria}
       onClick={() => {
         close()
         run()
@@ -254,12 +266,13 @@ export function GitActions({ group, botId, name, git }: Omit<BotGit, 'groupId'> 
             aria-label={t('{name} 的 Git 操作', { name })}
             title={t('Git 操作')}
           >
-            <Icon name="git-fork" size={13} />
+            <Icon name="git-branch" size={13} />
           </button>
         }
       >
         {(close) => (
           <div className="git-subs">
+            {item('doc-text', t('查看改动'), onDiff, close, t('查看 {name} 的改动', { name }))}
             {item(
               'arrow-down',
               t('拉取'),

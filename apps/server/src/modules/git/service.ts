@@ -46,6 +46,10 @@ export async function gitTarget(ctx: Ctx, group: Group, rawBotId: string) {
   if (!row) return fail('not_found', '该 Bot 不在群内')
   if (row.state === 'unbound' || row.state === 'confirm')
     return fail('conflict', '{bot} 尚未设置工作区', { bot: row.bot.name })
+  // A daemon predating manual git ignores its messages: say so now rather than after the request times out.
+  const machineId = row.bot.machineId
+  if (machineId && ctx.hub.isOnline(machineId) && !ctx.hub.features(machineId).includes('gitOps'))
+    return fail('conflict', '{bot} 所在机器的客户端版本过旧，升级后才能使用 Git 操作', { bot: row.bot.name })
   return {
     group,
     bot: row.bot,
