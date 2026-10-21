@@ -48,6 +48,7 @@ const set = (o: Partial<QuestionSetDto> = {}): QuestionSetDto => ({
   answeredAt: null,
   expiresAt: new Date(NOW.getTime() + 60_000).toISOString(),
   createdAt: NOW.toISOString(),
+  leanings: [],
   ...o,
 })
 

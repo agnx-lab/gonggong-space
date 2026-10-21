@@ -21,6 +21,8 @@ import {
 import { InheritedMcpList, McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
 import { InheritedSkillList, SkillLayerList } from '../config/SkillLayer'
 import { GroupFeishuTab } from '../feishu/GroupFeishuTab'
+import { GroupPluginsTab } from '../plugins/PluginLayer'
+import { useGroupPlugins } from '../plugins/store'
 import { RepoWorkspaceView } from '../repos/RepoWorkspaceView'
 import { GroupSecrets } from '../secrets/GroupSecrets'
 import { SyncModeTab } from '../sync/SyncModeTab'
@@ -55,6 +57,7 @@ export function GroupSettingsDialog({
   const [params, setParams] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
   const dm = group.kind === 'dm'
+  const plugins = useGroupPlugins(group.id)
   const tabs: { value: SettingsTab; label: string; icon: IconName }[] = [
     { value: 'basic', label: t('基本信息'), icon: 'info' },
     { value: 'bots', label: dm ? 'Bot' : t('成员与 Bot'), icon: dm ? 'bot' : 'person-2' },
@@ -69,6 +72,8 @@ export function GroupSettingsDialog({
           { value: 'secrets' as const, label: t('密钥'), icon: 'lock' as const },
           { value: 'feishu' as const, label: t('飞书'), icon: 'message' as const },
         ]),
+    // Only once the group sees any plugin: none while the master switch is off.
+    ...(plugins?.length ? [{ value: 'plugins' as const, label: t('插件'), icon: 'apps' as const }] : []),
   ]
 
   useEffect(() => {
@@ -158,6 +163,8 @@ export function GroupSettingsDialog({
             </>
           ) : tab === 'secrets' ? (
             <GroupSecrets group={group} editable />
+          ) : tab === 'plugins' ? (
+            <GroupPluginsTab group={group} />
           ) : tab === 'feishu' ? (
             <GroupFeishuTab group={group} />
           ) : tab === 'mode' ? (

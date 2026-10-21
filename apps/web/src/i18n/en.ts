@@ -14,6 +14,7 @@ import groups from '../features/groups/en'
 import knowledge from '../features/knowledge/en'
 import machines from '../features/machines/en'
 import notifications from '../features/notifications/en'
+import plugins from '../features/plugins/en'
 import previews from '../features/previews/en'
 import reactions from '../features/reactions/en'
 import repos from '../features/repos/en'
@@ -50,6 +51,7 @@ export const en = {
   ...knowledge,
   ...machines,
   ...notifications,
+  ...plugins,
   ...previews,
   ...reactions,
   ...repos,

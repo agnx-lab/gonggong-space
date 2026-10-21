@@ -18,7 +18,7 @@ import {
 import { AdminPage } from './AdminPage'
 
 type Key = (typeof SYSTEM_PARAM_VIEW)[number]['key']
-type Toggle = 'registrationOpen' | 'singleTeamMode' | 'teamCreation' | 'demoMode'
+type Toggle = 'registrationOpen' | 'singleTeamMode' | 'teamCreation' | 'demoMode' | 'pluginsEnabled'
 
 /** GET /api/admin/params; null until loaded (or when it fails — callers only use it for auxiliary copy). */
 export function useSystemParams(enabled = true) {
@@ -170,6 +170,22 @@ export function ParamsPage() {
           {saved.registrationOpen && !saved.singleTeamMode && saved.teamCreation === 'sysadmin' ? (
             <Alert variant="warning" description={t('自助注册的账号不能新建团队，需凭邀请链接加入团队。')} />
           ) : null}
+          <h2 className="admin-params__title">{t('插件')}</h2>
+          <GroupBox>
+            <GroupRow
+              label={t('插件')}
+              description={t(
+                '开启后，群管理员可在群设置里启用插件，群成员通过输入框的「创作」使用。关闭后不显示任何插件入口，也不向机器下发插件；已上传的插件保留。',
+              )}
+            >
+              <Switch
+                ariaLabel={t('插件')}
+                label={saved.pluginsEnabled ? t('已开启') : t('已关闭#off')}
+                checked={saved.pluginsEnabled}
+                onChange={(v) => void apply({ pluginsEnabled: v }, v ? t('已开启插件') : t('已关闭插件'))}
+              />
+            </GroupRow>
+          </GroupBox>
           <h2 className="admin-params__title">{t('演示')}</h2>
           <GroupBox>
             <GroupRow

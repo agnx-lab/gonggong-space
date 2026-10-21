@@ -427,3 +427,21 @@
 .git-loc__warn {
   color: var(--tint-orange-text);
 }
+/* 插件 · N in the group header (shown only once the group has enabled plugins) */
+.chat-view__plugins {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: 20px;
+  padding: 0 var(--space-8);
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: var(--control-track);
+  color: var(--label-secondary);
+  font: inherit;
+  font-size: var(--text-subheadline-size);
+  white-space: nowrap;
+}
+button.chat-view__plugins:hover {
+  color: var(--label);
+}

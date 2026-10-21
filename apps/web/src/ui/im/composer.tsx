@@ -25,6 +25,10 @@ export interface ComposerTool {
   icon: Glyph
   label: string
   onClick?: () => void
+  /** Shown after the icon; such tools are a capsule instead of a round icon button. */
+  text?: string
+  /** Accent-tinted, for a feature entry point such as 「创作」. */
+  accent?: boolean
 }
 
 export const DEFAULT_TOOLS: ComposerTool[] = [
@@ -390,7 +394,11 @@ export function Composer({
             <button
               key={t.label}
               type="button"
-              className="pn-composer__tool"
+              className={cx(
+                'pn-composer__tool',
+                t.text && 'pn-composer__tool--text',
+                t.accent && 'pn-composer__tool--accent',
+              )}
               aria-label={t.label}
               title={t.label}
               aria-pressed={!t.onClick && t.icon === 'smile' ? emojiOpen : undefined}
@@ -399,6 +407,7 @@ export function Composer({
               onClick={() => toolClick(t)}
             >
               {renderGlyph(t.icon)}
+              {t.text ? <span>{t.text}</span> : null}
             </button>
           ))}
           {accessory && <span className="pn-composer__accessory">{accessory}</span>}

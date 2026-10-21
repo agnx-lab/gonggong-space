@@ -56,6 +56,7 @@ const PARAMS: SystemParams = {
   feishuAutoSignup: true,
   publicUrl: '',
   demoMode: false,
+  pluginsEnabled: false,
 }
 
 class NoopSocket {

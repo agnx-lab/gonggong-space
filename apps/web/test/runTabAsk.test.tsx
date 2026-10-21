@@ -48,6 +48,7 @@ const questions = (o: Partial<QuestionSetDto> = {}): QuestionSetDto => ({
   answeredAt: null,
   expiresAt: later,
   createdAt: local(10, 0, 8),
+  leanings: [],
   ...o,
 })
 const run = (o: Partial<RunDto> = {}): RunDto => ({

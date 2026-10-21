@@ -17,6 +17,7 @@ import { AuditPanel } from '../admin/AuditPage'
 import { McpLayerList, McpSaved, useMcpLayer } from '../config/ConfigPage'
 import { SkillLayerList } from '../config/SkillLayer'
 import { ConversationStatsPanel } from '../conversation-stats/ConversationStatsPanel'
+import { PluginLayerList } from '../plugins/PluginLayer'
 import { SecretLayerList } from '../secrets/SecretLayer'
 import { UsagePanel } from '../usage/UsagePage'
 import { teamsApi } from './store'
@@ -58,6 +59,18 @@ export function TeamSkillTab({ team }: { team: TeamDto }) {
         {t('对本团队所有群生效；与平台层同名时以团队层为准，群管理员可在群设置中再覆盖。')}
       </div>
       <SkillLayerList base={`/teams/${team.id}/skills`} tag={t('团队层')} />
+    </>
+  )
+}
+
+/** 团队设置 · 插件: the team layer, over the platform one and under each group's; groups turn them on. */
+export function TeamPluginsTab({ team }: { team: TeamDto }) {
+  return (
+    <>
+      <div className="gs-note">
+        {t('对本团队所有群可见，群管理员在群设置中启用；与平台层同名时以团队层为准。')}
+      </div>
+      <PluginLayerList base={`/teams/${team.id}/plugins`} />
     </>
   )
 }
