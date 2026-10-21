@@ -35,6 +35,8 @@ import { startFeishuMembers } from './modules/feishu/members.js'
 import { feishuIdle, stopFeishuMirror } from './modules/feishu/mirror.js'
 import { stopRegister } from './modules/feishu/register.js'
 import { feishuRoutes } from './modules/feishu/routes.js'
+import { gitRoutes } from './modules/git/routes.js'
+import { startGitOperationSweep } from './modules/git/service.js'
 import { gitAccountRoutes } from './modules/git-accounts/routes.js'
 import { groupRoutes } from './modules/groups/routes.js'
 import { groupSettingsRoutes } from './modules/groups/settings.js'
@@ -159,6 +161,8 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   await app.register(shareRequestRoutes(ctx))
   await app.register(notificationRoutes(ctx))
   await app.register(workspaceRoutes(ctx))
+  await app.register(gitRoutes(ctx))
+  app.addHook('onClose', startGitOperationSweep(ctx))
   await app.register(repoRoutes(ctx))
   await app.register(gitAccountRoutes(ctx))
   await backfillRepos(ctx)
