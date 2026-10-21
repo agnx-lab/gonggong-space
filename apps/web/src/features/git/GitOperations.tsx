@@ -66,6 +66,7 @@ function Row({ op, owner, focused }: { op: GitOperationDto; owner: boolean; focu
       <div className="git-op__head">
         <span className="git-op__action">{ACTION_LABEL[op.action]}</span>
         {target ? <span className="git-op__mono">{target}</span> : null}
+        {op.paths?.length ? <span>{t('{n} 个文件', { n: op.paths.length })}</span> : null}
         <span className="spacer" />
         <Tag tone={status.tone}>{status.label}</Tag>
       </div>

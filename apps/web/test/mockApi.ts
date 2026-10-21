@@ -22,7 +22,8 @@ export function mockApi(routes: Record<string, Reply>) {
       if (!(key in routes))
         return new Response(JSON.stringify({ error: 'not_found', message: key }), { status: 404 })
       const route = routes[key]
-      const out = typeof route === 'function' ? route(body) : route
+      // A promise holds the reply back until the test resolves it.
+      const out = await (typeof route === 'function' ? route(body) : route)
       if (out instanceof Response) return out
       return out === undefined ? new Response(null, { status: 204 }) : new Response(JSON.stringify(out))
     }),

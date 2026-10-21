@@ -273,6 +273,39 @@ describe('git status bar', () => {
     expect(calls).toHaveLength(4)
   })
 
+  it('re-reads the git status of the bots showing it when the window regains focus, at most every 30s', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-15T02:00:00.000Z'))
+    const calls = mockApi({
+      'GET /groups/g1/bot-states': [state('b1', { git: git() }), state('b2', { state: 'cloning' })],
+      'GET /groups/g1/git/operations': { operations: [] },
+      'POST /groups/g1/bots/b1/git/refresh': undefined,
+    })
+    render(<GitBar group={group({ botIds: ['b1', 'b2'] })} />)
+    await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' })
+    const refreshes = () => calls.filter((c) => c.path.endsWith('/git/refresh'))
+    expect(refreshes()).toEqual([])
+    fireEvent.focus(window)
+    expect(refreshes()).toEqual([
+      { method: 'POST', path: '/groups/g1/bots/b1/git/refresh', body: { fetch: false } },
+    ])
+    vi.setSystemTime(new Date('2026-10-15T02:00:20.000Z'))
+    fireEvent.focus(window)
+    expect(refreshes()).toHaveLength(1)
+    vi.setSystemTime(new Date('2026-10-15T02:00:31.000Z'))
+    fireEvent.focus(window)
+    expect(refreshes()).toHaveLength(2)
+    vi.useRealTimers()
+  })
+
+  it('does not refresh git on focus outside partition groups with a repo', async () => {
+    const calls = mockApi({ 'GET /groups/g1/bot-states': [state('b1', { git: git() })] })
+    render(<GitBar group={group({ mode: 'force', botIds: ['b1'] })} />)
+    await waitFor(() => expect(calls).toHaveLength(1))
+    fireEvent.focus(window)
+    expect(calls.filter((c) => c.path.endsWith('/git/refresh'))).toEqual([])
+  })
+
   it('summarizes sub-repos and opens the diff tab on the picked one', async () => {
     const sub = (path: string, o: Partial<RepoStatus> = {}): RepoStatus => ({
       path,
