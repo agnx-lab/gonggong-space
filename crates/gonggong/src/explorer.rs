@@ -9,7 +9,7 @@ use std::time::UNIX_EPOCH;
 
 pub const TREE_MAX_ENTRIES: usize = 1000;
 /// Bytes sniffed to tell text from binary when the file is too big to read whole.
-const SNIFF_BYTES: usize = 8 * 1024;
+pub(crate) const SNIFF_BYTES: usize = 8 * 1024;
 
 /// `rel` (relative to `root`, '' = the root) as a canonical path inside the canonical root. Absolute paths, `..`,
 /// symlinks leading outside and anything in `.git` (remote URLs may carry credentials) are refused.
@@ -37,7 +37,7 @@ pub async fn tree(root: &Path, rel: &str, show_ignored: bool) -> Result<(Vec<Tre
     }
     let prefix = dir.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
     let marks = if git::is_repo(&root) { Marks::of(&root, &prefix).await? } else { Marks::default() };
-    let mut entries = tokio::task::spawn_blocking(move || {
+    let mut entries: Vec<TreeEntry> = tokio::task::spawn_blocking(move || {
         std::fs::read_dir(&dir).map(|read| {
             read.flatten()
                 .filter(|e| e.file_name() != ".git")
@@ -65,10 +65,15 @@ pub async fn tree(root: &Path, rel: &str, show_ignored: bool) -> Result<(Vec<Tre
         e.uncommitted = marks.untracked || marks.changed.contains(&e.name);
     }
     entries.retain(|e| show_ignored || !e.ignored);
+    Ok(listing(entries))
+}
+
+/// Dirs first, then files, each by name, at most TREE_MAX_ENTRIES; true when some were cut.
+pub(crate) fn listing(mut entries: Vec<TreeEntry>) -> (Vec<TreeEntry>, bool) {
     entries.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     let truncated = entries.len() > TREE_MAX_ENTRIES;
     entries.truncate(TREE_MAX_ENTRIES);
-    Ok((entries, truncated))
+    (entries, truncated)
 }
 
 /// Names directly under one directory that git reports as ignored, or as changed / untracked (at or below them).
@@ -151,15 +156,20 @@ pub async fn read(root: &Path, rel: &str, max_bytes: u64) -> Result<Read, String
         };
         (!looks_like_text(&head[..n]), None)
     };
-    let mime = match crate::static_site::mime(&path) {
+    Ok(Read { size, binary, mime: mime(&path, binary), text })
+}
+
+/// By extension; text without a known one is plain text.
+pub(crate) fn mime(path: &Path, binary: bool) -> String {
+    match crate::static_site::mime(path) {
         "application/octet-stream" if !binary => "text/plain; charset=utf-8",
         m => m,
-    };
-    Ok(Read { size, binary, mime: mime.into(), text })
+    }
+    .into()
 }
 
 /// UTF-8 without NULs; a character cut off at the end of the sample still counts as text.
-fn looks_like_text(head: &[u8]) -> bool {
+pub(crate) fn looks_like_text(head: &[u8]) -> bool {
     !head.contains(&0)
         && match std::str::from_utf8(head) {
             Ok(_) => true,

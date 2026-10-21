@@ -96,11 +96,16 @@ const NETWORK: &[&str] = &[
 ];
 
 /// The line that explains a failure: the remote's own message, else git's first fatal error, else the first line.
-fn explain(stderr: &str) -> String {
+pub(crate) fn explain(stderr: &str) -> String {
     let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let pick = |prefix: &str| lines.iter().find_map(|l| l.strip_prefix(prefix)).map(str::trim);
     let line = pick("remote:").or_else(|| pick("fatal:")).or(lines.first().copied()).unwrap_or(t!("git 执行失败"));
-    USERINFO.replace_all(line, "$1").into_owned()
+    redact(line)
+}
+
+/// `text` with the user info (tokens, passwords) of its https URLs removed.
+pub fn redact(text: &str) -> String {
+    USERINFO.replace_all(text, "$1").into_owned()
 }
 
 fn classify(stderr: &str) -> Failure {
@@ -136,6 +141,19 @@ async fn batch_ssh() -> Option<&'static str> {
 /// Runs a git remote command non-interactively in the C locale, so failures classify the same on every machine.
 /// `limit` None = no time limit (clones of big repos).
 pub async fn remote_git(dir: &Path, args: &[&str], limit: Option<Duration>) -> Result<String, Failure> {
+    let out = remote_output(dir, args, limit).await?;
+    match out.status.success() {
+        true => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+        false => Err(classify(&String::from_utf8_lossy(&out.stderr))),
+    }
+}
+
+/// [`remote_git`]'s process output whatever its exit status; Err only when git could not run or timed out.
+pub(crate) async fn remote_output(
+    dir: &Path,
+    args: &[&str],
+    limit: Option<Duration>,
+) -> Result<std::process::Output, Failure> {
     let mut cmd = crate::proc::async_command("git");
     cmd.arg("-C").arg(dir).args(args).env("GIT_TERMINAL_PROMPT", "0").env("LC_ALL", "C").kill_on_drop(true);
     if let Some(ssh) = batch_ssh().await {
@@ -148,12 +166,7 @@ pub async fn remote_git(dir: &Path, args: &[&str], limit: Option<Duration>) -> R
             detail: t!("{s} 秒内无响应", s = limit.as_secs()),
         })?,
     };
-    let out =
-        out.map_err(|e| Failure { reason: RepoAccessReason::Denied, detail: t!("无法执行 git：{e}", e = e) })?;
-    match out.status.success() {
-        true => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
-        false => Err(classify(&String::from_utf8_lossy(&out.stderr))),
-    }
+    out.map_err(|e| Failure { reason: RepoAccessReason::Denied, detail: t!("无法执行 git：{e}", e = e) })
 }
 
 struct Listing {

@@ -9,6 +9,7 @@ mod contract;
 mod daemon;
 mod engine;
 mod git_identity;
+mod git_ops;
 mod hosted;
 mod net;
 mod plugins;

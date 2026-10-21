@@ -591,6 +591,147 @@ pub struct FilesRead {
     pub max_bytes: u64,
 }
 
+/// git.refs: local and remote-tracking branches, and the remotes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRefs {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+}
+
+/// git.log: newest first from `ref` (None = HEAD).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLog {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub r#ref: Option<String>,
+    pub skip: u32,
+    pub limit: u32,
+}
+
+/// git.tree: one directory of `ref`'s tree, the work tree untouched.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitTree {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub r#ref: Option<String>,
+    pub path: String,
+}
+
+/// git.read: one file of `ref`'s tree, the work tree untouched.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRead {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub r#ref: Option<String>,
+    pub path: String,
+    pub max_bytes: u64,
+}
+
+/// git.compare: paths that differ from `from` to `to` (None = the work tree, uncommitted changes included).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCompare {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub from: String,
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GitActionKind {
+    Checkout,
+    Pull,
+    Commit,
+    Push,
+}
+
+/// git.action: a manual write, refused (`busy`) while a turn holds the directory. Never forced.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitAction {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub action: GitActionKind,
+    pub branch: Option<String>,
+    pub remote: Option<String>,
+    pub message: Option<String>,
+    pub identity: Option<GitIdentity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GitBranchKind {
+    Local,
+    Remote,
+}
+
+/// A local branch, or a remote-tracking one (`name` = `origin/feat`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitBranch {
+    pub name: String,
+    pub kind: GitBranchKind,
+    pub current: bool,
+    pub upstream: Option<String>,
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
+    pub commit: String,
+    pub subject: String,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitRemote {
+    pub name: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub author: String,
+    pub email: String,
+    pub at: String,
+    pub subject: String,
+    pub parents: Vec<String>,
+    pub refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GitChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitChange {
+    pub path: String,
+    pub change: GitChangeKind,
+    pub old_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DiffScope {
@@ -1453,6 +1594,25 @@ pub enum DaemonToServer {
         text: Option<String>,
         error: Option<String>,
     },
+    #[serde(rename = "git.refs.result", rename_all = "camelCase")]
+    GitRefsResult { request_id: String, branches: Vec<GitBranch>, remotes: Vec<GitRemote>, error: Option<String> },
+    #[serde(rename = "git.log.result", rename_all = "camelCase")]
+    GitLogResult { request_id: String, commits: Vec<GitCommit>, has_more: bool, error: Option<String> },
+    #[serde(rename = "git.tree.result", rename_all = "camelCase")]
+    GitTreeResult { request_id: String, entries: Vec<TreeEntry>, truncated: bool, error: Option<String> },
+    #[serde(rename = "git.read.result", rename_all = "camelCase")]
+    GitReadResult {
+        request_id: String,
+        size: u64,
+        binary: bool,
+        mime: String,
+        text: Option<String>,
+        error: Option<String>,
+    },
+    #[serde(rename = "git.compare.result", rename_all = "camelCase")]
+    GitCompareResult { request_id: String, changes: Vec<GitChange>, error: Option<String> },
+    #[serde(rename = "git.action.result", rename_all = "camelCase")]
+    GitActionResult { request_id: String, ok: bool, busy: bool, output: Option<String>, error: Option<String> },
     #[serde(rename = "workspace.diff.result", rename_all = "camelCase")]
     WorkspaceDiffResult {
         request_id: String,
@@ -1597,6 +1757,18 @@ pub enum ServerToDaemon {
     FilesRead(FilesRead),
     #[serde(rename = "files.find")]
     FilesFind(FilesFind),
+    #[serde(rename = "git.refs")]
+    GitRefs(GitRefs),
+    #[serde(rename = "git.log")]
+    GitLog(GitLog),
+    #[serde(rename = "git.tree")]
+    GitTree(GitTree),
+    #[serde(rename = "git.read")]
+    GitRead(GitRead),
+    #[serde(rename = "git.compare")]
+    GitCompare(GitCompare),
+    #[serde(rename = "git.action")]
+    GitAction(GitAction),
     #[serde(rename = "workspace.diff")]
     WorkspaceDiff(WorkspaceDiff),
     #[serde(rename = "dir.list", rename_all = "camelCase")]

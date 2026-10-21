@@ -1,0 +1,603 @@
+//! Manual git from the group (git.refs / log / tree / read / compare / action) against a temp clone of a local bare
+//! remote, driven through the Engine.
+use gonggong::engine::{Engine, EngineConfig};
+use gonggong::protocol::*;
+use gonggong::service::{Handler, Outbox, OutboxRx};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+fn sh(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(dir)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn commit(dir: &Path, file: &str, content: &str, msg: &str) {
+    let path = dir.join(file);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, content).unwrap();
+    sh(dir, &["add", "-A"]);
+    sh(dir, &["commit", "-q", "-m", msg]);
+}
+
+const DOC: &str = "line one\nline two\nline three\nline four\nline five\n";
+
+struct Rig {
+    engine: Engine,
+    out: Outbox,
+    rx: OutboxRx,
+    _home: tempfile::TempDir,
+    _tmp: tempfile::TempDir,
+    remote: PathBuf,
+    /// The bot's /cd workspace: a clone of `remote` on main.
+    work: PathBuf,
+    /// Someone else's clone, pushing to `remote`.
+    other: PathBuf,
+    /// The workspace.state sent after the last action.
+    state: Option<WorkspaceState>,
+}
+
+/// remote.git: main (README.md, src/a.txt, docs/old.md, logo.png) and feat (a.txt changed, b.txt added, old.md
+/// renamed to new.md).
+fn rig() -> Rig {
+    gonggong::i18n::set_locale(gonggong::i18n::Locale::Zh);
+    let tmp = tempfile::tempdir().unwrap();
+    let seed = tmp.path().join("seed");
+    fs::create_dir(&seed).unwrap();
+    sh(&seed, &["init", "-q", "-b", "main"]);
+    fs::create_dir_all(seed.join("src")).unwrap();
+    fs::create_dir_all(seed.join("docs")).unwrap();
+    fs::write(seed.join("README.md"), "hello\n").unwrap();
+    fs::write(seed.join("src/a.txt"), "a1\n").unwrap();
+    fs::write(seed.join("docs/old.md"), DOC).unwrap();
+    fs::write(seed.join("logo.png"), [0x89, b'P', b'N', b'G', 0, 1, 2]).unwrap();
+    sh(&seed, &["add", "-A"]);
+    sh(&seed, &["commit", "-q", "-m", "init"]);
+    sh(&seed, &["switch", "-q", "-c", "feat"]);
+    fs::write(seed.join("src/a.txt"), "a2\n").unwrap();
+    fs::write(seed.join("src/b.txt"), "b\n").unwrap();
+    sh(&seed, &["mv", "docs/old.md", "docs/new.md"]);
+    sh(&seed, &["add", "-A"]);
+    sh(&seed, &["commit", "-q", "-m", "feat work"]);
+    sh(&seed, &["switch", "-q", "main"]);
+    sh(tmp.path(), &["clone", "-q", "--bare", "seed", "remote.git"]);
+    sh(tmp.path(), &["clone", "-q", "remote.git", "work"]);
+    sh(tmp.path(), &["clone", "-q", "remote.git", "other"]);
+
+    let home = tempfile::tempdir().unwrap();
+    let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
+    let engine = Engine::new(EngineConfig {
+        home: home.path().to_path_buf(),
+        user_home: home.path().to_path_buf(),
+        adapter_cmd: Some(format!("node {}", agent.display())),
+        idle: Duration::from_secs(60),
+        reap: Duration::from_secs(600),
+        api: None,
+    });
+    let (out, rx) = Outbox::channel();
+    let p = tmp.path().to_path_buf();
+    Rig {
+        engine,
+        out,
+        rx,
+        _home: home,
+        _tmp: tmp,
+        remote: p.join("remote.git"),
+        work: p.join("work"),
+        other: p.join("other"),
+        state: None,
+    }
+}
+
+impl Rig {
+    fn spec(&self) -> WorkspaceSpec {
+        WorkspaceSpec {
+            repo: None,
+            cd_path: Some(self.work.to_string_lossy().into()),
+            protect_base: false,
+            extra_dirs: vec![],
+        }
+    }
+
+    fn send(&self, msg: ServerToDaemon) {
+        self.engine.handle(msg, &self.out);
+    }
+
+    async fn next(&mut self) -> DaemonToServer {
+        loop {
+            let msg = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
+                .await
+                .expect("engine went quiet")
+                .unwrap();
+            if !matches!(msg, DaemonToServer::SessionConfig { .. }) {
+                return msg;
+            }
+        }
+    }
+
+    async fn refs(&mut self) -> (Vec<GitBranch>, Vec<GitRemote>) {
+        let req =
+            GitRefs { request_id: "q".into(), group_id: "g1".into(), bot_id: "b1".into(), workspace: self.spec() };
+        self.send(ServerToDaemon::GitRefs(req));
+        match self.next().await {
+            DaemonToServer::GitRefsResult { request_id, branches, remotes, error: None } if request_id == "q" => {
+                (branches, remotes)
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    async fn log(&mut self, r#ref: Option<&str>, skip: u32, limit: u32) -> (Vec<GitCommit>, bool) {
+        let req = GitLog {
+            request_id: "q".into(),
+            group_id: "g1".into(),
+            bot_id: "b1".into(),
+            workspace: self.spec(),
+            r#ref: r#ref.map(String::from),
+            skip,
+            limit,
+        };
+        self.send(ServerToDaemon::GitLog(req));
+        match self.next().await {
+            DaemonToServer::GitLogResult { commits, has_more, error: None, .. } => (commits, has_more),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    async fn tree(&mut self, r#ref: Option<&str>, path: &str) -> Result<(Vec<TreeEntry>, bool), String> {
+        let req = GitTree {
+            request_id: "q".into(),
+            group_id: "g1".into(),
+            bot_id: "b1".into(),
+            workspace: self.spec(),
+            r#ref: r#ref.map(String::from),
+            path: path.into(),
+        };
+        self.send(ServerToDaemon::GitTree(req));
+        match self.next().await {
+            DaemonToServer::GitTreeResult { entries, truncated, error: None, .. } => Ok((entries, truncated)),
+            DaemonToServer::GitTreeResult { error: Some(e), .. } => Err(e),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    async fn read(&mut self, r#ref: Option<&str>, path: &str, max_bytes: u64) -> Result<DaemonToServer, String> {
+        let req = GitRead {
+            request_id: "q".into(),
+            group_id: "g1".into(),
+            bot_id: "b1".into(),
+            workspace: self.spec(),
+            r#ref: r#ref.map(String::from),
+            path: path.into(),
+            max_bytes,
+        };
+        self.send(ServerToDaemon::GitRead(req));
+        match self.next().await {
+            DaemonToServer::GitReadResult { error: Some(e), .. } => Err(e),
+            r @ DaemonToServer::GitReadResult { .. } => Ok(r),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    async fn compare(&mut self, from: &str, to: Option<&str>) -> Vec<GitChange> {
+        let req = GitCompare {
+            request_id: "q".into(),
+            group_id: "g1".into(),
+            bot_id: "b1".into(),
+            workspace: self.spec(),
+            from: from.into(),
+            to: to.map(String::from),
+        };
+        self.send(ServerToDaemon::GitCompare(req));
+        match self.next().await {
+            DaemonToServer::GitCompareResult { mut changes, error: None, .. } => {
+                changes.sort_by(|a, b| a.path.cmp(&b.path));
+                changes
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    fn action_req(&self, action: GitActionKind) -> GitAction {
+        GitAction {
+            request_id: "q".into(),
+            group_id: "g1".into(),
+            bot_id: "b1".into(),
+            workspace: self.spec(),
+            action,
+            branch: None,
+            remote: None,
+            message: None,
+            identity: None,
+        }
+    }
+
+    /// (ok, busy, output, error)
+    async fn act(&mut self, req: GitAction) -> (bool, bool, Option<String>, Option<String>) {
+        self.send(ServerToDaemon::GitAction(req));
+        let result = match self.next().await {
+            DaemonToServer::GitActionResult { ok, busy, output, error, .. } => (ok, busy, output, error),
+            other => panic!("unexpected {other:?}"),
+        };
+        // Whatever the outcome, the group's git bar is refreshed right after.
+        match self.next().await {
+            DaemonToServer::WorkspaceState(s) if s.request_id.is_none() && s.bot_id == "b1" => self.state = Some(s),
+            other => panic!("unexpected {other:?}"),
+        }
+        result
+    }
+
+    async fn checkout(&mut self, branch: &str) -> (bool, Option<String>, Option<String>) {
+        let req = GitAction { branch: Some(branch.into()), ..self.action_req(GitActionKind::Checkout) };
+        let (ok, busy, output, error) = self.act(req).await;
+        assert!(!busy);
+        (ok, output, error)
+    }
+
+    fn head(&self) -> String {
+        sh(&self.work, &["rev-parse", "HEAD"])
+    }
+
+    fn current(&self) -> String {
+        sh(&self.work, &["branch", "--show-current"])
+    }
+}
+
+fn change(path: &str, change: GitChangeKind, old: Option<&str>) -> GitChange {
+    GitChange { path: path.into(), change, old_path: old.map(String::from) }
+}
+
+#[tokio::test]
+async fn refs_list_branches_with_their_position_and_remotes_without_credentials() {
+    let mut r = rig();
+    commit(&r.work, "mine.txt", "x", "mine");
+    commit(&r.other, "theirs.txt", "y", "theirs");
+    sh(&r.other, &["push", "-q", "origin", "main"]);
+    sh(&r.work, &["fetch", "-q"]);
+    sh(&r.work, &["branch", "solo"]);
+    sh(&r.work, &["remote", "add", "mirror", "https://bob:s3cret@example.com/team/app.git"]);
+
+    let (branches, remotes) = r.refs().await;
+    let names: Vec<_> = branches.iter().map(|b| (b.name.as_str(), b.kind)).collect();
+    assert_eq!(
+        names,
+        [
+            ("main", GitBranchKind::Local),
+            ("solo", GitBranchKind::Local),
+            ("origin/feat", GitBranchKind::Remote),
+            ("origin/main", GitBranchKind::Remote),
+        ]
+    );
+    let main = &branches[0];
+    assert!(main.current);
+    assert_eq!(
+        (main.upstream.as_deref(), main.ahead, main.behind, main.subject.as_str()),
+        (Some("origin/main"), Some(1), Some(1), "mine")
+    );
+    assert_eq!(main.commit, sh(&r.work, &["rev-parse", "--short", "HEAD"]));
+    assert!(main.at.starts_with("20"), "{}", main.at);
+    let solo = &branches[1];
+    assert_eq!((solo.current, solo.upstream.as_deref(), solo.ahead, solo.behind), (false, None, None, None));
+    assert_eq!(branches[3].subject, "theirs");
+    assert_eq!(
+        remotes,
+        [
+            GitRemote { name: "mirror".into(), url: "https://example.com/team/app.git".into() },
+            GitRemote { name: "origin".into(), url: sh(&r.work, &["remote", "get-url", "origin"]) },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn log_pages_from_any_ref_with_decorations() {
+    let mut r = rig();
+    for i in 0..4 {
+        commit(&r.work, "n.txt", &i.to_string(), &format!("c{i}"));
+    }
+    let (page, more) = r.log(None, 0, 2).await;
+    assert!(more);
+    assert_eq!(page.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["c3", "c2"]);
+    assert_eq!(page[0].hash, r.head());
+    assert_eq!(page[0].short_hash, sh(&r.work, &["rev-parse", "--short", "HEAD"]));
+    assert_eq!((page[0].author.as_str(), page[0].email.as_str()), ("t", "t@t"));
+    assert_eq!(page[0].parents, [page[1].hash.clone()]);
+    assert_eq!(page[0].refs, ["HEAD -> main"]);
+
+    let (rest, more) = r.log(None, 4, 2).await;
+    assert!(!more);
+    assert_eq!(rest.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["init"]);
+    assert!(rest[0].refs.iter().any(|d| d == "origin/main"), "{:?}", rest[0].refs);
+    assert!(rest[0].parents.is_empty());
+
+    let (feat, more) = r.log(Some("origin/feat"), 0, 50).await;
+    assert!(!more);
+    assert_eq!(feat.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["feat work", "init"]);
+}
+
+#[tokio::test]
+async fn tree_and_read_show_another_branch_without_touching_the_work_tree() {
+    let mut r = rig();
+    let head = r.head();
+    let (top, truncated) = r.tree(Some("origin/feat"), "").await.unwrap();
+    assert!(!truncated);
+    let names: Vec<_> = top.iter().map(|e| (e.name.as_str(), e.dir)).collect();
+    assert_eq!(names, [("docs", true), ("src", true), ("logo.png", false), ("README.md", false)]);
+    assert_eq!((top[3].size, top[3].mtime, top[3].uncommitted, top[3].ignored), (6, 0, false, false));
+    let (src, _) = r.tree(Some("origin/feat"), "src").await.unwrap();
+    assert_eq!(src.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["a.txt", "b.txt"]);
+    let (docs, _) = r.tree(None, "docs/").await.unwrap();
+    assert_eq!(docs.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["old.md"]);
+
+    let Ok(DaemonToServer::GitReadResult { size, binary, mime, text, .. }) =
+        r.read(Some("origin/feat"), "src/a.txt", 1024).await
+    else {
+        panic!()
+    };
+    assert_eq!((size, binary, mime.as_str(), text.as_deref()), (3, false, "text/plain; charset=utf-8", Some("a2\n")));
+    let Ok(DaemonToServer::GitReadResult { binary, mime, text, size, .. }) = r.read(None, "logo.png", 1024).await
+    else {
+        panic!()
+    };
+    assert_eq!((binary, mime.as_str(), text, size), (true, "image/png", None, 7));
+    let Ok(DaemonToServer::GitReadResult { binary, text, size, .. }) = r.read(None, "docs/old.md", 4).await else {
+        panic!()
+    };
+    assert_eq!((binary, text, size), (false, None, DOC.len() as u64));
+
+    assert!(r.read(None, "src", 1024).await.is_err());
+    assert!(r.read(None, "../work/README.md", 1024).await.unwrap_err().contains("超出"));
+    assert!(r.tree(None, "/etc").await.unwrap_err().contains("超出"));
+    assert!(r.tree(Some("--output=/tmp/x"), "").await.is_err());
+
+    assert_eq!(r.head(), head);
+    assert_eq!(r.current(), "main");
+    assert_eq!(fs::read_to_string(r.work.join("src/a.txt")).unwrap(), "a1\n");
+    assert!(!r.work.join("src/b.txt").exists());
+    assert_eq!(sh(&r.work, &["status", "--porcelain"]), "");
+}
+
+#[tokio::test]
+async fn compare_lists_changes_between_refs_and_against_the_work_tree() {
+    let mut r = rig();
+    assert_eq!(
+        r.compare("main", Some("origin/feat")).await,
+        [
+            change("docs/new.md", GitChangeKind::Renamed, Some("docs/old.md")),
+            change("src/a.txt", GitChangeKind::Modified, None),
+            change("src/b.txt", GitChangeKind::Added, None),
+        ]
+    );
+    fs::write(r.work.join("src/a.txt"), "edited\n").unwrap();
+    fs::write(r.work.join("new.txt"), "untracked\n").unwrap();
+    fs::remove_file(r.work.join("README.md")).unwrap();
+    let staged_before = sh(&r.work, &["diff", "--cached", "--name-only"]);
+    assert_eq!(
+        r.compare("HEAD", None).await,
+        [
+            change("README.md", GitChangeKind::Deleted, None),
+            change("new.txt", GitChangeKind::Added, None),
+            change("src/a.txt", GitChangeKind::Modified, None),
+        ]
+    );
+    assert_eq!(sh(&r.work, &["diff", "--cached", "--name-only"]), staged_before, "the index is left alone");
+}
+
+#[tokio::test]
+async fn checkout_switches_local_branches_and_tracks_remote_ones() {
+    let mut r = rig();
+    sh(&r.work, &["branch", "dev"]);
+    let (ok, output, error) = r.checkout("dev").await;
+    assert!(ok, "{error:?}");
+    assert_eq!(r.current(), "dev");
+    assert!(output.unwrap().contains("dev"));
+
+    let (ok, _, error) = r.checkout("origin/feat").await;
+    assert!(ok, "{error:?}");
+    assert_eq!(r.current(), "feat");
+    assert_eq!(sh(&r.work, &["rev-parse", "--abbrev-ref", "feat@{upstream}"]), "origin/feat");
+    assert_eq!(fs::read_to_string(r.work.join("src/a.txt")).unwrap(), "a2\n");
+    let state = r.state.take().unwrap();
+    assert_eq!(state.state, WorkspaceStateKind::Ready);
+    let git = state.git.unwrap();
+    assert_eq!((git.branch.as_deref(), git.ahead, git.behind, git.dirty), (Some("feat"), Some(0), Some(0), false));
+
+    // Local edits the switch would overwrite: git refuses and nothing moves.
+    fs::write(r.work.join("src/a.txt"), "mine\n").unwrap();
+    let (ok, _, error) = r.checkout("main").await;
+    assert!(!ok);
+    assert!(error.is_some_and(|e| !e.is_empty()));
+    assert_eq!(r.current(), "feat");
+    assert_eq!(fs::read_to_string(r.work.join("src/a.txt")).unwrap(), "mine\n");
+    let git = r.state.take().unwrap().git.unwrap();
+    assert_eq!((git.branch.as_deref(), git.dirty_count), (Some("feat"), Some(1)), "sent after a failure too");
+
+    let (ok, _, error) = r.checkout("nope").await;
+    assert!(!ok && error.is_some());
+}
+
+#[tokio::test]
+async fn pull_fast_forwards_only() {
+    let mut r = rig();
+    commit(&r.other, "theirs.txt", "1", "theirs 1");
+    sh(&r.other, &["push", "-q", "origin", "main"]);
+    let (ok, busy, output, error) = r.act(r.action_req(GitActionKind::Pull)).await;
+    assert!(ok && !busy, "{error:?}");
+    assert!(output.is_some());
+    assert_eq!(r.head(), sh(&r.other, &["rev-parse", "HEAD"]));
+
+    // Diverged: refused, nothing merged.
+    commit(&r.work, "mine.txt", "m", "mine");
+    commit(&r.other, "theirs.txt", "2", "theirs 2");
+    sh(&r.other, &["push", "-q", "origin", "main"]);
+    let head = r.head();
+    let (ok, _, _, error) = r.act(r.action_req(GitActionKind::Pull)).await;
+    assert!(!ok && error.is_some());
+    assert_eq!(r.head(), head);
+    assert_eq!(sh(&r.work, &["rev-list", "--count", "HEAD"]), "3");
+
+    sh(&r.work, &["switch", "-q", "-c", "lonely"]);
+    let (ok, _, _, error) = r.act(r.action_req(GitActionKind::Pull)).await;
+    assert!(!ok);
+    assert!(error.unwrap().contains("上游"));
+}
+
+#[tokio::test]
+async fn commit_takes_everything_as_the_given_identity() {
+    let mut r = rig();
+    fs::write(r.work.join("src/a.txt"), "changed\n").unwrap();
+    fs::write(r.work.join("added.txt"), "new\n").unwrap();
+    let req = GitAction {
+        message: Some("修复退款金额".into()),
+        identity: Some(GitIdentity { name: "小王的 Claude".into(), email: "b1@bots.gonggong.local".into() }),
+        ..r.action_req(GitActionKind::Commit)
+    };
+    let (ok, _, output, error) = r.act(req.clone()).await;
+    assert!(ok, "{error:?}");
+    let output = output.unwrap();
+    assert!(output.starts_with("[main ") && output.contains("修复退款金额"), "{output}");
+    assert_eq!(sh(&r.work, &["status", "--porcelain"]), "");
+    assert_eq!(
+        sh(&r.work, &["log", "-1", "--format=%an|%ae|%cn|%ce|%s"]),
+        "小王的 Claude|b1@bots.gonggong.local|小王的 Claude|b1@bots.gonggong.local|修复退款金额"
+    );
+    assert_eq!(sh(&r.work, &["show", "--name-only", "--format=", "HEAD"]), "added.txt\nsrc/a.txt");
+
+    let head = r.head();
+    let (ok, _, _, error) = r.act(req).await;
+    assert!(!ok);
+    assert_eq!(error.as_deref(), Some("没有可提交的改动"));
+    assert_eq!(r.head(), head);
+}
+
+#[tokio::test]
+async fn push_sets_the_upstream_and_never_forces() {
+    let mut r = rig();
+    sh(&r.work, &["switch", "-q", "-c", "topic"]);
+    commit(&r.work, "t.txt", "t", "topic work");
+    let push = |r: &Rig, branch: &str| GitAction {
+        branch: Some(branch.into()),
+        remote: Some("origin".into()),
+        ..r.action_req(GitActionKind::Push)
+    };
+    let (ok, _, output, error) = r.act(push(&r, "topic")).await;
+    assert!(ok, "{error:?}");
+    assert!(output.unwrap().contains("topic"));
+    assert_eq!(sh(&r.work, &["rev-parse", "--abbrev-ref", "topic@{upstream}"]), "origin/topic");
+    assert_eq!(sh(&r.remote, &["rev-parse", "refs/heads/topic"]), r.head());
+
+    // Someone else pushed main first: rejected, theirs stays.
+    commit(&r.other, "theirs.txt", "y", "theirs");
+    sh(&r.other, &["push", "-q", "origin", "main"]);
+    sh(&r.work, &["switch", "-q", "main"]);
+    commit(&r.work, "mine.txt", "x", "mine");
+    let (ok, busy, _, error) = r.act(push(&r, "main")).await;
+    assert!(!ok && !busy);
+    assert!(error.as_deref().unwrap().contains("rejected"), "{error:?}");
+    assert_eq!(sh(&r.remote, &["rev-parse", "refs/heads/main"]), sh(&r.other, &["rev-parse", "HEAD"]));
+}
+
+fn slow_run(r: &Rig, run_id: &str, text: &str) -> RunStart {
+    RunStart {
+        run_id: run_id.into(),
+        group_id: "g1".into(),
+        group_name: "支付服务重构".into(),
+        bot: RunBot {
+            id: "b1".into(),
+            name: "小王的 Claude".into(),
+            agent_kind: AgentKind::Claude,
+            system_prompt: String::new(),
+            tier: Tier::Workspace,
+            model: None,
+            effort: None,
+            approval: Approval::Ask,
+            allowlist: vec![],
+            always_allow: vec![],
+            git: None,
+            agent_settings: Default::default(),
+        },
+        workspace: r.spec(),
+        resume_session_id: None,
+        new_session_reason: None,
+        mcp_servers: vec![],
+        skills: vec![],
+        plugins: vec![],
+        command: None,
+        sync: None,
+        env: Default::default(),
+        prompt: RunPrompt {
+            text: text.into(),
+            triggered_by: "王磊".into(),
+            context: vec![],
+            omitted: 0,
+            fallback_context: vec![],
+            attachments: vec![],
+            quote: None,
+        },
+    }
+}
+
+#[tokio::test]
+async fn actions_are_refused_while_a_turn_holds_the_directory() {
+    let mut r = rig();
+    r.send(ServerToDaemon::RunStart(Box::new(slow_run(&r, "r1", "mock:slow"))));
+    loop {
+        if let DaemonToServer::RunEvent { event: RunEvent::Text { .. }, .. } = r.next().await {
+            break;
+        }
+    }
+    fs::write(r.work.join("src/a.txt"), "changed\n").unwrap();
+    let head = r.head();
+    let req = GitAction { message: Some("m".into()), ..r.action_req(GitActionKind::Commit) };
+    r.send(ServerToDaemon::GitAction(req));
+    let result = loop {
+        if let msg @ DaemonToServer::GitActionResult { .. } = r.next().await {
+            break msg;
+        }
+    };
+    let DaemonToServer::GitActionResult { ok, busy, output, error, .. } = result else { unreachable!() };
+    assert_eq!((ok, busy, output, error.as_deref()), (false, true, None, Some("工作目录正被运行占用")));
+    assert_eq!(r.head(), head);
+    assert_eq!(sh(&r.work, &["status", "--porcelain"]), "M src/a.txt");
+    r.send(ServerToDaemon::RunCancel { run_id: "r1".into() });
+}
+
+#[tokio::test]
+async fn a_turn_arriving_during_an_action_waits_for_it_without_asking() {
+    let mut r = rig();
+    let hook = r.remote.join("hooks/pre-receive");
+    fs::write(&hook, "#!/bin/sh\nsleep 2\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    commit(&r.work, "mine.txt", "x", "mine");
+    let req =
+        GitAction { branch: Some("main".into()), remote: Some("origin".into()), ..r.action_req(GitActionKind::Push) };
+    r.send(ServerToDaemon::GitAction(req));
+    r.send(ServerToDaemon::RunStart(Box::new(slow_run(&r, "r1", "mock:echo"))));
+    let mut order = vec![];
+    while order.len() < 2 {
+        match r.next().await {
+            DaemonToServer::GitActionResult { ok, error, .. } => {
+                assert!(ok, "{error:?}");
+                order.push("action");
+            }
+            DaemonToServer::RunDone(d) => {
+                assert_eq!(d.outcome, RunOutcome::Completed);
+                order.push("run");
+            }
+            DaemonToServer::QuestionAsk { .. } => panic!("a manual action never asks to run in parallel"),
+            _ => {}
+        }
+    }
+    assert_eq!(order, ["action", "run"]);
+}
