@@ -57,6 +57,7 @@ export type SettingsTab =
   | 'skill'
   | 'secrets'
   | 'feishu'
+  | 'plugins'
 export type InfoView =
   | 'main'
   | 'members'

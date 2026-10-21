@@ -23,6 +23,7 @@ import { usePresence } from '../../ui/presence'
 import { MessageAttachments, MessageQuote } from '../attachments/MessageAttachments'
 import { useQuote } from '../attachments/quote'
 import { BotAvatar, useBotCostume } from '../bots/avatars'
+import { CreationCardView } from '../plugins/CreationCard'
 import { PreviewCard } from '../previews/PreviewCard'
 import { ReactionBar } from '../reactions'
 import { ApprovalBlock } from '../runs/ApprovalBlock'
@@ -331,13 +332,17 @@ export const UserMessage = memo(function UserMessage({
   /** Started runs by trigger message (stable, so rows stay memoized): 撤回 stops them. */
   startedRuns?: (messageId: string) => string[]
 }) {
-  const text = !!(m.body || m.quote)
+  // Unknown card kinds fall back to the body.
+  const creation = m.card?.type === 'creation' ? m.card : null
+  const text = !creation && !!(m.body || m.quote)
   const [editing, setEditing] = useState(false)
   const avatar = useWorkspace(
     (s) => s.groups.find((g) => g.id === m.groupId)?.members.find((x) => x.userId === m.authorId)?.avatar,
   )
   return (
-    <MessageMenu {...messageTarget(m, mine, mine ? () => setEditing(true) : undefined, startedRuns)}>
+    <MessageMenu
+      {...messageTarget(m, mine, mine && !creation ? () => setEditing(true) : undefined, startedRuns)}
+    >
       {(bar) => (
         <Message
           author={mine ? { name: m.authorName, avatar: avatar ?? undefined } : person(m, avatar ?? undefined)}
@@ -362,12 +367,14 @@ export const UserMessage = memo(function UserMessage({
             ) : null
           }
         >
-          {text ? (
+          {creation ? (
+            <CreationCardView m={m} card={creation} />
+          ) : text ? (
             <MessageQuote quote={m.quote} />
           ) : (
             <MessageAttachments list={m.attachments} from={m.authorName} />
           )}
-          {editing ? (
+          {creation ? null : editing ? (
             <MessageEditor message={m} onDone={() => setEditing(false)} />
           ) : m.body ? (
             <Text body={m.body} names={names} me={me} />

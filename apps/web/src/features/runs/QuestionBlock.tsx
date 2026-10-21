@@ -1,5 +1,5 @@
 import type { Answer, Question, QuestionSetDto, RunDto } from '@gonggong/protocol'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSession } from '../../app/session'
 import { useWorkspace } from '../../app/workspace'
 import { api } from '../../lib/api'
@@ -7,9 +7,10 @@ import { cx } from '../../lib/cx'
 import { toastError } from '../../lib/errors'
 import { useNow } from '../../lib/now'
 import { countdown, hm } from '../../lib/time'
-import { Button, Icon, Tag, Textarea } from '../../ui'
+import { Avatar, Button, Icon, Tag, Textarea } from '../../ui'
 import { workspacePath } from '../attachments/api'
 import { AttachmentChips, useUploads } from '../attachments/ComposerAttachments'
+import { Swatches } from '../plugins/PluginTile'
 import { QUESTION_TYPE } from './mcp'
 import { useMemberName } from './RunActions'
 import './question.css'
@@ -20,6 +21,9 @@ const LIVE: RunDto['status'][] = ['running', 'awaiting_approval', 'awaiting_answ
 type Draft = { choices: number[]; text: string }
 
 const EMPTY: Draft = { choices: [], text: '' }
+
+/** Options with design metadata (plan 插件体系-方案 §5) render as cards with leanings. */
+const rich = (q: Question) => !!q.optionMeta?.length && q.type !== 'text'
 
 const answered = (q: Question, d: Draft) => {
   const text = d.text.trim() !== ''
@@ -114,6 +118,23 @@ export function QuestionCard({ run, set }: { run: RunDto; set: QuestionSetDto })
     }
   }
 
+  const [leanings, setLeanings] = useState(set.leanings ?? [])
+  useEffect(() => setLeanings(set.leanings ?? []), [set.leanings])
+  const lean = async (question: Question, choice: number) => {
+    try {
+      const next = await api.post<QuestionSetDto>(`/runs/${run.id}/questions/${set.id}/leanings`, {
+        questionId: question.id,
+        choice,
+      })
+      setLeanings(next.leanings ?? [])
+    } catch (e) {
+      toastError(e)
+    }
+  }
+  const imageUrl = (path: string) =>
+    `/api/groups/${run.groupId}/bots/${run.botId}/files/raw?path=${encodeURIComponent(path)}`
+  const anyRich = set.questions.some(rich)
+
   const owner = bot?.ownerName ?? ''
   const who =
     run.originUserId === bot?.ownerId
@@ -130,6 +151,7 @@ export function QuestionCard({ run, set }: { run: RunDto; set: QuestionSetDto })
         </div>
         <div className="question__meta">
           <span>{who}</span>
+          {pending && anyRich ? <span>{t('其他人的倾向仅供参考，不算投票')}</span> : null}
           {pending ? (
             <span className="question__timeout" title={t('超时后 agent 按推荐项继续，并在最终回复列出假设')}>
               {t('{time} 后超时，按推荐项继续', { time: countdown(Date.parse(set.expiresAt) - now) })}
@@ -145,7 +167,68 @@ export function QuestionCard({ run, set }: { run: RunDto; set: QuestionSetDto })
               <span className="question__type">{QUESTION_TYPE[question.type]}</span>
               <span>{question.title}</span>
             </div>
-            {question.options.length ? (
+            {rich(question) ? (
+              <div className="qopts">
+                {question.options.map((label, i) => {
+                  const on = d.choices.includes(i)
+                  const meta = question.optionMeta?.[i]
+                  const leaners = leanings.filter((l) => l.questionId === question.id && l.choice === i)
+                  const mine = leaners.some((l) => l.userId === me)
+                  return (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: options are positional
+                    <div key={i} className={cx('qopt', on && 'qopt--on')}>
+                      <button
+                        type="button"
+                        className="qopt__pick"
+                        aria-label={label}
+                        aria-pressed={on}
+                        disabled={locked}
+                        onClick={() => pick(question, i)}
+                      >
+                        {meta?.image ? (
+                          <img className="qopt__img" src={imageUrl(meta.image)} alt={label} />
+                        ) : null}
+                        {meta?.swatch.length ? (
+                          <Swatches colors={meta.swatch} className="qopt__swatch" />
+                        ) : null}
+                        <span className="qopt__title">
+                          <span>{label}</span>
+                          {question.recommended === i ? (
+                            <span className="question__rec">{t('推荐')}</span>
+                          ) : null}
+                        </span>
+                        {meta?.description ? <span className="qopt__desc">{meta.description}</span> : null}
+                        {on ? (
+                          <span className="qopt__check" aria-hidden>
+                            <Icon name="check" size={10} />
+                          </span>
+                        ) : null}
+                      </button>
+                      {pending ? (
+                        <div className="qopt__lean">
+                          {leaners.map((l) => (
+                            <span key={l.userId} role="img" aria-label={t('{name} 倾向', { name: l.name })}>
+                              <Avatar name={l.name} size={16} />
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            className="qopt__lean-btn"
+                            aria-label={
+                              mine ? t('取消倾向 {label}', { label }) : t('倾向 {label}', { label })
+                            }
+                            disabled={!me}
+                            onClick={() => void lean(question, i)}
+                          >
+                            {mine ? t('取消倾向') : t('倾向')}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : question.options.length ? (
               <div className="question__opts">
                 {question.options.map((label, i) => {
                   const on = d.choices.includes(i)

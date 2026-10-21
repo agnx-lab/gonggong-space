@@ -43,6 +43,8 @@ import { FeishuChatLink } from '../feishu/FeishuChatLink'
 import { GroupAvatar } from '../groups/GroupAvatar'
 import { GroupInfo, type InfoView, type SettingsTab } from '../groups/GroupInfo'
 import { GroupNotice } from '../groups/GroupNotice'
+import { CreationHost } from '../plugins/CreationHost'
+import { useEnabledPlugins, useGroupPlugins } from '../plugins/store'
 import { PreviewTags } from '../previews/PreviewTags'
 import { ScheduleCard } from '../schedules/ScheduleCard'
 import { ScheduleTag } from '../schedules/ScheduleTag'
@@ -182,6 +184,8 @@ export function ChatView({
   const benchTabs = useWorkbench((s) => s.benches[group.id]?.tabs.length ?? 0)
   const benchOpen = useWorkbench((s) => s.open)
   const [settings, setSettings] = useState<SettingsTab | null>(null)
+  useGroupPlugins(group.id)
+  const plugins = useEnabledPlugins(group.id)
   const isAdmin = group.members.some((m) => m.userId === me?.id && m.isAdmin)
   const [params, setParams] = useSearchParams()
   const linked = params.get('msg')
@@ -451,6 +455,24 @@ export function ChatView({
 
   const botCount = group.botIds.length
   const dm = group.kind === 'dm'
+  const pluginLabel = plugins.length ? (
+    <>
+      <Icon name="apps" size={12} />
+      <span>{t('插件 · {n}', { n: plugins.length })}</span>
+    </>
+  ) : null
+  const pluginBadge = !pluginLabel ? null : isAdmin && !readOnly ? (
+    <button
+      type="button"
+      className="chat-view__plugins"
+      title={t('管理本群插件')}
+      onClick={() => setSettings('plugins')}
+    >
+      {pluginLabel}
+    </button>
+  ) : (
+    <span className="chat-view__plugins">{pluginLabel}</span>
+  )
   const sharer = dm ? bots.find((b) => b.id === group.botIds[0] && b.ownerId !== meId)?.ownerName : undefined
   // Its bot was unshared or deleted: the history stays, nothing can be asked any more.
   const closed = dm && !botCount
@@ -475,7 +497,14 @@ export function ChatView({
                     onAvatarClick: () => inspect('group-info', 'main'),
                   })}
           tags={dm ? undefined : [{ label: GROUP_MODE_LABEL[group.mode], tone: 'gray' }]}
-          badges={group.feishu ? <FeishuChatLink chat={group.feishu} /> : null}
+          badges={
+            group.feishu || pluginBadge ? (
+              <>
+                {group.feishu ? <FeishuChatLink chat={group.feishu} /> : null}
+                {pluginBadge}
+              </>
+            ) : null
+          }
           subtitle={
             <>
               {group.muted ? (
@@ -710,6 +739,7 @@ export function ChatView({
             <PendingDock runs={runList} onLocate={locate} />
             <ProviderBanner group={group} />
             <MessageComposer group={group} dropFiles={dropFiles} onSent={onSent} />
+            <CreationHost group={group} onSent={onSent} />
           </>
         )}
       </div>

@@ -1,4 +1,4 @@
-import type { CommandCandidatesDto, FileCandidatesDto, GroupDto } from '@gonggong/protocol'
+import type { CommandCandidatesDto, FileCandidatesDto, GroupDto, GroupPluginDto } from '@gonggong/protocol'
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
@@ -7,6 +7,7 @@ import { cx } from '../../lib/cx'
 import { Avatar, Icon, type IconName } from '../../ui'
 import { BotAvatar } from '../bots/avatars'
 import { PRESENCE } from '../bots/model'
+import { CATEGORY } from '../plugins/model'
 
 export interface Candidate {
   key: string
@@ -21,6 +22,8 @@ export interface Candidate {
   status?: { label: string; color: string }
   /** A skill: agents read its mention anywhere, so it is inserted where typed (commands move to the head). */
   skill?: boolean
+  /** A plugin enabled in the group: picking it opens the 创作 panel instead of inserting text. */
+  plugin?: string
 }
 
 interface Section {
@@ -97,7 +100,7 @@ function fileHint(e: FileCandidatesDto['entries'][number]) {
 }
 
 /** @ and / candidates of the composer (spec §8.7): grouped, with file sources and agent commands from the server. */
-export function useCandidates(group: GroupDto, before: string | null) {
+export function useCandidates(group: GroupDto, before: string | null, plugins: GroupPluginDto[] = []) {
   const bots = useWorkspace((s) => s.bots).filter((b) => group.botIds.includes(b.id))
   const people = [
     ...bots.map((b) => ({
@@ -180,6 +183,21 @@ export function useCandidates(group: GroupDto, before: string | null) {
                 mono: true,
                 hint: c.hint,
                 insert: `/${c.name}`,
+              })),
+          },
+          {
+            label: t('插件'),
+            src: '',
+            items: plugins
+              .filter((p) => has(p.manifest.title) || has(p.manifest.name))
+              .map((p) => ({
+                key: `plugin:${p.id}`,
+                icon: CATEGORY[p.manifest.category].icon,
+                label: p.manifest.title,
+                mono: false,
+                hint: t('打开创作面板'),
+                insert: '',
+                plugin: p.id,
               })),
           },
           {

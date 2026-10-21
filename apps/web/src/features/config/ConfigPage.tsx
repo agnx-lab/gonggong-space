@@ -32,6 +32,7 @@ import {
   UnsupportedArt,
 } from '../../ui'
 import { AdminPage } from '../admin/AdminPage'
+import { PluginLayerList } from '../plugins/PluginLayer'
 import { SecretLayerList } from '../secrets/SecretLayer'
 import { InheritedList } from './InheritedList'
 import { type Pair, SECRET_REF, SecretPairs, secretRef } from './SecretPairs'
@@ -48,7 +49,7 @@ const BUILTIN_TOOLS = [
   ...Object.values(GONGGONG_TOOLS).map((tool) => t.text({ key: tool.title })),
 ].join(t('、'))
 
-type CType = 'mcp' | 'skill' | 'prompt' | 'secret'
+type CType = 'mcp' | 'skill' | 'plugin' | 'prompt' | 'secret'
 const LAYERS = [
   { value: 'platform' as const, label: t('平台层') },
   { value: 'team' as const, label: t('团队层'), disabled: true },
@@ -57,6 +58,7 @@ const LAYERS = [
 const CTYPES: { value: CType; label: string }[] = [
   { value: 'mcp', label: 'MCP' },
   { value: 'skill', label: 'Skill' },
+  { value: 'plugin', label: t('插件') },
   { value: 'prompt', label: t('指令') },
   { value: 'secret', label: t('密钥') },
 ]
@@ -310,6 +312,8 @@ export function ConfigPage() {
         <div className="cfg__list">
           {ctype === 'skill' ? (
             <SkillLayerList base="/admin/skills" tag={t('平台层')} />
+          ) : ctype === 'plugin' ? (
+            <PluginLayerList base="/admin/plugins" />
           ) : ctype === 'secret' ? (
             <SecretLayerList base="/admin/secrets" scope="platform" bots={bots} />
           ) : ctype !== 'mcp' ? (

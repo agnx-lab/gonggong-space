@@ -278,3 +278,72 @@ describe('interrupt and append', () => {
     expect(screen.queryByText(/打断并追加到/)).toBeNull()
   })
 })
+
+describe('QuestionBlock · design-enhanced options', () => {
+  const rich = (o: Partial<QuestionSetDto> = {}) =>
+    set({
+      questions: [
+        {
+          id: 'q1',
+          type: 'single',
+          title: '视觉方向',
+          options: ['简洁留白', '大图沉浸'],
+          recommended: 0,
+          optionMeta: [
+            { description: '大标题 + 大量留白', swatch: [], image: 'design/landing/directions/a.png' },
+            { description: null, swatch: ['#0071e3', '#ff8d28'], image: null },
+          ],
+        },
+        set().questions[0]!,
+      ],
+      leanings: [{ questionId: 'q1', choice: 1, userId: 'u-zhao', name: '赵敏' }],
+      ...o,
+    })
+
+  it('renders options with optionMeta as cards with thumbnails, swatches, descriptions and leanings', () => {
+    const { container } = render(<QuestionBlock run={run({ questions: [rich()] })} />)
+    const img = screen.getByAltText('简洁留白') as HTMLImageElement
+    expect(img.getAttribute('src')).toBe(
+      `/api/groups/g1/bots/b1/files/raw?path=${encodeURIComponent('design/landing/directions/a.png')}`,
+    )
+    expect(screen.getByText('大标题 + 大量留白')).toBeTruthy()
+    expect(container.querySelectorAll('.qopt__swatch > span')).toHaveLength(2)
+    expect(screen.getByText('其他人的倾向仅供参考，不算投票')).toBeTruthy()
+    expect(screen.getByRole('img', { name: '赵敏 倾向' })).toBeTruthy()
+    // A plain question of the same card stays as it was.
+    expect(button('Python推荐')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: /^倾向/ })).toHaveLength(2)
+    expect(screen.getByText('推荐', { selector: '.qopt .question__rec' })).toBeTruthy()
+    fireEvent.click(button('简洁留白'))
+    expect(button('简洁留白').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('lets any member lean towards an option, and take it back', async () => {
+    me('u-zhao')
+    const calls = mockApi({
+      'POST /runs/r1/questions/qs1/leanings': rich({ leanings: [] }),
+    })
+    render(<QuestionBlock run={run({ questions: [rich()] })} />)
+    // Not an answerer, but leaning is open to everyone.
+    expect(button('简洁留白').disabled).toBe(true)
+    fireEvent.click(button('取消倾向 大图沉浸'))
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        path: '/runs/r1/questions/qs1/leanings',
+        body: { questionId: 'q1', choice: 1 },
+      }),
+    )
+    await waitFor(() => expect(screen.queryByRole('img', { name: '赵敏 倾向' })).toBeNull())
+    expect(button('倾向 大图沉浸')).toBeTruthy()
+  })
+
+  it('has no leanings once answered, nor without optionMeta', () => {
+    render(<QuestionBlock run={run({ status: 'running', questions: [rich({ status: 'expired' })] })} />)
+    expect(screen.queryByRole('button', { name: /倾向/ })).toBeNull()
+    cleanup()
+    render(<QuestionBlock run={run()} />)
+    expect(screen.queryByText('其他人的倾向仅供参考，不算投票')).toBeNull()
+    expect(screen.queryByRole('button', { name: /倾向/ })).toBeNull()
+  })
+})

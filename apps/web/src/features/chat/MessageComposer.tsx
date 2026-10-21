@@ -16,6 +16,7 @@ import { toastError } from '../../lib/errors'
 import { Composer } from '../../ui'
 import { AttachmentChips, FilePickers, QuoteChip, useUploads } from '../attachments/ComposerAttachments'
 import { useQuote } from '../attachments/quote'
+import { openCreation, useEnabledPlugins } from '../plugins/store'
 import { AppendBanner } from '../runs/AppendBanner'
 import { useAppend } from '../runs/append'
 import { type Candidate, CandidatePopover, placeCommand, useCandidates } from './ComposerCandidates'
@@ -94,6 +95,7 @@ export const MessageComposer = memo(function MessageComposer({
   const [sent, setSent] = useState(0)
   const [picks, setPicks] = useState<Picks>({})
   const groupBots = useWorkspace((s) => s.bots).filter((b) => group.botIds.includes(b.id))
+  const plugins = useEnabledPlugins(group.id)
   const appending = useAppend((s) => s.target?.groupId === group.id)
   const mentioned = mentionedBots(draft, groupBots)
   // Mirrors the server: a dm with a single bot needs no @ (appends excepted); run options skip commands.
@@ -135,7 +137,7 @@ export const MessageComposer = memo(function MessageComposer({
     names,
     sections,
     items: candidates,
-  } = useCandidates(group, dismissed ? null : draft.slice(0, caret))
+  } = useCandidates(group, dismissed ? null : draft.slice(0, caret), plugins)
   const current = Math.min(active, candidates.length - 1)
   const open = sections.length > 0
 
@@ -184,6 +186,11 @@ export const MessageComposer = memo(function MessageComposer({
 
   const pick = (c: Candidate) => {
     if (!token) return
+    if (c.plugin) {
+      const start = draft.slice(0, caret).lastIndexOf(token.char)
+      change(draft.slice(0, start) + draft.slice(caret), start)
+      return openCreation({ groupId: group.id, pluginId: c.plugin })
+    }
     if (token.char === '/' && token.mid && !c.skill) {
       const { next, pos } = placeCommand(draft, caret, c.insert, names)
       pendingCaret.current = pos
@@ -275,6 +282,17 @@ export const MessageComposer = memo(function MessageComposer({
           { icon: 'slash', label: t('命令'), onClick: () => change(`${draft}/`) },
           { icon: 'paperclip', label: t('附件'), onClick: () => filePicker.current?.click() },
           { icon: 'image', label: t('图片'), onClick: () => imagePicker.current?.click() },
+          ...(plugins.length
+            ? [
+                {
+                  icon: <span className="composer__spark">✦</span>,
+                  label: t('创作'),
+                  text: t('创作'),
+                  accent: true,
+                  onClick: () => openCreation({ groupId: group.id }),
+                },
+              ]
+            : []),
         ]}
         hint={
           mobile || targets.length || soleDm

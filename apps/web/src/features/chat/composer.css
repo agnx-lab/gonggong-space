@@ -132,3 +132,7 @@
 .provider-banners .pn-pinned__text {
   white-space: normal;
 }
+.composer__spark {
+  font-size: 13px;
+  line-height: 1;
+}

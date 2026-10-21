@@ -72,6 +72,25 @@
   width: 17px;
   height: 17px;
 }
+.pn-composer__tool--text {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-8) 0 var(--space-6);
+  border-radius: var(--radius-capsule);
+  font-size: var(--text-subheadline-size);
+  font-weight: 600;
+}
+.pn-composer__tool--accent {
+  background: var(--tint-blue);
+  color: var(--accent-text);
+}
+.pn-composer__tool--accent:hover {
+  background: var(--tint-blue);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 .pn-composer__hint {
   min-width: 0;
   margin-left: auto;

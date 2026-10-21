@@ -42,6 +42,8 @@ it('keeps the English dictionary and conditionally shown UI out of the first loa
     '/GroupSettingsDialog.tsx',
     '/TeamSettingsDialog.tsx',
     '/UsagePage.tsx',
+    '/CreationSheet.tsx',
+    '/PluginLayer.tsx',
   ]
   expect(lazy.filter((name) => modules.some((id) => id.includes(name)))).toEqual([])
   // The i18n module awaits the dictionary: a chunk the dictionary imported back would never finish loading.
