@@ -194,6 +194,46 @@
 .wt-files__view > .ui-empty {
   margin: auto;
 }
+/* Version and compare buttons name what they hold; long branch names are cut. */
+.wt-files__rev {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Compare mode: a changed file as its diff (or content) under a 差异/文件 switch. */
+.wt-files__compare {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wt-files__compare-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-6) var(--space-8);
+  border-bottom: 1px solid var(--separator);
+}
+.wt-files__compare-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-subheadline-size);
+  color: var(--label-secondary);
+}
+.wt-files__compare > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+.wt-files__compare > .git-diff {
+  overflow: auto;
+  padding: var(--space-8);
+}
 
 .ft {
   padding: var(--space-4) 0;

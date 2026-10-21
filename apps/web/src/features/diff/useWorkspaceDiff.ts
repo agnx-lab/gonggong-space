@@ -1,5 +1,6 @@
 import type { DiffRepo, DiffScope, WorkspaceDiffDto } from '@gonggong/protocol'
 import { useEffect, useMemo, useState } from 'react'
+import { useWorkspace } from '../../app/workspace'
 import { api } from '../../lib/api'
 import { realtime } from '../../lib/realtime'
 import { type DiffFile, parsePatch } from './patch'
@@ -30,6 +31,16 @@ export interface WorkspaceDiff {
 }
 
 /**
+ * Changes whenever the bot's git status does — a commit, a branch switch, a refresh — so work tree diffs can re-read.
+ */
+export function useGitStamp(groupId: string | null, botId: string | null) {
+  return useWorkspace((s) => {
+    const git = groupId && botId ? s.botStates[groupId]?.[botId]?.git : null
+    return git ? [git.checkedAt, git.branch, git.dirty, git.dirtyCount, git.ahead, git.behind].join('|') : ''
+  })
+}
+
+/**
  * Changes of a bot's workspace. A finished turn's patch is already at hand (`patch`); everything else — the live
  * turn, uncommitted work, the branch against main — is read from the bot's machine on demand.
  */
@@ -42,6 +53,8 @@ export function useWorkspaceDiff(
   const [state, setState] = useState<WorkspaceDiff>(EMPTY)
   const stored = scope === 'turn' && patch !== undefined
   const { groupId, botId, runId } = source ?? { groupId: null, botId: null, runId: null }
+  const stamp = useGitStamp(groupId, botId)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new git stamp means the workspace changed
   useEffect(() => {
     if (stored || !groupId) return
     let alive = true
@@ -80,7 +93,7 @@ export function useWorkspaceDiff(
       off()
       clearTimeout(timer)
     }
-  }, [stored, groupId, botId, runId, scope])
+  }, [stored, groupId, botId, runId, scope, stamp])
   const files = useMemo(() => parsePatch(patch ?? ''), [patch])
   if (stored)
     return {

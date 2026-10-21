@@ -19,4 +19,8 @@ export default {
   '附加目录#one': 'Extra directory',
   已截断: 'Truncated',
   '{n} 个仓库': '{n} {n:repo|repos}',
+  无法读取差异: "Couldn't read the diff",
+  没有差异: 'No differences',
+  '二进制文件，无法显示差异': "Binary file; the diff can't be shown",
+  '差异过大，已截断': 'Diff too large; truncated',
 } satisfies Record<string, string>
