@@ -146,7 +146,7 @@ type Api = import('@playwright/test').APIRequestContext
 
 export async function call<T>(
   api: Api,
-  method: 'get' | 'post' | 'patch',
+  method: 'get' | 'post' | 'patch' | 'put',
   path: string,
   data?: unknown,
 ): Promise<T> {
