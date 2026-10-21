@@ -11,6 +11,7 @@ mod engine;
 mod git_identity;
 mod hosted;
 mod net;
+mod plugins;
 mod providers_run;
 mod secrets;
 mod service;

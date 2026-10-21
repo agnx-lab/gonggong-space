@@ -4,7 +4,7 @@
 use crate::attachments;
 use crate::config::Config;
 use crate::hosted::{Scope, Services, StartArgs};
-use crate::protocol::{Answer, Attachment, Question, QuestionType, ToolCallRes};
+use crate::protocol::{Answer, Attachment, OptionMeta, Question, QuestionType, ToolCallRes};
 use crate::tls;
 use agent_client_protocol::schema::v1::{McpServer, McpServerHttp};
 use http_body_util::{BodyExt, Full};
@@ -27,6 +27,10 @@ pub const TOOL: &str = "ask_group_members";
 pub const NO_ANSWER: &str = "无人回答，请按推荐项或最佳判断继续，并在最终回复里列出你做的假设";
 const MAX_QUESTIONS: usize = 4;
 const MAX_OPTIONS: usize = 10;
+/// `optionMeta` limits of the wire contract (`packages/protocol/src/common.ts`).
+const MAX_DESCRIPTION: usize = 120;
+const MAX_SWATCH: usize = 6;
+const MAX_IMAGE: usize = 500;
 const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const YES_NO: [&str; 2] = ["是", "否"];
 /// Tools answered by the server, generated from `packages/protocol/src/tools.ts`.
@@ -254,6 +258,8 @@ fn tool() -> Value {
         "description": "向群成员提问：需要触发人拍板的问题（方案取舍、范围、缺失信息）用它问，不要猜。\
             一次最多 4 个问题；题型 single（单选）、multi（多选）、yesno（是/否）、text（自由文本）。\
             选择题可用 recommended（选项下标，从 0 开始）标出一个推荐项；群成员总能选「其他，我来补充」。\
+            需要大家看图、看配色再选时（如设计方向），用 option_meta 按下标给每个选项配：description 一句话说明，\
+            swatch 色板（6 位十六进制色值如 #0071e3，最多 6 个），image 预览图（工作区内的相对路径，如 design/x/directions/a.png）。\
             调用会一直等到有人回答或超时；超时则按推荐项或最佳判断继续，并在最终回复里列出你做的假设。",
         "inputSchema": {
             "type": "object",
@@ -269,6 +275,22 @@ fn tool() -> Value {
                             "title": { "type": "string" },
                             "options": { "type": "array", "items": { "type": "string" }, "maxItems": MAX_OPTIONS },
                             "recommended": { "type": "integer", "minimum": 0 },
+                            "option_meta": {
+                                "type": "array",
+                                "maxItems": MAX_OPTIONS,
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "description": { "type": "string", "maxLength": MAX_DESCRIPTION },
+                                        "swatch": {
+                                            "type": "array",
+                                            "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+                                            "maxItems": MAX_SWATCH,
+                                        },
+                                        "image": { "type": "string", "maxLength": MAX_IMAGE },
+                                    },
+                                },
+                            },
                         },
                         "required": ["type", "title"],
                     },
@@ -292,6 +314,16 @@ struct InputQuestion {
     #[serde(default)]
     options: Vec<String>,
     recommended: Option<u32>,
+    #[serde(default, alias = "optionMeta")]
+    option_meta: Vec<InputOptionMeta>,
+}
+
+#[derive(Deserialize)]
+struct InputOptionMeta {
+    description: Option<String>,
+    #[serde(default)]
+    swatch: Vec<String>,
+    image: Option<String>,
 }
 
 async fn call(asker: &dyn Asker, args: &Value) -> Result<String, String> {
@@ -521,7 +553,46 @@ pub fn parse(args: &Value) -> Result<Vec<Question>, String> {
                 }
             };
             let recommended = q.recommended.filter(|r| (*r as usize) < options.len());
-            Ok(Question { id: format!("q{n}"), kind: q.kind, title: q.title, options, recommended })
+            let option_meta = if q.option_meta.is_empty() {
+                vec![]
+            } else {
+                let mut metas = q.option_meta.into_iter();
+                (1..=options.len()).map(|o| option_meta(n, o, metas.next())).collect::<Result<_, _>>()?
+            };
+            Ok(Question { id: format!("q{n}"), kind: q.kind, title: q.title, options, recommended, option_meta })
+        })
+        .collect()
+}
+
+/// Checks one option's meta (`n`: question, `o`: option, 1-based); over-long descriptions and swatches are cut.
+fn option_meta(n: usize, o: usize, meta: Option<InputOptionMeta>) -> Result<OptionMeta, String> {
+    let Some(m) = meta else { return Ok(OptionMeta::default()) };
+    let at = format!("第 {n} 个问题第 {o} 个选项的 option_meta");
+    let hex = |c: &String| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|ch| ch.is_ascii_hexdigit());
+    if let Some(bad) = m.swatch.iter().take(MAX_SWATCH).find(|c| !hex(c)) {
+        return Err(format!("{at}.swatch 不是 6 位色值（如 #0071e3）：{bad}"));
+    }
+    let image = m.image.map(|i| i.trim().to_string()).filter(|i| !i.is_empty());
+    if let Some(i) = &image
+        && (i.encode_utf16().count() > MAX_IMAGE
+            || !Path::new(i).components().all(|c| matches!(c, std::path::Component::Normal(_))))
+    {
+        return Err(format!("{at}.image 需要是工作区内的相对路径（不超过 {MAX_IMAGE} 字符）：{i}"));
+    }
+    Ok(OptionMeta {
+        description: m.description.map(|d| clip(d.trim(), MAX_DESCRIPTION)).filter(|d| !d.is_empty()),
+        swatch: m.swatch.into_iter().take(MAX_SWATCH).collect(),
+        image,
+    })
+}
+
+/// At most `max` UTF-16 units, like the contract's `max()`.
+fn clip(s: &str, max: usize) -> String {
+    let mut units = 0;
+    s.chars()
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= max
         })
         .collect()
 }
@@ -579,6 +650,7 @@ mod tests {
             title: "用哪种语言？".into(),
             options: options.iter().map(|s| s.to_string()).collect(),
             recommended,
+            option_meta: vec![],
         }
     }
 

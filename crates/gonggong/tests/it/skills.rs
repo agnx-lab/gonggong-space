@@ -140,6 +140,7 @@ fn start(run_id: &str, kind: AgentKind, cwd: &Path, skills: Vec<SkillRef>, resum
         new_session_reason: None,
         mcp_servers: vec![],
         skills,
+        plugins: vec![],
         command: None,
         sync: None,
         env: Default::default(),

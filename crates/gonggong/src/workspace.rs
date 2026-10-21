@@ -110,6 +110,7 @@ fn dir_question(dir: &Path, others: &[Holder]) -> Question {
         ),
         options: vec![t!("并行开始").into(), t!("排队等待").into()],
         recommended: Some(1),
+        option_meta: vec![],
     }
 }
 

@@ -214,6 +214,7 @@ impl Rig {
             new_session_reason: None,
             mcp_servers: vec![],
             skills: vec![],
+            plugins: vec![],
             command: None,
             sync: Some(sync),
             env: Default::default(),
