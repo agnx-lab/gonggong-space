@@ -91,6 +91,8 @@ pub struct Workspaces {
 struct Holder {
     run_id: String,
     label: String,
+    /// A manual git action: turns wait for it without offering to run beside it.
+    exclusive: bool,
 }
 
 /// Whether the answer to the shared-directory confirmation chose to run in parallel.
@@ -163,6 +165,7 @@ impl Workspaces {
         let me = Holder {
             run_id: req.start.run_id.clone(),
             label: t!("{bot}（群「{group}」）", bot = req.start.bot.name, group = req.start.group_name),
+            exclusive: false,
         };
         let mut changed = dir.subscribe();
         let (mut ask, mut go) = (Ask::Unasked, false);
@@ -175,7 +178,7 @@ impl Workspaces {
             }
             let mut others = vec![];
             let taken = dir.send_if_modified(|h| {
-                if !go && !h.is_empty() {
+                if !h.is_empty() && (!go || h.iter().any(|x| x.exclusive)) {
                     others = h.clone();
                     return false;
                 }
@@ -188,7 +191,9 @@ impl Workspaces {
                 }
                 return Some(DirGuard { dir, run_id: me.run_id });
             }
-            if let Ask::Unasked = ask {
+            if let Ask::Unasked = ask
+                && !others.iter().any(|h| h.exclusive)
+            {
                 ask = shared
                     .confirm_dir(dir_question(&key, &others))
                     .map_or(Ask::Answered, |(id, rx)| Ask::Pending(id, rx));
@@ -208,6 +213,23 @@ impl Workspaces {
                 (ask, go) = (Ask::Answered, choice);
             }
         }
+    }
+
+    /// Holds `dir` for a manual git action if no turn is in it (None = busy): turns arriving meanwhile wait for the
+    /// guard to drop.
+    pub(crate) fn hold(&self, dir: &Path, id: &str) -> Option<DirGuard> {
+        let key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+        let dir = self.dirs.lock().unwrap().entry(key).or_insert_with(|| watch::Sender::new(vec![])).clone();
+        let me = Holder { run_id: format!("git:{id}"), label: t!("手动 Git 操作").into(), exclusive: true };
+        let run_id = me.run_id.clone();
+        let taken = dir.send_if_modified(|h| {
+            if !h.is_empty() {
+                return false;
+            }
+            h.push(me);
+            true
+        });
+        taken.then_some(DirGuard { dir, run_id })
     }
 
     fn lock(&self, group: &str, bot: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -326,8 +348,22 @@ async fn migrate(root: &Path, dir: &Path) -> std::io::Result<()> {
     tokio::fs::rename(&moving, dir).await
 }
 
+/// An unrequested workspace.state with the git status of `dir` as it is now, so the group sees a manual git action.
+pub(crate) async fn report_git(out: &Outbox, group: &str, bot: &str, spec: &WorkspaceSpec, dir: &Path) {
+    let (kind, remotes) = match spec.cd_path {
+        Some(_) => (WorkspaceKind::Cd, remotes(dir).await),
+        None => (WorkspaceKind::Managed, vec![]),
+    };
+    let status = git::status(dir, &[], kind).await.ok();
+    send_state(out, group, bot, None, Some(Ok((dir.to_path_buf(), status, remotes))));
+}
+
 /// `None` = still cloning.
 fn report(out: &Outbox, group: &str, bot: &str, request_id: &str, outcome: Option<Outcome>) {
+    send_state(out, group, bot, Some(request_id), outcome)
+}
+
+fn send_state(out: &Outbox, group: &str, bot: &str, request_id: Option<&str>, outcome: Option<Outcome>) {
     let (state, path, git, error, reason, remotes) = match outcome {
         Some(Ok((dir, git, remotes))) => {
             (WorkspaceStateKind::Ready, Some(dir.to_string_lossy().into_owned()), git, None, None, remotes)
@@ -338,7 +374,7 @@ fn report(out: &Outbox, group: &str, bot: &str, request_id: &str, outcome: Optio
     out.send(DaemonToServer::WorkspaceState(WorkspaceState {
         group_id: group.into(),
         bot_id: bot.into(),
-        request_id: Some(request_id.into()),
+        request_id: request_id.map(String::from),
         state,
         path,
         git,

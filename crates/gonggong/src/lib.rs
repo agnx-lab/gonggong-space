@@ -15,6 +15,7 @@ pub mod engine;
 pub mod explorer;
 pub mod files;
 pub mod git;
+pub mod git_ops;
 pub mod hosted;
 pub mod i18n;
 pub mod inject;

@@ -590,4 +590,12 @@ pub(super) const EN: &[(&str, &str)] = &[
         "These variables in the CLI config override Gonggong's settings: {names}",
     ),
     ("已保存；进行中的会话下一轮生效", "Saved; running sessions pick it up from their next turn"),
+    ("工作目录正被运行占用", "A run is using the working directory"),
+    ("手动 Git 操作", "Manual Git operation"),
+    ("无效的名称：{name}", "Invalid name: {name}"),
+    ("分支不存在：{branch}", "Branch doesn't exist: {branch}"),
+    ("当前分支没有上游分支，无法拉取", "The current branch has no upstream to pull from"),
+    ("缺少提交说明", "A commit message is required"),
+    ("没有可提交的改动", "Nothing to commit"),
+    ("缺少参数：{what}", "Missing parameter: {what}"),
 ];

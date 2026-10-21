@@ -85,6 +85,10 @@ fn failure(stderr: &[u8]) -> String {
 
 /// Like [`git`], but reads at most `limit` bytes of output: past it git is killed and the output cut there.
 async fn git_capped(dir: &Path, args: &[&str], limit: usize) -> Result<String, String> {
+    git_capped_bytes(dir, args, limit).await.map(|out| String::from_utf8_lossy(&out).into_owned())
+}
+
+pub(crate) async fn git_capped_bytes(dir: &Path, args: &[&str], limit: usize) -> Result<Vec<u8>, String> {
     let mut child = crate::proc::async_command("git")
         .arg("-C")
         .arg(dir)
@@ -106,7 +110,7 @@ async fn git_capped(dir: &Path, args: &[&str], limit: usize) -> Result<String, S
             return Err(failure(&done.stderr));
         }
     }
-    Ok(String::from_utf8_lossy(&out).into_owned())
+    Ok(out)
 }
 
 /// Branch/upstream position of the work tree; `ahead`, `behind` are None without an upstream.
@@ -399,11 +403,9 @@ impl Drop for Scratch {
 
 /// Writes the current work tree (tracked + untracked, honoring .gitignore, without `.gonggong/`) as a tree object,
 /// staging through a scratch copy of the index so the user's staging area stays as it was.
-async fn work_tree(dir: &Path) -> Result<String, String> {
-    let (index, ignored) = tokio::join!(
-        git(dir, &["rev-parse", "--path-format=absolute", "--git-path", "index"]),
-        git(dir, &["check-ignore", "-q", ".gonggong"])
-    );
+pub(crate) async fn work_tree(dir: &Path) -> Result<String, String> {
+    let (index, spec) =
+        tokio::join!(git(dir, &["rev-parse", "--path-format=absolute", "--git-path", "index"]), everything(dir));
     let index = PathBuf::from(index?.trim());
     // The guard is made inside the copy task: if this future is dropped meanwhile, the task's output still drops it.
     let scratch = tokio::task::spawn_blocking(move || {
@@ -416,10 +418,17 @@ async fn work_tree(dir: &Path) -> Result<String, String> {
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| t!("无法复制 git index：{e}", e = e))?;
-    // Naming an ignored path in a pathspec is an error, so the exclusion is only spelled out when git doesn't ignore it.
-    let spec: &[&str] = if ignored.is_ok() { &["."] } else { &[".", ":(exclude).gonggong"] };
     run_git(dir, &[&["add", "-A", "--"][..], spec].concat(), Some(&scratch.0)).await?;
     Ok(run_git(dir, &["write-tree"], Some(&scratch.0)).await?.trim().to_string())
+}
+
+/// Pathspec of the whole work tree but the daemon's private dir.
+pub(crate) async fn everything(dir: &Path) -> &'static [&'static str] {
+    // Naming an ignored path in a pathspec is an error, so the exclusion is only spelled out when git doesn't ignore it.
+    match git(dir, &["check-ignore", "-q", ".gonggong"]).await {
+        Ok(_) => &["."],
+        Err(_) => &[".", ":(exclude).gonggong"],
+    }
 }
 
 /// A workspace patch (None when nothing differs, capped at PATCH_MAX_BYTES) and the repos it spans.
