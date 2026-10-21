@@ -31,8 +31,8 @@ export type WorkbenchTab =
         | { botId: string; path: string; line?: LineRange; rev?: string }
         | { attachment: Attachment; from: string }
     }
-  /** A bot workspace's commit history; `ref` null = HEAD, `commit` the one opened. */
-  | { kind: 'git-log'; botId: string; ref: string | null; commit: string | null }
+  /** A bot workspace's commit history; `ref` null = HEAD, `commit` the one opened, `file` its file shown (null = first). */
+  | { kind: 'git-log'; botId: string; ref: string | null; commit: string | null; file?: string | null }
 
 export type WorkbenchMode = 'split' | 'focus' | 'full'
 

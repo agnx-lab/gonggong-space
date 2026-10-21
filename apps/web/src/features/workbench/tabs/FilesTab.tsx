@@ -12,8 +12,20 @@ import { useWorkspace } from '../../../app/workspace'
 import { t } from '../../../i18n'
 import { api, errorText } from '../../../lib/api'
 import { cx } from '../../../lib/cx'
-import { Button, Checkbox, EmptyState, Icon, PathControl, Popover, SearchField, Spinner } from '../../../ui'
+import {
+  Button,
+  Checkbox,
+  EmptyState,
+  Icon,
+  PathControl,
+  Popover,
+  SearchField,
+  SegmentedControl,
+  Spinner,
+} from '../../../ui'
 import { useWide } from '../../diff/DiffPane'
+import { GitFileDiff } from '../../diff/GitFileDiff'
+import { useGitStamp } from '../../diff/useWorkspaceDiff'
 import { BotFileViewer } from '../../files/FileViewer'
 import { gitBase, gitUrls, shortRev, useGitRefs } from '../../git/api'
 import { ChangeList, ChangeMark } from '../../git/changes'
@@ -147,6 +159,11 @@ function RefPicker({
   clear?: string
   onPick: (rev: string | null) => void
 }) {
+  const text = workTree
+    ? t('版本：{rev}', { rev: value ? shortRev(value) : t('工作区') })
+    : value
+      ? t('对比 {rev}', { rev: shortRev(value) })
+      : label
   return (
     <Popover
       portal
@@ -159,9 +176,9 @@ function RefPicker({
           variant="plain"
           icon={workTree ? 'git-branch' : 'git-fork'}
           aria-label={label}
-          title={label}
+          title={text}
         >
-          {value ? shortRev(value) : workTree ? t('工作区') : label}
+          <span className="wt-files__rev">{text}</span>
         </Button>
       }
     >
@@ -245,6 +262,9 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
   const [collapsed, setCollapsed] = useState(false)
   const [ignored, setIgnored] = useState(false)
   const [query, setQuery] = useState('')
+  // Compare mode shows a changed file as its diff; 文件 switches to its content.
+  const [showDiff, setShowDiff] = useState(true)
+  const stamp = useGitStamp(groupId, tab.botId)
   const [expanded, setExpanded] = useState(() => new Set(chain(tab.dir)))
   // Versions and compare need the group repo (partition mode), like the bar's git status.
   const versioned = useWorkspace((s) => {
@@ -358,9 +378,20 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
     return out
   }
 
+  const change = tab.selected && tab.base ? compare?.byPath.get(tab.selected) : undefined
   // A file deleted since the base only exists there.
-  const viewRev =
-    tab.selected && tab.base && compare?.byPath.get(tab.selected)?.change === 'deleted' ? tab.base : rev
+  const viewRev = change?.change === 'deleted' ? tab.base : rev
+  const viewer = (path: string) => (
+    <BotFileViewer
+      key={`${path}@${viewRev ?? ''}`}
+      botId={tab.botId}
+      path={path}
+      rev={viewRev}
+      onOpenTab={() =>
+        openTab({ kind: 'file', source: { botId: tab.botId, path, ...(viewRev ? { rev: viewRev } : {}) } })
+      }
+    />
+  )
   const top = listings['']
   const failed = top && 'error' in top ? top.error : null
   const crumbs = [
@@ -475,23 +506,36 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
           {showTree ? <div className="wt-files__tree">{tree}</div> : null}
           {wide || !treeOpen ? (
             <div className="wt-files__view">
-              {tab.selected ? (
-                <BotFileViewer
-                  key={`${tab.selected}@${viewRev ?? ''}`}
-                  botId={tab.botId}
-                  path={tab.selected}
-                  rev={viewRev}
-                  onOpenTab={() =>
-                    openTab({
-                      kind: 'file',
-                      source: {
-                        botId: tab.botId,
-                        path: tab.selected as string,
-                        ...(viewRev ? { rev: viewRev } : {}),
-                      },
-                    })
-                  }
-                />
+              {tab.selected && change && tab.base ? (
+                <div className="wt-files__compare">
+                  <div className="wt-files__compare-bar">
+                    <SegmentedControl
+                      size="small"
+                      aria-label={t('显示方式')}
+                      items={[
+                        { value: 'diff' as const, label: t('差异') },
+                        { value: 'file' as const, label: t('文件#view') },
+                      ]}
+                      value={showDiff ? 'diff' : 'file'}
+                      onChange={(v) => setShowDiff(v === 'diff')}
+                    />
+                    <span className="wt-files__compare-note">
+                      {`${shortRev(tab.base)} → ${rev ? shortRev(rev) : t('工作区')}`}
+                    </span>
+                  </div>
+                  {showDiff ? (
+                    <GitFileDiff
+                      key={tab.selected}
+                      url={gitUrls.diff(repo, tab.base, rev, tab.selected)}
+                      path={tab.selected}
+                      stamp={rev ? '' : stamp}
+                    />
+                  ) : (
+                    viewer(tab.selected)
+                  )}
+                </div>
+              ) : tab.selected ? (
+                viewer(tab.selected)
               ) : (
                 <EmptyState compact icon="doc" title={t('选择左侧的文件查看')} />
               )}

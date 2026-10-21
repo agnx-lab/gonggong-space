@@ -1,5 +1,5 @@
-import type { BotDto, DiffScope, WebEvent } from '@gonggong/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import type { BotDto, DiffScope, GitStatus, GroupBotStateDto, WebEvent } from '@gonggong/protocol'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tabKey, useWorkbench, type WorkbenchTab } from '../src/app/workbench'
 import { useWorkspace } from '../src/app/workspace'
@@ -58,7 +58,7 @@ beforeEach(() => {
       )
     }),
   )
-  useWorkspace.setState({ bots: [{ id: 'b1', name: '小王的 Claude' } as BotDto] })
+  useWorkspace.setState({ bots: [{ id: 'b1', name: '小王的 Claude' } as BotDto], botStates: {} })
   useWorkbench.setState({ groupId: 'g1', open: true, benches: {} })
 })
 afterEach(() => {
@@ -114,6 +114,31 @@ describe('diff tab', () => {
     rerender(<TabContent tab={tab()} active />)
     expect(await screen.findByText('+new')).toBeTruthy()
     expect(calls).toEqual(['/api/groups/g1/bots/b1/diff?scope=uncommitted'])
+  })
+
+  it('reads again when the bot’s git status changes (a commit, a branch switch, a refresh)', async () => {
+    const git = (o: Partial<GitStatus>): GitStatus => ({
+      branch: 'feat/x',
+      ahead: null,
+      behind: null,
+      dirty: true,
+      checkedAt: '2026-10-21T00:00:00.000Z',
+      workspace: 'managed',
+      repos: [],
+      ...o,
+    })
+    const state = (g: GitStatus) =>
+      act(() =>
+        useWorkspace.setState({ botStates: { g1: { b1: { botId: 'b1', git: g } as GroupBotStateDto } } }),
+      )
+    state(git({}))
+    open()
+    await screen.findByText('+new')
+    expect(calls).toEqual(['/api/groups/g1/bots/b1/diff?scope=uncommitted'])
+    state(git({ dirty: false, checkedAt: '2026-10-21T00:01:00.000Z' }))
+    await waitFor(() => expect(calls).toHaveLength(2))
+    state(git({ branch: 'main', dirty: false, checkedAt: '2026-10-21T00:01:00.000Z' }))
+    await waitFor(() => expect(calls).toHaveLength(3))
   })
 
   it('locates a changed file in the bot file browser', async () => {

@@ -96,4 +96,11 @@ export default {
   还没有提交: 'No commits yet',
   选择一个提交查看变更: 'Pick a commit to see its changes',
   '提交历史 · {name}': 'History · {name}',
+  全部提交: 'All commits',
+  打开此版本: 'Open this version',
+  '版本：{rev}': 'Version: {rev}',
+  '对比 {rev}': 'Compare with {rev}',
+  显示方式: 'Show as',
+  差异: 'Diff',
+  '文件#view': 'File',
 } satisfies Record<string, string>
