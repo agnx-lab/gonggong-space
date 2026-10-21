@@ -1,6 +1,10 @@
 # Changelog
 
-## v0.3.5 — 2026-10-20
+## v0.3.5 — 2026-10-21
+
+- 插件：配置中心/团队/群上传与启用插件，「✦ 创作」面板把创作任务交给 Bot，内置「网页原型」插件；系统参数总开关，默认关闭 / Plugins: upload and enable plugins per platform, team and group, hand creative work to Bots from the "✦ Create" panel, official "Web prototype" plugin; behind a system switch, off by default
+- 密钥管理：平台/团队/群/个人四层，运行时只以环境变量注入并按值打码，MCP 用 `${secret:NAME}` 引用，「填写密钥」卡片 / Secrets: platform, team, group and personal layers, injected only as environment variables and masked by value, referenced from MCP as `${secret:NAME}`, "Fill in secret" cards
+- 输入框上方「待处理」区；Bot 进度卡片（飞书同步）；图片预览多图切换；手机端多处布局修复 / Pending dock above the composer; Bot progress cards (mirrored to Feishu); multi-image preview; mobile layout fixes
 
 - 刷新模型：Bot 设置页「刷新模型」让所在机器立即重新探测 agent 的可选模型；`~/.codex/config.toml`、`~/.claude/settings.json` 改动后，机器自动重新探测，不必重启 / Refresh models: a "Refresh models" button in Bot settings makes the machine probe the agent's models again now; editing `~/.codex/config.toml` or `~/.claude/settings.json` triggers a re-probe automatically, no restart needed
 
