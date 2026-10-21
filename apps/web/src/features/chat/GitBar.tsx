@@ -1,11 +1,13 @@
 import type { GroupBotStateDto, GroupDto, RepoStatus } from '@gonggong/protocol'
 import { useEffect } from 'react'
-import { loadBotStates, useWorkspace } from '../../app/workspace'
+import { loadBotStates, loadGitOperations, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { copyWithToast } from '../../lib/clipboard'
 import { realtime } from '../../lib/realtime'
 import { ago } from '../../lib/time'
 import { Icon, type IconName, Popover } from '../../ui'
+import { BranchPicker, GitActions } from '../git/GitControls'
+import { GitOperationsPanel, PendingBadge } from '../git/GitOperations'
 import { openTab } from '../workbench/open'
 import { ContextMeter } from './ContextMeter'
 
@@ -170,21 +172,20 @@ function Location({
 }
 
 function Item({
-  groupId,
+  group,
   name,
   s,
   showGit,
-  repo,
   machine,
 }: {
-  groupId: string
+  group: GroupDto
   name: string
   s: GroupBotStateDto
   /** Partition groups with a repo, where the bar shows each bot's git status. */
   showGit: boolean
-  repo: GroupDto['repo']
   machine: string | null
 }) {
+  const groupId = group.id
   const git = s.git
   // States stored before repos were reported have none.
   const subs = git?.repos ?? []
@@ -217,8 +218,10 @@ function Item({
         <>
           {hint ?? (
             <>
-              {git?.branch == null && subs.length ? null : (
-                <span className="git-bar__branch">{git?.branch ?? '—'}</span>
+              {git?.branch == null && subs.length ? null : git ? (
+                <BranchPicker groupId={groupId} botId={s.botId} name={name} git={git} />
+              ) : (
+                <span className="git-bar__branch">—</span>
               )}
               {git?.behind ? (
                 <Commits icon="arrow-down" name={t('落后 {n} 个提交', { n: git.behind })} n={git.behind} />
@@ -231,11 +234,12 @@ function Item({
             </>
           )}
           <span className="git-bar__ws">{WORKSPACE_LABEL[s.workspace]}</span>
+          <PendingBadge groupId={groupId} botId={s.botId} />
         </>
       ) : null}
       {s.context ? <ContextMeter groupId={groupId} bot={name} context={s.context} /> : null}
       <span className="git-bar__actions">
-        <Location name={name} s={s} repo={repo} machine={machine} />
+        <Location name={name} s={s} repo={group.repo} machine={machine} />
         {showGit ? (
           <Action
             icon="git-branch"
@@ -244,6 +248,7 @@ function Item({
             onClick={diff}
           />
         ) : null}
+        {showGit && git && !hint ? <GitActions group={group} botId={s.botId} name={name} git={git} /> : null}
         <Action icon="folder" label={t('浏览 {name} 的文件', { name })} title={t('文件')} onClick={files} />
       </span>
     </div>
@@ -287,11 +292,14 @@ export function GitBar({ group }: { group: GroupDto }) {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload when the group's bots change
   useEffect(() => {
-    const load = () => loadBotStates(group.id).catch(() => {})
+    const load = () => {
+      loadBotStates(group.id).catch(() => {})
+      if (showGit) loadGitOperations(group.id).catch(() => {})
+    }
     load()
     // Updates pushed while the socket was down are lost: catch up on reconnect.
     return realtime.onReconnect(load)
-  }, [group.id, botKey])
+  }, [group.id, botKey, showGit])
 
   if (!group.botIds.length) return null
   return (
@@ -301,9 +309,8 @@ export function GitBar({ group }: { group: GroupDto }) {
         return (
           <Item
             key={id}
-            groupId={group.id}
+            group={group}
             showGit={showGit}
-            repo={group.repo}
             machine={bot?.machineName ?? null}
             name={bot?.name ?? 'bot'}
             s={
@@ -325,6 +332,7 @@ export function GitBar({ group }: { group: GroupDto }) {
           />
         )
       })}
+      {showGit ? <GitOperationsPanel groupId={group.id} /> : null}
     </div>
   )
 }

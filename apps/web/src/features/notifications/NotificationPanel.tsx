@@ -39,6 +39,7 @@ const ICON: Record<NotificationDto['type'], { icon: IconName; color: string }> =
   mention: { icon: 'at', color: 'var(--system-blue)' },
   bot_share_request: { icon: 'person-add', color: 'var(--system-orange)' },
   bot_share_decided: { icon: 'bot', color: 'var(--system-blue)' },
+  git_operation_request: { icon: 'git-branch', color: 'var(--system-orange)' },
 }
 
 /** 同意 / 拒绝 of a 申请共享 right in the notification; the settled notification arrives over realtime. */

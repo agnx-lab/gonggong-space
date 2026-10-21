@@ -14,11 +14,25 @@ export type WorkbenchTab =
   | { kind: 'live'; previewId: string }
   | { kind: 'run'; runId: string; view: 'process' | 'diff' | 'audit'; file: string | null }
   | { kind: 'diff'; botId: string; scope: DiffScope; file: string | null; repo?: string | null }
-  | { kind: 'files'; botId: string; dir: string; selected: string | null }
+  | {
+      kind: 'files'
+      botId: string
+      dir: string
+      selected: string | null
+      /** Version browsed: a branch or commit; absent/null = the work tree. */
+      rev?: string | null
+      /** Compare mode: the branch or commit changes are marked against. */
+      base?: string | null
+      changedOnly?: boolean
+    }
   | {
       kind: 'file'
-      source: { botId: string; path: string; line?: LineRange } | { attachment: Attachment; from: string }
+      source:
+        | { botId: string; path: string; line?: LineRange; rev?: string }
+        | { attachment: Attachment; from: string }
     }
+  /** A bot workspace's commit history; `ref` null = HEAD, `commit` the one opened. */
+  | { kind: 'git-log'; botId: string; ref: string | null; commit: string | null }
 
 export type WorkbenchMode = 'split' | 'focus' | 'full'
 
@@ -70,7 +84,9 @@ export function tabKey(t: WorkbenchTab): string {
     case 'file':
       return 'attachment' in t.source
         ? `att:${t.source.attachment.id}`
-        : `file:${t.source.botId}:${t.source.path}`
+        : `file:${t.source.botId}:${t.source.path}${t.source.rev ? `@${t.source.rev}` : ''}`
+    case 'git-log':
+      return `git-log:${t.botId}`
   }
 }
 

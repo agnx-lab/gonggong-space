@@ -40,6 +40,7 @@ import { useBotCostume } from '../bots/avatars'
 import { AGENT_LABEL } from '../bots/model'
 import { McpSecretCard } from '../config/McpSecretCard'
 import { FeishuChatLink } from '../feishu/FeishuChatLink'
+import { LinkedGitOperation } from '../git/GitOperations'
 import { GroupAvatar } from '../groups/GroupAvatar'
 import { GroupInfo, type InfoView, type SettingsTab } from '../groups/GroupInfo'
 import { GroupNotice } from '../groups/GroupNotice'
@@ -612,6 +613,7 @@ export function ChatView({
           onSettings={isAdmin ? () => setSettings('mode') : undefined}
         />
         <LinkedConflict groupId={group.id} />
+        <LinkedGitOperation groupId={group.id} />
         {readOnly ? null : <GitBar group={group} />}
         <div className="chat-view__body">
           {drag.over ? (

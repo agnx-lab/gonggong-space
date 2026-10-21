@@ -257,14 +257,17 @@ describe('git status bar', () => {
   })
 
   it('loads once on the first connect and again after a reconnect', async () => {
-    const calls = mockApi({ 'GET /groups/g1/bot-states': [] })
+    const calls = mockApi({
+      'GET /groups/g1/bot-states': [],
+      'GET /groups/g1/git/operations': { operations: [] },
+    })
     const rt = startRealtime()
     render(<GitBar group={group({ botIds: ['b1'] })} />)
     await screen.findByText('待创建')
     await rt.open()
-    expect(calls).toHaveLength(1)
+    expect(calls.map((c) => c.path)).toEqual(['/groups/g1/bot-states', '/groups/g1/git/operations'])
     await rt.reconnect()
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(4)
   })
 
   it('summarizes sub-repos and opens the diff tab on the picked one', async () => {

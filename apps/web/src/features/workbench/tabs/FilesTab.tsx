@@ -3,16 +3,21 @@ import {
   type FileCandidatesDto,
   type FilesTreeDto,
   type FileTreeEntry,
+  type GitChange,
+  type GitCompareDto,
 } from '@gonggong/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useWorkbench } from '../../../app/workbench'
 import { useWorkspace } from '../../../app/workspace'
 import { t } from '../../../i18n'
-import { api } from '../../../lib/api'
+import { api, errorText } from '../../../lib/api'
 import { cx } from '../../../lib/cx'
-import { Button, Checkbox, EmptyState, Icon, PathControl, SearchField, Spinner } from '../../../ui'
+import { Button, Checkbox, EmptyState, Icon, PathControl, Popover, SearchField, Spinner } from '../../../ui'
 import { useWide } from '../../diff/DiffPane'
 import { BotFileViewer } from '../../files/FileViewer'
+import { gitBase, gitUrls, shortRev, useGitRefs } from '../../git/api'
+import { ChangeList, ChangeMark } from '../../git/changes'
+import { RefList } from '../../git/RefList'
 import { openTab } from '../open'
 import type { TabMeta, TabProps } from '../types'
 import { OpenWith } from './OpenWith'
@@ -32,10 +37,10 @@ const message = (e: unknown) => (e instanceof Error ? e.message : t('读取失�
 const sorted = (entries: FileTreeEntry[]) =>
   [...entries].sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name))
 
-/** One level per request, cached until 刷新 or the ignored toggle starts over. */
-function useTree(base: string, ignored: boolean, dirs: string[]) {
+/** One level per request (`url` of a directory), cached until 刷新 or another `source` starts over. */
+function useTree(source: string, url: (dir: string) => string, dirs: string[]) {
   const [gen, setGen] = useState(0)
-  const key = `${base}|${ignored}|${gen}`
+  const key = `${source}|${gen}`
   const [state, setState] = useState<{ key: string; listings: Record<string, Listing> }>({
     key,
     listings: {},
@@ -54,15 +59,142 @@ function useTree(base: string, ignored: boolean, dirs: string[]) {
       const id = `${key}\n${dir}`
       if (asked.current.has(id)) continue
       asked.current.add(id)
-      api
-        .get<FilesTreeDto>(`${base}/tree?path=${encodeURIComponent(dir)}${ignored ? '&ignored=1' : ''}`)
-        .then(
-          (r) => put(dir, { entries: sorted(r.entries), truncated: r.truncated }),
-          (e: unknown) => put(dir, { error: message(e) }),
-        )
+      api.get<FilesTreeDto>(url(dir)).then(
+        (r) => put(dir, { entries: sorted(r.entries), truncated: r.truncated }),
+        (e: unknown) => put(dir, { error: message(e) }),
+      )
     }
   })
   return { listings, reload: () => setGen((n) => n + 1) }
+}
+
+interface Compare {
+  url: string
+  changes: GitChange[]
+  byPath: Map<string, GitChange>
+  /** Directories holding a change. */
+  dirs: Set<string>
+  error: string | null
+}
+
+/** Changes of the browsed version against the compare base; null while off or loading. */
+function useCompare(url: string | null) {
+  const [state, setState] = useState<Compare | null>(null)
+  useEffect(() => {
+    if (!url) return
+    let live = true
+    const done = (changes: GitChange[], error: string | null) =>
+      live &&
+      setState({
+        url,
+        changes,
+        error,
+        byPath: new Map(changes.map((c) => [c.path, c])),
+        dirs: new Set(changes.flatMap((c) => chain(parentOf(c.path)))),
+      })
+    api.get<GitCompareDto>(url).then(
+      (r) => done(r.changes, null),
+      (e: unknown) => done([], errorText(e)),
+    )
+    return () => {
+      live = false
+    }
+  }, [url])
+  return url && state?.url === url ? state : null
+}
+
+function RefPickerList({
+  groupId,
+  botId,
+  value,
+  top,
+  onPick,
+}: {
+  groupId: string
+  botId: string
+  value: string | null
+  top: ReactNode
+  onPick: (rev: string) => void
+}) {
+  const { refs, error } = useGitRefs(groupId, botId)
+  return (
+    <RefList
+      refs={refs}
+      error={error}
+      selected={value}
+      commits
+      top={top}
+      onPick={(_, name) => onPick(name)}
+    />
+  )
+}
+
+/** Picks a branch or a typed commit; `workTree` offers 工作区 first, `clear` ends the mode. */
+function RefPicker({
+  label,
+  value,
+  groupId,
+  botId,
+  workTree,
+  clear,
+  onPick,
+}: {
+  label: string
+  value: string | null
+  groupId: string
+  botId: string
+  workTree?: boolean
+  clear?: string
+  onPick: (rev: string | null) => void
+}) {
+  return (
+    <Popover
+      portal
+      placement="bottom-start"
+      width={300}
+      aria-label={label}
+      trigger={
+        <Button
+          size="small"
+          variant="plain"
+          icon={workTree ? 'git-branch' : 'git-fork'}
+          aria-label={label}
+          title={label}
+        >
+          {value ? shortRev(value) : workTree ? t('工作区') : label}
+        </Button>
+      }
+    >
+      {(close) => (
+        <RefPickerList
+          groupId={groupId}
+          botId={botId}
+          value={value}
+          top={
+            workTree || (clear && value) ? (
+              <button
+                type="button"
+                className="git-refs__item"
+                onClick={() => {
+                  close()
+                  onPick(null)
+                }}
+              >
+                <span className="git-refs__check">
+                  {!value ? <Icon name="check" size={12} weight={2} /> : null}
+                </span>
+                {workTree ? t('工作区') : clear}
+              </button>
+            ) : null
+          }
+          onPick={(rev) => {
+            close()
+            onPick(rev)
+          }}
+        />
+      )}
+    </Popover>
+  )
 }
 
 /** Fuzzy workspace search: the composer's @ file candidates, scoped to this bot. */
@@ -90,6 +222,17 @@ function useSearch(groupId: string, botId: string, query: string) {
   return q && hits?.q === q ? hits.entries : null
 }
 
+function CompareMark({ compare, path, dir }: { compare: Compare; path: string; dir: boolean }) {
+  const change = compare.byPath.get(path)
+  if (dir)
+    return compare.dirs.has(path) ? (
+      <span className="git-mark git-mark--dot" title={t('有变化')}>
+        •
+      </span>
+    ) : null
+  return change ? <ChangeMark change={change.change} /> : null
+}
+
 /** A bot workspace, read-only (design §4.5): lazy tree left, the picked file right. */
 export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
   const groupId = useWorkbench((s) => s.groupId) ?? ''
@@ -103,11 +246,24 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
   const [ignored, setIgnored] = useState(false)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState(() => new Set(chain(tab.dir)))
-  const { listings, reload } = useTree(`/groups/${groupId}/bots/${tab.botId}/files`, ignored, [
-    '',
-    ...expanded,
-  ])
-  const hits = useSearch(groupId, tab.botId, query)
+  // Versions and compare need the group repo (partition mode), like the bar's git status.
+  const versioned = useWorkspace((s) => {
+    const g = s.groups.find((x) => x.id === groupId)
+    return g?.mode === 'partition' && !!g.repo
+  })
+  const rev = tab.rev ?? null
+  const repo = gitBase(groupId, tab.botId)
+  const files = `/groups/${groupId}/bots/${tab.botId}/files`
+  const { listings, reload } = useTree(
+    rev ? `${repo}@${rev}` : `${files}|${ignored}`,
+    (dir) =>
+      rev
+        ? gitUrls.tree(repo, rev, dir)
+        : `${files}/tree?path=${encodeURIComponent(dir)}${ignored ? '&ignored=1' : ''}`,
+    ['', ...expanded],
+  )
+  const compare = useCompare(tab.base ? gitUrls.compare(repo, tab.base, rev) : null)
+  const hits = useSearch(groupId, tab.botId, rev ? '' : query)
   const showTree = wide ? !collapsed : treeOpen
 
   // Navigating to a folder (breadcrumbs, 在文件浏览器中定位) reveals it.
@@ -182,7 +338,9 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
           </span>
           <Icon name={e.dir ? (open ? 'folder-open' : 'folder') : 'doc'} size={14} />
           <span className="ft__name">{e.name}</span>
-          {e.uncommitted ? (
+          {compare ? (
+            <CompareMark compare={compare} path={path} dir={e.dir} />
+          ) : e.uncommitted && !rev ? (
             <span className="ft__mark" title={t('未提交')}>
               M
             </span>
@@ -200,15 +358,28 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
     return out
   }
 
+  // A file deleted since the base only exists there.
+  const viewRev =
+    tab.selected && tab.base && compare?.byPath.get(tab.selected)?.change === 'deleted' ? tab.base : rev
   const top = listings['']
   const failed = top && 'error' in top ? top.error : null
   const crumbs = [
-    { id: '', label: t('工作区') },
+    { id: '', label: rev ? shortRev(rev) : t('工作区') },
     ...chain(tab.dir).map((id) => ({ id, label: id.split('/').pop() as string })),
   ]
 
   const tree =
-    hits !== null ? (
+    compare && tab.changedOnly ? (
+      <div className="ft">
+        {compare.error ? (
+          <div className="ft__note ft__note--error">{compare.error}</div>
+        ) : compare.changes.length ? (
+          <ChangeList changes={compare.changes} selected={tab.selected} onPick={(c) => pickFile(c.path)} />
+        ) : (
+          <div className="ft__note">{t('没有文件变化')}</div>
+        )}
+      </div>
+    ) : hits !== null ? (
       <div className="ft">
         {hits.length ? (
           hits.map((h) => (
@@ -247,20 +418,49 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
           onClick={() => (wide ? setCollapsed((c) => !c) : setTreeOpen((o) => !o))}
         />
         <PathControl className="wt-files__path" items={crumbs} onSelect={(dir) => patch(tabKey, { dir })} />
-        <SearchField
-          className="wt-files__search"
-          placeholder={t('搜索文件')}
-          value={query}
-          onChange={(q) => {
-            setQuery(q)
-            if (q.trim()) {
-              setTreeOpen(true)
-              setCollapsed(false)
-            }
-          }}
-        />
+        {rev ? null : (
+          <SearchField
+            className="wt-files__search"
+            placeholder={t('搜索文件')}
+            value={query}
+            onChange={(q) => {
+              setQuery(q)
+              if (q.trim()) {
+                setTreeOpen(true)
+                setCollapsed(false)
+              }
+            }}
+          />
+        )}
         <Button size="small" variant="plain" icon="arrow-clockwise" aria-label={t('刷新')} onClick={reload} />
-        <Checkbox label={t('显示忽略的')} checked={ignored} onChange={setIgnored} />
+        {versioned ? (
+          <>
+            <RefPicker
+              label={t('版本')}
+              value={rev}
+              groupId={groupId}
+              botId={tab.botId}
+              workTree
+              onPick={(r) => patch(tabKey, { rev: r })}
+            />
+            <RefPicker
+              label={t('对比')}
+              value={tab.base ?? null}
+              groupId={groupId}
+              botId={tab.botId}
+              clear={t('关闭对比')}
+              onPick={(b) => patch(tabKey, { base: b })}
+            />
+          </>
+        ) : null}
+        {tab.base ? (
+          <Checkbox
+            label={t('只看有变化的')}
+            checked={!!tab.changedOnly}
+            onChange={(on) => patch(tabKey, { changedOnly: on })}
+          />
+        ) : null}
+        {rev ? null : <Checkbox label={t('显示忽略的')} checked={ignored} onChange={setIgnored} />}
         <OpenWith groupId={groupId} botId={tab.botId} />
       </div>
       {failed ? (
@@ -277,11 +477,19 @@ export function FilesTab({ tab, tabKey }: TabProps<'files'>) {
             <div className="wt-files__view">
               {tab.selected ? (
                 <BotFileViewer
-                  key={tab.selected}
+                  key={`${tab.selected}@${viewRev ?? ''}`}
                   botId={tab.botId}
                   path={tab.selected}
+                  rev={viewRev}
                   onOpenTab={() =>
-                    openTab({ kind: 'file', source: { botId: tab.botId, path: tab.selected as string } })
+                    openTab({
+                      kind: 'file',
+                      source: {
+                        botId: tab.botId,
+                        path: tab.selected as string,
+                        ...(viewRev ? { rev: viewRev } : {}),
+                      },
+                    })
                   }
                 />
               ) : (
