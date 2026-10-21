@@ -39,7 +39,7 @@ function instructions(m: PluginManifest, card: CreationCard) {
   const ds = card.designSystem && m.designSystems.find((d) => d.id === card.designSystem?.id)
   return [
     `@${card.botName} 请用插件「${m.title}」（${m.name} v${m.version}）创作。`,
-    `Skill：Claude 用 ${m.name}:${m.entry}，Codex 用 ${m.name}-${m.entry}。`,
+    `Skill：Claude 用 ${m.name}:${m.entry}；Codex 用 ${m.entry}（目录 .agents/skills/${m.name}-${m.entry}）。`,
     ...(card.template ? [`模板：${card.template.title}（${card.template.id}）`] : []),
     ...(ds ? [`设计系统：${ds.title}（${ds.id}），先读取 skill 目录下的 ${ds.dir}/DESIGN.md 和 ${ds.dir}/tokens.css。`] : []),
     `先出 2–3 个视觉方向：${card.directions ? '是' : '否'}`,
