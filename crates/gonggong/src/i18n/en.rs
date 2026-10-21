@@ -51,6 +51,9 @@ pub(super) const EN: &[(&str, &str)] = &[
     ),
     ("已导出诊断包 {path}（{files}）", "Exported diagnostics bundle {path} ({files})"),
     ("、", ", "),
+    ("发布 {file}", "Publish {file}"),
+    ("发布 {dir} 中的 {n} 个文件：", "Publish {n} {n:file|files} in {dir}: "),
+    (" 等 {n} 个", " … {n} in total"),
     (
         "机器未授权屏幕录制，请在共工空间桌面端「实时画面」页完成授权",
         "Screen recording isn't allowed on this machine; grant it on the Live view page of the Gonggong Space desktop app",

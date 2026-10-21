@@ -125,7 +125,7 @@
   {
     "name": "client_release_publish",
     "title": "发布客户端到当前空间",
-    "description": "把本机构建好的一个客户端产物（gg daemon、gg-cast、桌面端安装包 Gonggong_<版本>_*.dmg / *-setup.exe，或桌面端更新包 Gonggong_<版本>_*.app.tar.gz 及其 .sig 签名、*-setup.exe.sig）上传到当前空间，成员的 daemon 随后自动升级、桌面端从这里检查更新、可在网页下载安装包。一次一个文件，有多个就逐个调用；只有系统管理员发起的对话可以发布。",
+    "description": "把本机构建好的客户端产物（gg daemon、gg-cast、桌面端安装包 Gonggong_<版本>_*.dmg / *-setup.exe，或桌面端更新包 Gonggong_<版本>_*.app.tar.gz 及其 .sig 签名、*-setup.exe.sig）上传到当前空间，成员的 daemon 随后自动升级、桌面端从这里检查更新、可在网页下载安装包。推荐用 dir 一次发布 scripts/release.sh 的整个输出目录（dist/<版本>），只需审批一次；补传单个文件时用 file。只有系统管理员发起的对话可以发布。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -133,10 +133,15 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 500,
-          "description": "要发布的产物路径（工作区内的相对路径，如 dist/0.3.1/gonggong-0.3.1-macos-aarch64）；文件名须是 scripts/release.sh 的产物名"
+          "description": "要发布的一个产物路径（工作区内的相对路径，如 dist/0.3.1/gonggong-0.3.1-macos-aarch64）；文件名须是 scripts/release.sh 的产物名"
+        },
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "要整体发布的目录（工作区内的相对路径，如 dist/0.3.1）：上传其中所有发布产物与 RELEASE_NOTES.md，SHA256SUMS、manifest.json 与子目录跳过"
         }
-      },
-      "required": ["file"]
+      }
     }
   },
   {

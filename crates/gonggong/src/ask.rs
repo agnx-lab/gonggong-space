@@ -371,27 +371,135 @@ async fn forward(api: Option<&Config>, asker: &dyn Asker, name: &str, args: &Val
 
 #[derive(Deserialize)]
 struct ReleaseArgs {
-    file: String,
+    file: Option<String>,
+    dir: Option<String>,
 }
 
-/// Uploads one release artifact of the workspace to the server, which takes it only for a run a sysadmin started.
+enum Release {
+    File(String),
+    Dir(String),
+}
+
+impl Release {
+    fn parse(args: &Value) -> Result<Release, String> {
+        match ReleaseArgs::deserialize(args).map_err(|e| format!("参数无效：{e}"))? {
+            ReleaseArgs { file: Some(file), dir: None } => Ok(Release::File(file)),
+            ReleaseArgs { file: None, dir: Some(dir) } => Ok(Release::Dir(dir)),
+            _ => Err("参数无效：file 与 dir 需要且只能给一个".into()),
+        }
+    }
+}
+
+/// What the server's `parseReleaseFile` takes (`packages/protocol/src/web.ts`), plus the notes it reads from
+/// `RELEASE_NOTES.md`.
+static RELEASE_FILE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"^(?:(?:gonggong|gg-cast)-\d+\.\d+\.\d+-(?:(?:macos|linux)-(?:x86_64|aarch64)|windows-x86_64\.exe)|Gonggong_\d+\.\d+\.\d+_(?:(?:aarch64|x86_64)\.(?:dmg|app\.tar\.gz(?:\.sig)?)|x64-setup\.exe(?:\.sig)?)|RELEASE_NOTES\.md)$",
+    )
+    .unwrap()
+});
+const RELEASE_NOTES: &str = "RELEASE_NOTES.md";
+/// File names an approval card lists before「等 N 个」.
+const APPROVAL_NAMES: usize = 20;
+
+fn is_release_file(name: &str) -> bool {
+    RELEASE_FILE.is_match(name)
+}
+
+/// The release files directly in `rel` (inside the canonical `root`) as (name, path), by name with the notes last:
+/// the server attaches notes to the release the artifacts before them created.
+fn release_files(root: &Path, rel: &str) -> Result<Vec<(String, PathBuf)>, String> {
+    let dir = crate::hosted::inside(root, rel)?;
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("读取 {rel} 失败：{e}"))?;
+    let mut files: Vec<(String, PathBuf)> = entries
+        .filter_map(|e| {
+            let name = e.ok()?.file_name().into_string().ok().filter(|n| is_release_file(n))?;
+            let path = workspace_file(root, dir.join(&name))?;
+            Some((name, path))
+        })
+        .collect();
+    if files.is_empty() {
+        return Err(format!("{rel} 里没有可发布的产物"));
+    }
+    files.sort_by(|a, b| (a.0 == RELEASE_NOTES, &a.0).cmp(&(b.0 == RELEASE_NOTES, &b.0)));
+    Ok(files)
+}
+
+/// What the bot owner approves for a `client_release_publish` call: the file, or every file of the dir.
+pub fn release_approval(title: &str, raw_input: Option<&Value>, cwd: &Path) -> Option<String> {
+    if !(title.contains(SERVER_NAME) && title.contains("client_release_publish")) {
+        return None;
+    }
+    let dir = match Release::parse(crate::mcp_call::arguments(raw_input?)).ok()? {
+        Release::File(file) => return Some(crate::t!("发布 {file}", file = file)),
+        Release::Dir(dir) => dir,
+    };
+    let files = release_files(&cwd.canonicalize().ok()?, &dir).ok()?;
+    let names: Vec<&str> = files.iter().take(APPROVAL_NAMES).map(|f| f.0.as_str()).collect();
+    let mut detail =
+        crate::t!("发布 {dir} 中的 {n} 个文件：", dir = dir, n = files.len()) + &names.join(crate::t!("、"));
+    if files.len() > APPROVAL_NAMES {
+        detail += &crate::t!(" 等 {n} 个", n = files.len());
+    }
+    Some(detail)
+}
+
+/// Uploads one release artifact, or every one of a dir (stopping at the first failure), to the server, which takes
+/// them only for a run a sysadmin started.
 async fn publish_release(api: Option<&Config>, asker: &dyn Asker, args: &Value) -> Result<String, String> {
-    let a = ReleaseArgs::deserialize(args).map_err(|e| format!("参数无效：{e}"))?;
+    let release = Release::parse(args)?;
     let api = api.ok_or("未连接服务器，无法发布")?;
     let (run_id, cwd) = asker.active_run().ok_or(NOT_RUNNING)?;
     let root = cwd.canonicalize().map_err(|e| format!("工作区不可用：{e}"))?;
-    let path = workspace_file(&root, &a.file).ok_or("文件必须是工作区内已存在的文件")?;
-    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let data = tokio::fs::read(&path).await.map_err(|e| format!("读取 {name} 失败：{e}"))?;
+    let mb = |size: usize| size as f64 / 1_048_576.0;
+    let dir = match release {
+        Release::Dir(dir) => dir,
+        Release::File(file) => {
+            let path = workspace_file(&root, &file).ok_or("文件必须是工作区内已存在的文件")?;
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let (size, body) = upload_release(api, &run_id, &name, &path).await?;
+            let version = body["version"].as_str().unwrap_or_default();
+            return Ok(format!("已发布 {name}（{:.1} MB）到当前空间，当前发布版本 {version}", mb(size)));
+        }
+    };
+    let files = release_files(&root, &dir)?;
+    let (mut total, mut last) = (0, Value::Null);
+    for (i, (name, path)) in files.iter().enumerate() {
+        match upload_release(api, &run_id, name, path).await {
+            Ok((size, body)) => (total, last) = (total + size, body),
+            Err(e) => {
+                let names = |f: &[(String, PathBuf)]| f.iter().map(|f| f.0.as_str()).collect::<Vec<_>>().join("、");
+                let mut msg = e;
+                if i > 0 {
+                    msg += &format!("\n已发布 {i} 个文件：{}", names(&files[..i]));
+                }
+                if i + 1 < files.len() {
+                    msg += &format!("\n未上传 {} 个文件：{}", files.len() - i - 1, names(&files[i + 1..]));
+                }
+                return Err(msg);
+            }
+        }
+    }
+    let version = last["version"].as_str().unwrap_or_default();
+    let mut text =
+        format!("已发布 {dir} 中的 {} 个文件（共 {:.1} MB）到当前空间，当前发布版本 {version}", files.len(), mb(total));
+    if let Some(warning) = last["warning"].as_str() {
+        text += &format!("\n{warning}");
+    }
+    Ok(text)
+}
+
+/// Uploads one release file as `name`: its size and the server's release.
+async fn upload_release(api: &Config, run_id: &str, name: &str, path: &Path) -> Result<(usize, Value), String> {
+    let data = tokio::fs::read(path).await.map_err(|e| format!("读取 {name} 失败：{e}"))?;
     let size = data.len();
     let form =
-        reqwest::multipart::Form::new().part("file", reqwest::multipart::Part::bytes(data).file_name(name.clone()));
+        reqwest::multipart::Form::new().part("file", reqwest::multipart::Part::bytes(data).file_name(name.to_string()));
     let body = post_form(api, &format!("/api/daemon/runs/{run_id}/release-files"), form)
         .await
         .map_err(|e| format!("上传 {name} 失败：{e}"))?
         .map_err(|reason| format!("服务器拒绝了 {name}：{reason}"))?;
-    let version = body["version"].as_str().unwrap_or_default();
-    Ok(format!("已发布 {name}（{:.1} MB）到当前空间，当前发布版本 {version}", size as f64 / 1_048_576.0))
+    Ok((size, body))
 }
 
 #[derive(Deserialize)]
@@ -449,7 +557,7 @@ async fn send_feishu_card(api: Option<&Config>, asker: &dyn Asker, args: &Value)
 }
 
 /// `rel` resolved inside the (canonical) workspace `root`, if it is an existing file there.
-fn workspace_file(root: &Path, rel: &str) -> Option<PathBuf> {
+fn workspace_file(root: &Path, rel: impl AsRef<Path>) -> Option<PathBuf> {
     root.join(rel).canonicalize().ok().filter(|p| p.starts_with(root) && p.is_file())
 }
 
@@ -926,6 +1034,13 @@ mod tests {
     }
 
     async fn fake_server_with(status: &'static str, tool: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+        fake_server_by(move |req| (status, if req.starts_with("POST") { tool } else { "PDF" }.to_string())).await
+    }
+
+    /// Answers each request with `answer(request)`: its status line and body.
+    async fn fake_server_by(
+        answer: impl Fn(&str) -> (&'static str, String) + Send + 'static,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -937,7 +1052,7 @@ mod tests {
                 let mut buf = vec![0u8; 16384];
                 let n = s.read(&mut buf).await.unwrap();
                 let req = String::from_utf8_lossy(&buf[..n]).to_string();
-                let body = if req.starts_with("POST") { tool.to_string() } else { "PDF".to_string() };
+                let (status, body) = answer(&req);
                 log.lock().unwrap().push(req);
                 let res = format!(
                     "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
@@ -1004,6 +1119,195 @@ mod tests {
         }
         assert_eq!(publish_release(Some(&api), &Fake::default(), &args).await, Err(NOT_RUNNING.into()));
         assert!(is_builtin("mcp__gonggong__preview_static") && !is_builtin("mcp__gonggong__client_release_publish"));
+    }
+
+    /// A `release.sh` output dir: artifacts of every kind, the notes, and files that are not uploaded.
+    fn release_dir(root: &Path) {
+        let dir = root.join("dist/0.3.7");
+        std::fs::create_dir_all(dir.join("github")).unwrap();
+        for name in [
+            "gonggong-0.3.7-macos-aarch64",
+            "gg-cast-0.3.7-windows-x86_64.exe",
+            "Gonggong_0.3.7_x64-setup.exe",
+            "Gonggong_0.3.7_aarch64.app.tar.gz.sig",
+            "RELEASE_NOTES.md",
+            "SHA256SUMS",
+            "manifest.json",
+            "gonggong-0.3.7-windows-x86_64",
+            ".DS_Store",
+            "github/manifest.json",
+        ] {
+            std::fs::write(dir.join(name), format!("data of {name}")).unwrap();
+        }
+    }
+
+    const RELEASE_ORDER: [&str; 5] = [
+        "Gonggong_0.3.7_aarch64.app.tar.gz.sig",
+        "Gonggong_0.3.7_x64-setup.exe",
+        "gg-cast-0.3.7-windows-x86_64.exe",
+        "gonggong-0.3.7-macos-aarch64",
+        "RELEASE_NOTES.md",
+    ];
+
+    fn uploaded(seen: &Mutex<Vec<String>>) -> Vec<String> {
+        let reqs = seen.lock().unwrap();
+        reqs.iter().map(|r| r.split_once(r#"filename=""#).unwrap().1.split_once('"').unwrap().0.to_string()).collect()
+    }
+
+    fn live_in(dir: &Path) -> Fake {
+        Fake(Mutex::default(), Mutex::default(), Some(("r1".into(), dir.to_path_buf())), Mutex::default())
+    }
+
+    #[tokio::test]
+    async fn uploads_every_release_artifact_of_a_dir_in_one_call_with_the_notes_last() {
+        let (base, seen) = fake_server(r#"{"version":"0.3.7","builds":{}}"#).await;
+        let dir = tempfile::tempdir().unwrap();
+        release_dir(dir.path());
+
+        let text =
+            publish_release(Some(&config(base)), &live_in(dir.path()), &json!({ "dir": "dist/0.3.7" })).await.unwrap();
+        assert_eq!(text, "已发布 dist/0.3.7 中的 5 个文件（共 0.0 MB）到当前空间，当前发布版本 0.3.7");
+        assert_eq!(uploaded(&seen), RELEASE_ORDER);
+        let reqs = seen.lock().unwrap().clone();
+        assert!(reqs.iter().all(|r| r.starts_with("POST /api/daemon/runs/r1/release-files HTTP/1.1")));
+        assert!(reqs[3].contains("data of gonggong-0.3.7-macos-aarch64"), "{}", reqs[3]);
+    }
+
+    #[tokio::test]
+    async fn passes_on_the_servers_warning_after_a_dir_without_notes() {
+        let (base, _) =
+            fake_server(r#"{"version":"0.3.7","builds":{},"warning":"未提供版本说明，请补充 RELEASE_NOTES.md"}"#).await;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("out")).unwrap();
+        std::fs::write(dir.path().join("out/gonggong-0.3.7-linux-x86_64"), "x").unwrap();
+        let text = publish_release(Some(&config(base)), &live_in(dir.path()), &json!({ "dir": "out" })).await.unwrap();
+        assert_eq!(
+            text,
+            "已发布 out 中的 1 个文件（共 0.0 MB）到当前空间，当前发布版本 0.3.7\n未提供版本说明，请补充 RELEASE_NOTES.md"
+        );
+    }
+
+    #[tokio::test]
+    async fn stops_a_dir_release_at_the_first_refused_file() {
+        let (base, seen) = fake_server_by(|req| {
+            if req.contains("gg-cast-") {
+                ("400 Bad Request", r#"{"error":"invalid","message":"版本低于当前发布的 0.3.8"}"#.into())
+            } else {
+                ("200 OK", r#"{"version":"0.3.7","builds":{}}"#.into())
+            }
+        })
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        release_dir(dir.path());
+
+        let err = publish_release(Some(&config(base)), &live_in(dir.path()), &json!({ "dir": "dist/0.3.7" }))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err,
+            "服务器拒绝了 gg-cast-0.3.7-windows-x86_64.exe：版本低于当前发布的 0.3.8\n\
+             已发布 2 个文件：Gonggong_0.3.7_aarch64.app.tar.gz.sig、Gonggong_0.3.7_x64-setup.exe\n\
+             未上传 2 个文件：gonggong-0.3.7-macos-aarch64、RELEASE_NOTES.md"
+        );
+        assert_eq!(uploaded(&seen), RELEASE_ORDER[..3]);
+    }
+
+    #[tokio::test]
+    async fn refuses_a_release_dir_outside_the_workspace_or_without_artifacts() {
+        let (base, seen) = fake_server(r#"{"version":"0.3.7","builds":{}}"#).await;
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        release_dir(dir.path());
+        std::fs::write(outside.path().join("gonggong-0.3.7-linux-x86_64"), "x").unwrap();
+        std::fs::create_dir_all(dir.path().join("linked")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            outside.path().join("gonggong-0.3.7-linux-x86_64"),
+            dir.path().join("linked/gonggong-0.3.7-linux-x86_64"),
+        )
+        .unwrap();
+        let (api, live) = (config(base), live_in(dir.path()));
+
+        let outside_dir = outside.path().to_string_lossy().to_string();
+        for d in ["..", "../..", outside_dir.as_str(), "dist/missing", "dist/0.3.7/SHA256SUMS"] {
+            let err = publish_release(Some(&api), &live, &json!({ "dir": d })).await;
+            assert_eq!(err, Err("目录必须是工作区内已存在的相对目录".into()), "{d}");
+        }
+        for d in ["dist/0.3.7/github", "linked"] {
+            let err = publish_release(Some(&api), &live, &json!({ "dir": d })).await;
+            assert_eq!(err, Err(format!("{d} 里没有可发布的产物")), "{d}");
+        }
+        for args in [json!({ "dir": "dist/0.3.7", "file": "dist/0.3.7/RELEASE_NOTES.md" }), json!({})] {
+            let err = publish_release(Some(&api), &live, &args).await;
+            assert_eq!(err, Err("参数无效：file 与 dir 需要且只能给一个".into()), "{args}");
+        }
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn shows_the_owner_which_release_files_one_approval_publishes() {
+        let dir = tempfile::tempdir().unwrap();
+        release_dir(dir.path());
+        let title = "mcp__gonggong__client_release_publish";
+        let detail = |raw: Value| release_approval(title, Some(&raw), dir.path());
+        let all = Some(format!("发布 dist/0.3.7 中的 5 个文件：{}", RELEASE_ORDER.join("、")));
+        assert_eq!(detail(json!({ "dir": "dist/0.3.7" })), all);
+        let codex =
+            json!({ "server": "gonggong", "tool": "client_release_publish", "arguments": { "dir": "dist/0.3.7" } });
+        assert_eq!(release_approval("mcp.gonggong.client_release_publish", Some(&codex), dir.path()), all);
+        assert_eq!(
+            detail(json!({ "file": "dist/0.3.7/gonggong-0.3.7-macos-aarch64" })),
+            Some("发布 dist/0.3.7/gonggong-0.3.7-macos-aarch64".into())
+        );
+
+        std::fs::create_dir_all(dir.path().join("many")).unwrap();
+        for n in 10..35 {
+            std::fs::write(dir.path().join(format!("many/gonggong-0.3.{n}-linux-x86_64")), "x").unwrap();
+        }
+        let many = detail(json!({ "dir": "many" })).unwrap();
+        assert!(many.starts_with("发布 many 中的 25 个文件：gonggong-0.3.10-linux-x86_64、"), "{many}");
+        assert!(many.ends_with(" 等 25 个"), "{many}");
+        assert_eq!(many.matches("gonggong-").count(), APPROVAL_NAMES);
+
+        assert_eq!(detail(json!({ "dir": ".." })), None);
+        assert_eq!(detail(json!({})), None);
+        let other =
+            release_approval("mcp__gonggong__preview_static", Some(&json!({ "dir": "dist/0.3.7" })), dir.path());
+        assert_eq!(other, None);
+    }
+
+    #[test]
+    fn recognizes_release_artifacts_like_the_server() {
+        for name in [
+            "gonggong-0.3.7-macos-aarch64",
+            "gonggong-0.3.7-macos-x86_64",
+            "gonggong-0.3.7-linux-aarch64",
+            "gonggong-0.3.7-windows-x86_64.exe",
+            "gg-cast-0.3.7-linux-x86_64",
+            "Gonggong_0.3.7_aarch64.dmg",
+            "Gonggong_0.3.7_x86_64.dmg",
+            "Gonggong_0.3.7_x64-setup.exe",
+            "Gonggong_0.3.7_x64-setup.exe.sig",
+            "Gonggong_0.3.7_x86_64.app.tar.gz",
+            "Gonggong_0.3.7_aarch64.app.tar.gz.sig",
+            "RELEASE_NOTES.md",
+        ] {
+            assert!(is_release_file(name), "{name}");
+        }
+        for name in [
+            "SHA256SUMS",
+            "manifest.json",
+            "latest.json",
+            "gonggong-0.3.7-windows-x86_64",
+            "gonggong-0.3.7-linux-x86_64.exe",
+            "gonggong-0.3-linux-x86_64",
+            "gonggong-0.3.7-windows-aarch64.exe",
+            "Gonggong_0.3.7_x64.dmg",
+            "Gonggong_0.3.7_aarch64.dmg.sig",
+            "release_notes.md",
+        ] {
+            assert!(!is_release_file(name), "{name}");
+        }
     }
 
     #[tokio::test]

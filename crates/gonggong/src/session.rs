@@ -677,6 +677,12 @@ impl Shared {
             return Permission::Now(permission_response(auto_allow(&req.options)));
         }
         let command = command_of(req.tool_call.fields.raw_input.as_ref());
+        let release = req
+            .tool_call
+            .fields
+            .title
+            .as_deref()
+            .and_then(|title| ask::release_approval(title, req.tool_call.fields.raw_input.as_ref(), &a.cwd));
         let Some(RunEvent::Tool { title, tool_kind, detail, .. }) =
             a.turn.apply(&req.session_id.0, SessionUpdate::ToolCallUpdate(req.tool_call))
         else {
@@ -702,7 +708,7 @@ impl Shared {
         out.send(DaemonToServer::ApprovalRequest(ApprovalRequest {
             run_id,
             request_id: request_id.clone(),
-            detail: detail.unwrap_or_else(|| title.clone()),
+            detail: release.or(detail).unwrap_or_else(|| title.clone()),
             title: title.clone(),
             tool_kind,
             options: wire_options(&req.options),

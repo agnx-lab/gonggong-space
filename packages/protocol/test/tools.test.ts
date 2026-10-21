@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   ClientReleaseNotesArgs,
+  ClientReleasePublishArgs,
   daemonToolList,
   GetRunArgs,
   gonggongToolList,
@@ -65,5 +66,14 @@ describe('gonggong tools', () => {
       false,
     )
     expect(ClientReleaseNotesArgs.safeParse({ version: '0.3.5', releaseNotes: '  ' }).success).toBe(false)
+  })
+
+  it('client releases publish one file or one directory', () => {
+    expect(
+      ClientReleasePublishArgs.safeParse({ file: 'dist/0.3.7/gonggong-0.3.7-linux-x86_64' }).success,
+    ).toBe(true)
+    expect(ClientReleasePublishArgs.safeParse({ dir: 'dist/0.3.7' }).success).toBe(true)
+    expect(ClientReleasePublishArgs.safeParse({}).success).toBe(false)
+    expect(ClientReleasePublishArgs.safeParse({ file: 'a', dir: 'dist' }).success).toBe(false)
   })
 })

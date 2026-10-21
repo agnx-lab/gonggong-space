@@ -16,12 +16,17 @@ pub fn name(title: &str) -> Option<(String, String)> {
     (!server.is_empty() && !tool.is_empty()).then(|| (server.to_string(), tool.to_string()))
 }
 
-/// The call's arguments as compact JSON; Codex wraps them with the server and tool names.
-pub fn input(raw: &Value) -> Option<String> {
-    let args = match raw.get("arguments") {
+/// The call's arguments; Codex wraps them with the server and tool names.
+pub fn arguments(raw: &Value) -> &Value {
+    match raw.get("arguments") {
         Some(a) if raw.get("server").is_some() && raw.get("tool").is_some() => a,
         _ => raw,
-    };
+    }
+}
+
+/// The call's arguments as compact JSON.
+pub fn input(raw: &Value) -> Option<String> {
+    let args = arguments(raw);
     let empty = args.is_null() || args.as_object().is_some_and(|o| o.is_empty());
     (!empty).then(|| head(&args.to_string(), INPUT_MAX))
 }
