@@ -16,8 +16,8 @@
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD; default ~/.tauri/gonggong.key, which has no password). --github then runs `gh release create v<version>` with every artifact and the
 # notes file (--notes, else docs/release-notes/v<version>.md); its Markdown is copied to dist and embedded in both
 # manifests. Missing notes warn but do not block publishing.
-# The Windows desktop installer is built by .github/workflows/desktop-windows.yml once the release is published; it
-# adds its windows-x86_64 entry to latest.json.
+# The Windows desktop installer is built by .github/workflows/desktop-windows.yml, started here once the release is
+# published (scripts/release/ship.sh starts it at the beginning instead); it adds its windows-x86_64 entry to latest.json.
 # macOS builds need a macOS host with rustup targets; Linux (glibc ≥ 2.31) and Windows (mingw-w64) build in Docker.
 # gg-cast links libwebrtc's prebuilt archives: on Linux and Windows (MSVC, through cargo-xwin) it builds in the image
 # of release/cast.Dockerfile, natively for the Docker host's Linux arch and emulated (`--platform`) for the other.
@@ -106,27 +106,20 @@ mac_cast() {
   cast_keep "$1"
 }
 
-docker_targets=()
+mac_targets=() docker_targets=()
 for p in "${PLATFORMS[@]}"; do
-  key="${p%%:*}" target="${p#*:}"
+  key="${p%%:*}"
   wanted "$key" || continue
   if [[ $key == macos-* ]]; then
     [ "$(uname -s)" = Darwin ] || { echo "skip $key: needs a macOS host" >&2; continue; }
-    echo "== $key ($target)"
-    # The rustup toolchain has the cross targets; a Homebrew rustc earlier on PATH would not. `rustup run` (not the
-    # bare toolchain binaries) also sets the library path rust-objcopy needs to find libLLVM when stripping.
-    # `rustup run` leaves PATH alone, so cargo would still spawn a Homebrew rustc that lacks the cross target.
-    export RUSTC="$("$rustup" which --toolchain stable rustc)"
-    (cd "$ROOT" && "$rustup" run stable cargo build -q --release --locked -p gonggong --target "$target")
-    cp "$ROOT/target/$target/release/gg" "$out/$(artifact "$key")"
-    mac_cast "$key" "$target"
+    mac_targets+=("$p")
   else
-    docker_targets+=("$key:$target")
+    docker_targets+=("$p")
   fi
 done
 
-if [ ${#docker_targets[@]} -gt 0 ]; then
-  script=""
+docker_builds() {
+  local p key target exe script="" host build platform
   for p in "${docker_targets[@]}"; do
     key="${p%%:*}" target="${p#*:}" exe=""
     [[ $key == windows-* ]] && exe=.exe
@@ -147,6 +140,40 @@ if [ ${#docker_targets[@]} -gt 0 ]; then
     cast_builder "$out" "$platform" "cargo $build -q ${CAST[*]} --target $target; \
       cp /target/$target/release/gg-cast$exe /out/$(cast_artifact "$key")"
     cast_keep "$key"
+  done
+}
+
+# The Docker VM builds Linux and Windows while this host builds macOS and the desktop app: neither waits on the other.
+docker_pid=""
+docker_log="$(mktemp)"
+if [ ${#docker_targets[@]} -gt 0 ]; then
+  docker_builds > "$docker_log" 2>&1 &
+  docker_pid=$!
+fi
+docker_done() {
+  [ -n "$docker_pid" ] || return 0
+  local rc=0
+  wait "$docker_pid" || rc=$?
+  docker_pid=""
+  sed 's/^/[docker] /' "$docker_log"
+  rm -f "$docker_log"
+  [ "$rc" = 0 ] || { echo "error: the Docker builds failed" >&2; exit "$rc"; }
+}
+trap '[ -z "$docker_pid" ] || kill "$docker_pid" 2>/dev/null' EXIT
+
+if [ ${#mac_targets[@]} -gt 0 ]; then
+  target_args=()
+  for p in "${mac_targets[@]}"; do target_args+=(--target "${p#*:}"); done
+  echo "== ${mac_targets[*]%%:*}"
+  # The rustup toolchain has the cross targets; a Homebrew rustc earlier on PATH would not. `rustup run` (not the
+  # bare toolchain binaries) also sets the library path rust-objcopy needs to find libLLVM when stripping.
+  # `rustup run` leaves PATH alone, so cargo would still spawn a Homebrew rustc that lacks the cross target.
+  # One cargo for every target shares its job queue, so the CPU stays busy across both.
+  export RUSTC="$("$rustup" which --toolchain stable rustc)"
+  (cd "$ROOT" && "$rustup" run stable cargo build -q --release --locked -p gonggong "${target_args[@]}")
+  for p in "${mac_targets[@]}"; do
+    cp "$ROOT/target/${p#*:}/release/gg" "$out/$(artifact "${p%%:*}")"
+    mac_cast "${p%%:*}" "${p#*:}"
   done
 fi
 
@@ -205,6 +232,8 @@ if [ -d "$ROOT/apps/desktop" ] && [ "$(uname -s)" = Darwin ] && wanted desktop; 
   cp "$bundle"/macos/*.app.tar.gz "$out/Gonggong_${version}_$arch.app.tar.gz"
   cp "$bundle"/macos/*.app.tar.gz.sig "$out/Gonggong_${version}_$arch.app.tar.gz.sig"
 fi
+
+docker_done
 
 cd "$out"
 shopt -s nullglob
@@ -272,4 +301,6 @@ if [ -n "$github" ]; then
       github/*.json --repo "$repo" --title "共工空间 v$version" --notes "本版本未提供具体更新说明。"
   fi
   echo "released v$version on github.com/$repo"
+  gh workflow run desktop-windows.yml --repo "$repo" --ref "v$version" -f tag="v$version"
+  echo "started the Windows desktop build (gh run list --repo $repo --workflow desktop-windows.yml)"
 fi

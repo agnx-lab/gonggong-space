@@ -1,11 +1,10 @@
 name: Windows desktop
 
-# Builds the Windows desktop app (NSIS installer, signed for the Tauri updater). A published release (scripts/release.sh
-# --github) gets the installer attached and a windows-x86_64 entry merged into its latest.json, so installed apps
-# update. Run by hand to attach a build to an existing release (tag) or, without one, only as a workflow artifact.
+# Builds the Windows desktop app (NSIS installer, signed for the Tauri updater) and attaches it to the release of `tag`
+# (a draft too), merging a windows-x86_64 entry into its latest.json so installed apps update. Started by
+# scripts/release/ship.sh as soon as the tag is pushed, so it builds while the macOS machine does, or by
+# scripts/release.sh --github after publishing; without a tag it only leaves a workflow artifact.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -19,7 +18,7 @@ jobs:
   build:
     runs-on: windows-latest
     env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
     defaults:
       run:
@@ -46,6 +45,9 @@ jobs:
       - run: pnpm install --frozen-lockfile --filter "@gonggong/desktop..." --filter "@gonggong/web..."
       - name: Build
         env:
+          # The release profile's single codegen unit makes this the slowest step of a release on a small runner;
+          # 16 units cost a few MB of installer and no noticeable speed.
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
