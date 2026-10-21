@@ -260,7 +260,7 @@ async fn git_action(dir: &Path, req: &GitAction) -> Result<String, String> {
         GitActionKind::Pull => git_ops::pull(dir).await,
         GitActionKind::Commit => {
             let message = req.message.as_deref().unwrap_or_default();
-            git_ops::commit(dir, message, req.identity.as_ref()).await
+            git_ops::commit(dir, message, req.paths.as_deref(), req.identity.as_ref()).await
         }
         GitActionKind::Push => {
             let remote = req.remote.as_deref().ok_or_else(|| missing("remote"))?;
@@ -488,6 +488,31 @@ impl Handler for Engine {
                         Err(e) => (vec![], Some(e)),
                     };
                     out.send(DaemonToServer::GitCompareResult { request_id: req.request_id, changes, error });
+                });
+            }
+            ServerToDaemon::GitDiff(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let max = usize::try_from(req.max_bytes).unwrap_or(usize::MAX);
+                    let (patch, truncated, error) =
+                        match git_ops::diff(&dir, &req.from, req.to.as_deref(), req.path.as_deref(), max).await {
+                            Ok((patch, truncated)) => (Some(patch), truncated, None),
+                            Err(e) => (None, false, Some(e)),
+                        };
+                    out.send(DaemonToServer::GitDiffResult { request_id: req.request_id, patch, truncated, error });
+                });
+            }
+            ServerToDaemon::GitRefresh(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let error = match req.fetch {
+                        true => git_ops::fetch(&dir).await.err(),
+                        false => None,
+                    };
+                    workspace::report_git(&out, &req.group_id, &req.bot_id, &req.workspace, &dir).await;
+                    out.send(DaemonToServer::GitRefreshResult { request_id: req.request_id, error });
                 });
             }
             ServerToDaemon::GitAction(req) => {

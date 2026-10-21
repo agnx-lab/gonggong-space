@@ -1,12 +1,13 @@
 //! Manual git from the group: views of any ref that never touch the work tree, and the owner's writes (checkout,
 //! fast-forward pull, commit, push), never forced.
 use crate::explorer::{self, SNIFF_BYTES};
-use crate::git::{self, git, git_bytes, git_capped_bytes};
+use crate::git::{self, git, git_bytes, git_capped_bytes, git_input};
 use crate::protocol::{
     GitBranch, GitBranchKind, GitChange, GitChangeKind, GitCommit, GitIdentity, GitRemote, TreeEntry,
 };
 use crate::repo::{self, remote_git, remote_output};
 use crate::t;
+use std::collections::HashSet;
 use std::path::{Component, Path};
 use std::time::Duration;
 
@@ -178,6 +179,45 @@ pub async fn compare(dir: &Path, from: &str, to: Option<&str>) -> Result<Vec<Git
     Ok(changes)
 }
 
+/// The patch from `from` to `to` (None = the work tree with its untracked files), of `path` only when given, cut at
+/// `max_bytes`; true when cut.
+pub async fn diff(
+    dir: &Path,
+    from: &str,
+    to: Option<&str>,
+    path: Option<&str>,
+    max_bytes: usize,
+) -> Result<(String, bool), String> {
+    repo_dir(dir)?;
+    let from = arg(from)?;
+    let path = path.map(tree_path).transpose()?;
+    let to = match to {
+        Some(to) => arg(to)?.to_string(),
+        None => git::work_tree(dir).await?,
+    };
+    let mut args = vec!["--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "-M", from, &to, "--"];
+    args.extend(path.as_deref().filter(|p| !p.is_empty()));
+    let out = git_capped_bytes(dir, &args, max_bytes.saturating_add(1)).await?;
+    let truncated = out.len() > max_bytes;
+    let mut patch = String::from_utf8_lossy(&out).into_owned();
+    if truncated {
+        let mut cut = max_bytes.min(patch.len());
+        while !patch.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        // A whole last line, so the cut patch still parses.
+        cut = patch[..cut].rfind('\n').map_or(cut, |i| i + 1);
+        patch.truncate(cut);
+    }
+    Ok((patch, truncated))
+}
+
+/// `git fetch --prune` of every remote.
+pub async fn fetch(dir: &Path) -> Result<(), String> {
+    repo_dir(dir)?;
+    remote_git(dir, &["fetch", "--prune", "--all"], Some(NETWORK_TIMEOUT)).await.map(drop).map_err(|f| f.detail)
+}
+
 /// `[branch abc1234] subject` of HEAD.
 async fn head_line(dir: &Path) -> Result<String, String> {
     let branch = git::branch(dir).await.unwrap_or_else(|| "HEAD".into());
@@ -224,24 +264,55 @@ pub async fn pull(dir: &Path) -> Result<String, String> {
     Ok(out.lines().next().unwrap_or_default().trim().to_string())
 }
 
-/// Commits every change of the work tree (but the daemon's private dir) as `identity`, else the machine's config.
-pub async fn commit(dir: &Path, message: &str, identity: Option<&GitIdentity>) -> Result<String, String> {
+/// Commits every change of the work tree, or only those of `paths` (work tree relative), but the daemon's private dir,
+/// as `identity`, else the machine's config. With `paths`, whatever else was staged stays staged and out of the commit.
+pub async fn commit(
+    dir: &Path,
+    message: &str,
+    paths: Option<&[String]>,
+    identity: Option<&GitIdentity>,
+) -> Result<String, String> {
     repo_dir(dir)?;
     if message.trim().is_empty() {
         return Err(t!("缺少提交说明").into());
-    }
-    let spec = git::everything(dir).await;
-    git(dir, &[&["add", "-A", "--"][..], spec].concat()).await?;
-    if git(dir, &["diff", "--cached", "--quiet"]).await.is_ok() {
-        return Err(t!("没有可提交的改动").into());
     }
     let who = identity.map(|i| [format!("user.name={}", i.name), format!("user.email={}", i.email)]);
     let mut args: Vec<&str> = vec![];
     if let Some([name, email]) = &who {
         args.extend(["-c", name, "-c", email]);
     }
-    args.extend(["commit", "-m", message]);
-    let out = git(dir, &args).await?;
+    let out = match paths {
+        None => {
+            let spec = git::everything(dir).await;
+            git(dir, &[&["add", "-A", "--"][..], spec].concat()).await?;
+            if git(dir, &["diff", "--cached", "--quiet"]).await.is_ok() {
+                return Err(t!("没有可提交的改动").into());
+            }
+            args.extend(["commit", "-m", message]);
+            git(dir, &args).await?
+        }
+        Some(paths) => {
+            let mut picked = vec![];
+            for p in paths {
+                let p = tree_path(p)?;
+                if !p.is_empty() && !format!("{p}/").starts_with(git::PRIVATE_DIR) {
+                    picked.push(p);
+                }
+            }
+            let list: Vec<u8> = picked.iter().flat_map(|p| [p.as_bytes(), b"\0"].concat()).collect();
+            // update-index takes literal paths, deleted (even already staged as deleted) or untracked ones alike.
+            git_input(dir, &["update-index", "--add", "--remove", "-z", "--stdin"], &list).await?;
+            let staged = git(dir, &["diff", "--cached", "--no-renames", "--name-only", "-z"]).await?;
+            let staged: HashSet<&str> = staged.split('\0').collect();
+            if !picked.iter().any(|p| staged.contains(p.as_str())) {
+                return Err(t!("没有可提交的改动").into());
+            }
+            // `--only` (implied by the pathspec) commits these paths alone, leaving the rest of the index as it was.
+            args.push("--literal-pathspecs");
+            args.extend(["commit", "--only", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", message]);
+            git_input(dir, &args, &list).await?
+        }
+    };
     Ok(out.lines().next().unwrap_or_default().trim().to_string())
 }
 

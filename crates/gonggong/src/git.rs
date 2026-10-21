@@ -78,6 +78,29 @@ async fn run_git_raw(dir: &Path, args: &[&str], index: Option<&Path>) -> Result<
     if out.status.success() { Ok(out.stdout) } else { Err(failure(&out.stderr)) }
 }
 
+/// Like [`git`], with `input` on stdin (path lists too long for a command line).
+pub(crate) async fn git_input(dir: &Path, args: &[&str], input: &[u8]) -> Result<String, String> {
+    let mut child = crate::proc::async_command("git")
+        .arg("-C")
+        .arg(dir)
+        .args(UNQUOTED)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| t!("无法执行 git：{e}", e = e))?;
+    let mut stdin = child.stdin.take().expect("piped");
+    let input = input.to_vec();
+    // Written aside so a child filling its stdout before reading all of stdin cannot deadlock.
+    let writer = tokio::spawn(async move { tokio::io::AsyncWriteExt::write_all(&mut stdin, &input).await });
+    let out = child.wait_with_output().await.map_err(|e| t!("无法执行 git：{e}", e = e))?;
+    let _ = writer.await;
+    if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).into_owned()) } else { Err(failure(&out.stderr)) }
+}
+
 fn failure(stderr: &[u8]) -> String {
     let err = String::from_utf8_lossy(stderr);
     err.lines().find(|l| !l.trim().is_empty()).unwrap_or(t!("git 执行失败")).trim().to_string()

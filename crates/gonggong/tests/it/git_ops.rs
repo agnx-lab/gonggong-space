@@ -206,6 +206,59 @@ impl Rig {
         }
     }
 
+    /// (patch, truncated)
+    async fn diff(
+        &mut self,
+        from: &str,
+        to: Option<&str>,
+        path: Option<&str>,
+        max_bytes: u64,
+    ) -> Result<(String, bool), String> {
+        let req = GitDiff {
+            request_id: "q".into(),
+            group_id: "g1".into(),
+            bot_id: "b1".into(),
+            workspace: self.spec(),
+            from: from.into(),
+            to: to.map(String::from),
+            path: path.map(String::from),
+            max_bytes,
+        };
+        self.send(ServerToDaemon::GitDiff(req));
+        match self.next().await {
+            DaemonToServer::GitDiffResult { patch: Some(patch), truncated, error: None, .. } => Ok((patch, truncated)),
+            DaemonToServer::GitDiffResult { patch: None, error: Some(e), .. } => Err(e),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// The fresh status, then the refresh's own error.
+    async fn refresh(&mut self, fetch: bool) -> (GitStatus, Option<String>) {
+        let req = GitRefresh {
+            request_id: "q".into(),
+            group_id: "g1".into(),
+            bot_id: "b1".into(),
+            workspace: self.spec(),
+            fetch,
+        };
+        self.send(ServerToDaemon::GitRefresh(req));
+        let git = loop {
+            match self.next().await {
+                DaemonToServer::WorkspaceState(s) if s.request_id.is_none() && s.bot_id == "b1" => {
+                    break s.git.unwrap();
+                }
+                DaemonToServer::GitRefreshResult { .. } => panic!("the status goes out first"),
+                _ => {}
+            }
+        };
+        loop {
+            if let DaemonToServer::GitRefreshResult { request_id, error } = self.next().await {
+                assert_eq!(request_id, "q");
+                return (git, error);
+            }
+        }
+    }
+
     fn action_req(&self, action: GitActionKind) -> GitAction {
         GitAction {
             request_id: "q".into(),
@@ -216,6 +269,7 @@ impl Rig {
             branch: None,
             remote: None,
             message: None,
+            paths: None,
             identity: None,
         }
     }
@@ -388,6 +442,119 @@ async fn compare_lists_changes_between_refs_and_against_the_work_tree() {
         ]
     );
     assert_eq!(sh(&r.work, &["diff", "--cached", "--name-only"]), staged_before, "the index is left alone");
+}
+
+#[tokio::test]
+async fn diff_gives_the_patch_between_refs_and_against_the_work_tree() {
+    let mut r = rig();
+    let (patch, truncated) = r.diff("main", Some("origin/feat"), None, 1 << 20).await.unwrap();
+    assert!(!truncated);
+    assert!(patch.contains("diff --git a/src/a.txt b/src/a.txt\n"), "{patch}");
+    assert!(patch.contains("-a1\n+a2\n"), "{patch}");
+    assert!(patch.contains("+++ b/src/b.txt\n@@ -0,0 +1 @@\n+b\n"), "{patch}");
+    assert!(patch.contains("rename from docs/old.md\nrename to docs/new.md\n"), "renames are detected: {patch}");
+
+    let (one, _) = r.diff("main", Some("origin/feat"), Some("src/a.txt"), 1 << 20).await.unwrap();
+    assert!(one.starts_with("diff --git a/src/a.txt b/src/a.txt\n") && !one.contains("b.txt"), "{one}");
+
+    fs::write(r.work.join("src/a.txt"), "edited\n").unwrap();
+    fs::write(r.work.join("new.txt"), "untracked\n").unwrap();
+    fs::remove_file(r.work.join("README.md")).unwrap();
+    sh(&r.work, &["add", "src/a.txt"]);
+    let (staged, status) = (sh(&r.work, &["diff", "--cached", "--name-only"]), sh(&r.work, &["status", "--porcelain"]));
+    let (patch, _) = r.diff("HEAD", None, None, 1 << 20).await.unwrap();
+    assert!(patch.contains("diff --git a/README.md b/README.md\ndeleted file mode"), "{patch}");
+    assert!(patch.contains("+++ b/new.txt\n@@ -0,0 +1 @@\n+untracked\n"), "untracked files count: {patch}");
+    assert!(patch.contains("-a1\n+edited\n"), "{patch}");
+    let (one, _) = r.diff("HEAD", None, Some("./new.txt"), 1 << 20).await.unwrap();
+    assert!(one.starts_with("diff --git a/new.txt b/new.txt\n") && !one.contains("README"), "{one}");
+    let (none, truncated) = r.diff("HEAD", None, Some("docs/old.md"), 1 << 20).await.unwrap();
+    assert_eq!((none.as_str(), truncated), ("", false));
+    assert_eq!(sh(&r.work, &["diff", "--cached", "--name-only"]), staged, "the index is left alone");
+    assert_eq!(sh(&r.work, &["status", "--porcelain"]), status);
+
+    fs::write(r.work.join("big.txt"), "some line\n".repeat(1000)).unwrap();
+    let (cut, truncated) = r.diff("HEAD", None, Some("big.txt"), 100).await.unwrap();
+    assert!(truncated);
+    assert!(cut.len() <= 100 && cut.starts_with("diff --git a/big.txt"), "{cut}");
+    let (whole, truncated) = r.diff("HEAD", None, Some("big.txt"), 1 << 20).await.unwrap();
+    assert!(!truncated && whole.len() > 10_000);
+
+    assert!(r.diff("HEAD", None, Some("../work/README.md"), 1024).await.unwrap_err().contains("超出"));
+    assert!(r.diff("HEAD", None, Some("/etc/passwd"), 1024).await.unwrap_err().contains("超出"));
+    assert!(r.diff("--output=/tmp/x", None, None, 1024).await.is_err());
+    assert!(r.diff("HEAD", Some("--output=/tmp/x"), None, 1024).await.is_err());
+}
+
+#[tokio::test]
+async fn refresh_fetches_and_sends_the_fresh_status() {
+    let mut r = rig();
+    commit(&r.other, "theirs.txt", "y", "theirs");
+    sh(&r.other, &["push", "-q", "origin", "main"]);
+    let (git, error) = r.refresh(false).await;
+    assert_eq!((git.branch.as_deref(), git.ahead, git.behind, error), (Some("main"), Some(0), Some(0), None));
+
+    sh(&r.other, &["push", "-q", "origin", "main:gone"]);
+    sh(&r.work, &["fetch", "-q"]);
+    sh(&r.remote, &["branch", "-D", "gone"]);
+    let (git, error) = r.refresh(true).await;
+    assert_eq!((git.ahead, git.behind, error), (Some(0), Some(1), None));
+    assert_eq!(sh(&r.work, &["branch", "-r", "--list", "origin/gone"]), "", "fetch prunes");
+    assert_eq!(r.head(), sh(&r.work, &["rev-parse", "origin/main~1"]), "the work tree is left alone");
+
+    fs::write(r.work.join("dirty.txt"), "x").unwrap();
+    sh(&r.work, &["remote", "set-url", "origin", "/nonexistent/remote.git"]);
+    let (git, error) = r.refresh(true).await;
+    assert!(error.is_some_and(|e| !e.is_empty()), "a failed fetch is reported");
+    assert_eq!((git.behind, git.dirty_count), (Some(1), Some(1)), "the status is sent anyway");
+}
+
+#[tokio::test]
+async fn commit_takes_only_the_given_paths() {
+    let mut r = rig();
+    fs::write(r.work.join("src/a.txt"), "picked\n").unwrap();
+    fs::write(r.work.join("added.txt"), "new\n").unwrap();
+    fs::write(r.work.join("w*.txt"), "literal\n").unwrap();
+    fs::write(r.work.join("wx.txt"), "not picked\n").unwrap();
+    fs::remove_file(r.work.join("docs/old.md")).unwrap();
+    fs::create_dir_all(r.work.join("img")).unwrap();
+    sh(&r.work, &["mv", "logo.png", "img/logo.png"]);
+    fs::write(r.work.join("README.md"), "staged, not picked\n").unwrap();
+    sh(&r.work, &["add", "README.md"]);
+    fs::create_dir_all(r.work.join(".gonggong")).unwrap();
+    fs::write(r.work.join(".gonggong/note"), "private").unwrap();
+    let paths = ["src/a.txt", "added.txt", "w*.txt", "docs/old.md", "logo.png", "img/logo.png", ".gonggong/note"];
+    let req = GitAction {
+        message: Some("部分提交".into()),
+        paths: Some(paths.map(String::from).to_vec()),
+        ..r.action_req(GitActionKind::Commit)
+    };
+    let (ok, _, output, error) = r.act(req.clone()).await;
+    assert!(ok, "{error:?}");
+    assert!(output.unwrap().contains("部分提交"));
+    assert_eq!(
+        sh(&r.work, &["show", "--no-renames", "--name-status", "--format=", "HEAD"]),
+        "A\tadded.txt\nD\tdocs/old.md\nA\timg/logo.png\nD\tlogo.png\nM\tsrc/a.txt\nA\tw*.txt"
+    );
+    assert_eq!(
+        sh(&r.work, &["status", "--porcelain", "--untracked-files=all"]),
+        "M  README.md\n?? .gonggong/note\n?? wx.txt",
+        "the rest stays as it was, staged or not"
+    );
+
+    let head = r.head();
+    let (ok, _, _, error) = r.act(req).await;
+    assert_eq!((ok, error.as_deref()), (false, Some("没有可提交的改动")));
+    let escape = GitAction {
+        message: Some("m".into()),
+        paths: Some(vec!["src/a.txt".into(), "../other/README.md".into()]),
+        ..r.action_req(GitActionKind::Commit)
+    };
+    fs::write(r.work.join("src/a.txt"), "again\n").unwrap();
+    let (ok, _, _, error) = r.act(escape).await;
+    assert!(!ok && error.unwrap().contains("超出"));
+    assert_eq!(r.head(), head);
+    assert_eq!(sh(&r.work, &["diff", "--cached", "--name-only"]), "README.md", "nothing staged when refused");
 }
 
 #[tokio::test]
@@ -566,6 +733,8 @@ async fn actions_are_refused_while_a_turn_holds_the_directory() {
     assert_eq!((ok, busy, output, error.as_deref()), (false, true, None, Some("工作目录正被运行占用")));
     assert_eq!(r.head(), head);
     assert_eq!(sh(&r.work, &["status", "--porcelain"]), "M src/a.txt");
+    let (git, error) = r.refresh(true).await;
+    assert_eq!((git.dirty_count, error), (Some(1), None), "a refresh is never refused");
     r.send(ServerToDaemon::RunCancel { run_id: "r1".into() });
 }
 

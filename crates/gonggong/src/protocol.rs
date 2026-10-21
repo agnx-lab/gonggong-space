@@ -651,6 +651,32 @@ pub struct GitCompare {
     pub to: Option<String>,
 }
 
+/// git.diff: the unified patch from `from` to `to` (None = the work tree, untracked files included), of `path` only
+/// when given, cut at `max_bytes`. Never touches the work tree or the index.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiff {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub from: String,
+    pub to: Option<String>,
+    pub path: Option<String>,
+    pub max_bytes: u64,
+}
+
+/// git.refresh: sends the current git status as workspace.state, after `git fetch --prune --all` when `fetch`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRefresh {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    pub fetch: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GitActionKind {
@@ -672,6 +698,9 @@ pub struct GitAction {
     pub branch: Option<String>,
     pub remote: Option<String>,
     pub message: Option<String>,
+    /// commit: only these work-tree-relative paths; None = every change. Older servers never send it.
+    #[serde(default)]
+    pub paths: Option<Vec<String>>,
     pub identity: Option<GitIdentity>,
 }
 
@@ -1218,6 +1247,8 @@ pub const FEATURE_AGENT_SETTINGS: &str = "agentSettings";
 pub const FEATURE_REPROBE: &str = "reprobe";
 pub const FEATURE_PLUGINS: &str = "plugins";
 pub const FEATURE_GIT_OPS: &str = "gitOps";
+/// git.diff, git.refresh and commit `paths`: without it a server must not send paths, or everything gets committed.
+pub const FEATURE_GIT_OPS2: &str = "gitOps2";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolsSettings {
@@ -1612,6 +1643,11 @@ pub enum DaemonToServer {
     },
     #[serde(rename = "git.compare.result", rename_all = "camelCase")]
     GitCompareResult { request_id: String, changes: Vec<GitChange>, error: Option<String> },
+    #[serde(rename = "git.diff.result", rename_all = "camelCase")]
+    GitDiffResult { request_id: String, patch: Option<String>, truncated: bool, error: Option<String> },
+    /// Sent after the refreshed workspace.state.
+    #[serde(rename = "git.refresh.result", rename_all = "camelCase")]
+    GitRefreshResult { request_id: String, error: Option<String> },
     #[serde(rename = "git.action.result", rename_all = "camelCase")]
     GitActionResult { request_id: String, ok: bool, busy: bool, output: Option<String>, error: Option<String> },
     #[serde(rename = "workspace.diff.result", rename_all = "camelCase")]
@@ -1768,6 +1804,10 @@ pub enum ServerToDaemon {
     GitRead(GitRead),
     #[serde(rename = "git.compare")]
     GitCompare(GitCompare),
+    #[serde(rename = "git.diff")]
+    GitDiff(GitDiff),
+    #[serde(rename = "git.refresh")]
+    GitRefresh(GitRefresh),
     #[serde(rename = "git.action")]
     GitAction(GitAction),
     #[serde(rename = "workspace.diff")]
@@ -1837,5 +1877,32 @@ mod tests {
             serde_json::from_str(include_str!("../../../packages/protocol/fixtures/d2s.files.find.result.json"))
                 .unwrap();
         assert!(matches!(answer, DaemonToServer::FilesFindResult { ref paths, .. } if paths.len() == 2));
+    }
+
+    #[test]
+    fn git_diff_refresh_and_commit_paths_fixtures_parse() {
+        let fixture = |raw: &str| serde_json::from_str::<ServerToDaemon>(raw).unwrap();
+        let ServerToDaemon::GitDiff(diff) =
+            fixture(include_str!("../../../packages/protocol/fixtures/s2d.git.diff.json"))
+        else {
+            panic!()
+        };
+        assert_eq!((diff.from.as_str(), diff.to, diff.path.as_deref()), ("HEAD", None, Some("src/refund.ts")));
+        assert_eq!(diff.max_bytes, 1_048_576);
+        let refresh = fixture(include_str!("../../../packages/protocol/fixtures/s2d.git.refresh.json"));
+        assert!(matches!(refresh, ServerToDaemon::GitRefresh(ref r) if r.fetch));
+        let commit = fixture(include_str!("../../../packages/protocol/fixtures/s2d.git.action.json"));
+        assert!(matches!(commit, ServerToDaemon::GitAction(ref a) if a.paths.as_ref().is_some_and(|p| p.len() == 2)));
+        // An older server never sends `paths`.
+        let push = fixture(include_str!("../../../packages/protocol/fixtures/s2d.git.action.push.json"));
+        assert!(matches!(push, ServerToDaemon::GitAction(ref a) if a.paths.is_none()));
+
+        let answer = |raw: &str| serde_json::from_str::<DaemonToServer>(raw).unwrap();
+        let result = answer(include_str!("../../../packages/protocol/fixtures/d2s.git.diff.result.json"));
+        assert!(
+            matches!(result, DaemonToServer::GitDiffResult { ref patch, truncated: false, error: None, .. } if patch.as_ref().is_some_and(|p| p.starts_with("diff --git")))
+        );
+        let result = answer(include_str!("../../../packages/protocol/fixtures/d2s.git.refresh.result.json"));
+        assert!(matches!(result, DaemonToServer::GitRefreshResult { error: None, .. }));
     }
 }
