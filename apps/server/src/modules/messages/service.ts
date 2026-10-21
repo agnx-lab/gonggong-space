@@ -5,6 +5,7 @@ import type {
   McpSecretCard,
   MessageCard,
   MessageDto,
+  ProgressCard,
   ProtocolKey,
   ReactionDto,
   RunConfigPick,
@@ -51,6 +52,8 @@ export type MessageMeta = {
   mcpSecret?: McpSecretCard
   /** A bot's 填写密钥 card (secret_request). */
   secretCard?: SecretCard
+  /** A bot's progress card (progress_card). */
+  progress?: ProgressCard
   /** Generic card (plan 插件体系), e.g. a creation request. */
   card?: MessageCard
 }
@@ -82,6 +85,7 @@ export const messageDto = (m: MessageRow, authorName: string, reactions: Reactio
     ...((m.meta as MessageMeta).syncConflict && { syncConflict: (m.meta as MessageMeta).syncConflict }),
     ...((m.meta as MessageMeta).mcpSecret && { mcpSecret: (m.meta as MessageMeta).mcpSecret }),
     ...((m.meta as MessageMeta).secretCard && { secretCard: (m.meta as MessageMeta).secretCard }),
+    ...((m.meta as MessageMeta).progress && { progress: (m.meta as MessageMeta).progress }),
     ...((m.meta as MessageMeta).card && { card: (m.meta as MessageMeta).card }),
   }
 }

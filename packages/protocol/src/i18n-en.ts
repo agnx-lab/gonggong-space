@@ -267,6 +267,7 @@ export const protocolEn = {
     '{bot} asks {user} to fill in the secrets of MCP "{name}": {keys}',
   '{bot} 请 {user} 填写自己的密钥：{names}': '{bot} asks {user} to fill in their own secrets: {names}',
   '{bot} 请管理员填写密钥：{names}': '{bot} asks an admin to fill in the secrets: {names}',
+  '{bot} 的进度：{title}': "{bot}'s progress: {title}",
   '{who} 新建了知识库条目「{title}」': '{who} added the knowledge entry "{title}"',
   '{who} 更新了知识库条目「{title}」': '{who} updated the knowledge entry "{title}"',
   '{who} 删除了知识库条目「{title}」': '{who} deleted the knowledge entry "{title}"',

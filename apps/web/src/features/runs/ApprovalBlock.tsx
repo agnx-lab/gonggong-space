@@ -93,7 +93,11 @@ export function ApprovalCard({ run, approval: a }: { run: RunDto; approval: Appr
   }
 
   return (
-    <div className="approval" data-resolved={!pending || undefined}>
+    <div
+      className="approval"
+      data-pending-id={pending ? a.id : undefined}
+      data-resolved={!pending || undefined}
+    >
       <div className="approval__title">
         {pending ? (
           <CountdownRing

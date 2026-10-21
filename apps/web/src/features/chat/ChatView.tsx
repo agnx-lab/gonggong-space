@@ -61,6 +61,7 @@ import { MentionNames } from './Markdown'
 import { branchableRuns } from './MessageActions'
 import { MessageComposer } from './MessageComposer'
 import { PendingDock } from './PendingDock'
+import { ProgressCard } from './ProgressCard'
 import { ProviderBanner } from './ProviderBanner'
 import { repoName } from './repo'
 import {
@@ -428,6 +429,7 @@ export function ChatView({
     if (m.syncConflict) return <ConflictEvent m={m} conflict={m.syncConflict} />
     if (m.mcpSecret) return <McpSecretCard m={m} card={m.mcpSecret} />
     if (m.secretCard) return <SecretCard m={m} card={m.secretCard} />
+    if (m.progress) return <ProgressCard card={m.progress} />
     if (m.kind === 'event') return <EventRow m={m} />
     if (m.recalled) return <RecallRow m={m} mine={m.authorId === meId} />
     if (m.kind === 'bot') return <BotReply m={m} compact={compact} />
@@ -736,7 +738,7 @@ export function ChatView({
               <PreviewTags groupId={group.id} />
             </div>
             <LiveRunsBar runs={runList} onLocate={locate} />
-            <PendingDock runs={runList} onLocate={locate} />
+            <PendingDock runs={runList} root={box} onLocate={locate} />
             <ProviderBanner group={group} />
             <MessageComposer group={group} dropFiles={dropFiles} onSent={onSent} />
             <CreationHost group={group} onSent={onSent} />

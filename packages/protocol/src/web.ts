@@ -761,6 +761,25 @@ export const McpSecretCard = z.object({
   filled: z.boolean(),
 })
 export type McpSecretCard = z.infer<typeof McpSecretCard>
+/** A stage of a progress card. */
+export const ProgressStageStatus = z.enum(['pending', 'running', 'done', 'failed', 'skipped'])
+export type ProgressStageStatus = z.infer<typeof ProgressStageStatus>
+export const ProgressStage = z.object({ name: z.string().min(1).max(40), status: ProgressStageStatus })
+export type ProgressStage = z.infer<typeof ProgressStage>
+/** A bot's live progress card (progress_card), e.g. a build and deploy; `id` is its message id. */
+export const ProgressCard = z.object({
+  id: z.string(),
+  botId: z.string(),
+  title: z.string(),
+  stages: z.array(ProgressStage),
+  percent: z.number().int().min(0).max(100).nullable(),
+  detail: z.string().nullable(),
+  link: z.object({ label: z.string(), url: z.string() }).nullable(),
+  /** From the stages: failed if one failed, done once all are done or skipped, else running. */
+  status: z.enum(['running', 'done', 'failed']),
+  updatedAt: z.string(),
+})
+export type ProgressCard = z.infer<typeof ProgressCard>
 export const MessageDto = z.object({
   id: z.string(),
   seq: z.number().int(),
@@ -799,6 +818,8 @@ export const MessageDto = z.object({
   mcpSecret: McpSecretCard.optional(),
   /** A bot's 填写密钥 card (secret_request). */
   secretCard: SecretCard.optional(),
+  /** A bot's progress card (progress_card), updated in place. */
+  progress: ProgressCard.optional(),
   /** Generic card (plan 插件体系-方案); unknown kinds are shown as the body. */
   card: MessageCard.optional(),
 })

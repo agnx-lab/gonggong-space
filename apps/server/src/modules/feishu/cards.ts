@@ -1,4 +1,11 @@
-import type { Answer, PermissionOption, Question, RunStatus } from '@gonggong/protocol'
+import type {
+  Answer,
+  PermissionOption,
+  ProgressCard,
+  ProgressStageStatus,
+  Question,
+  RunStatus,
+} from '@gonggong/protocol'
 import { translator } from '../../i18n/index.js'
 import { answerText } from '../questions/dto.js'
 
@@ -387,6 +394,34 @@ export function previewCard(o: {
     s.template,
     elements.length ? elements : [markdown(note)],
     `${o.bot} · ${PREVIEW_KIND[o.kind] ?? o.kind} · ${s.label}`,
+  )
+}
+
+const STAGE_MARK: Record<ProgressStageStatus, string> = {
+  pending: '⚪',
+  running: '🔵',
+  done: '✅',
+  failed: '❌',
+  skipped: '⏭️',
+}
+const PROGRESS_TEMPLATE: Record<ProgressCard['status'], string> = {
+  running: 'blue',
+  done: 'green',
+  failed: 'red',
+}
+
+/** A bot's progress card (progress_card): its stages in order, then percent, detail and link. */
+export function progressCard(o: ProgressCard & { bot: string }) {
+  const lines = [
+    o.stages.map((s) => `${STAGE_MARK[s.status]} ${s.name}`).join('  →  '),
+    ...(o.percent === null ? [] : [zt('进度 {n}%', { n: o.percent })]),
+    ...(o.detail ? [o.detail] : []),
+  ]
+  return card(
+    o.title,
+    PROGRESS_TEMPLATE[o.status],
+    [markdown(lines.join('\n')), ...(o.link ? [linkButton(o.link.label, o.link.url, true)] : [])],
+    o.bot,
   )
 }
 

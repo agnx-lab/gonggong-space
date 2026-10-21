@@ -3,6 +3,7 @@ import {
   type BotDto,
   fitEffort,
   type GroupDto,
+  parseMentions,
   type RunConfigPick,
 } from '@gonggong/protocol'
 import { useSession } from '../../app/session'
@@ -20,11 +21,11 @@ const READ_ONLY = t('只有 Bot 主人或群管理员可以切换')
 
 /** Bots mentioned in `draft`, in order of appearance. */
 export function mentionedBots(draft: string, bots: BotDto[]) {
-  return bots
-    .map((b) => ({ b, at: draft.indexOf(`@${b.name}`) }))
-    .filter((x) => x.at >= 0)
-    .sort((x, y) => x.at - y.at)
-    .map((x) => x.b)
+  const byId = new Map(bots.map((bot) => [bot.id, bot]))
+  return parseMentions(draft, bots).flatMap((id) => {
+    const bot = byId.get(id)
+    return bot ? [bot] : []
+  })
 }
 
 /** Plan M1: the bot owner or a group admin; anyone in a DM. */
