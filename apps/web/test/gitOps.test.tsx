@@ -180,7 +180,7 @@ describe('branch switcher', () => {
       expect(calls.find((c) => c.method === 'POST')).toEqual({
         method: 'POST',
         path: `${BASE}/actions`,
-        body: { action: 'checkout', branch: 'feat/pay' },
+        body: { action: 'checkout', branch: 'origin/feat/pay' },
       }),
     )
     await waitFor(() => expect(toasts()).toContain('小王的 Claude：切换分支完成'))
@@ -352,13 +352,11 @@ describe('git operation approvals', () => {
     )
     expect(await screen.findByRole('button', { name: '待审批 1' })).toBeTruthy()
     act(() =>
-      useWorkspace
-        .getState()
-        .applyEvent({
-          t: 'group.gitOperation',
-          groupId: 'g1',
-          operation: op({ id: 'op9', status: 'failed', error: 'rejected: non-fast-forward' }),
-        }),
+      useWorkspace.getState().applyEvent({
+        t: 'group.gitOperation',
+        groupId: 'g1',
+        operation: op({ id: 'op9', status: 'failed', error: 'rejected: non-fast-forward' }),
+      }),
     )
     await waitFor(() => expect(screen.queryByRole('button', { name: /^待审批/ })).toBeNull())
     const item = useToasts.getState().items.at(-1)

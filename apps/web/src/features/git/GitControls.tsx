@@ -15,12 +15,6 @@ interface BotGit {
   git: GitStatus
 }
 
-/** Remote-tracking `origin/feat` checks out as the local `feat` (git creates it tracking the remote). */
-const localName = (name: string, remotes: string[]) => {
-  const remote = remotes.find((r) => name.startsWith(`${r}/`))
-  return remote ? name.slice(remote.length + 1) : name
-}
-
 function BranchList({
   groupId,
   botId,
@@ -37,7 +31,8 @@ function BranchList({
         refs={refs}
         error={error}
         onPick={(b, name) => {
-          if (!b?.current) onPick(localName(name, refs?.remotes.map((r) => r.name) ?? []))
+          // A remote-tracking `origin/feat` goes as is: the daemon switches to (or creates) the local `feat` tracking it.
+          if (!b?.current) onPick(name)
         }}
       />
       {refs?.remotes.length ? (
