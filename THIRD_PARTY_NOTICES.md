@@ -26,3 +26,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.```
+
+## open-design
+
+`plugins/official/web-prototype/` is adapted from [open-design](https://github.com/nexu-io/open-design) at commit `4f69a426689bbd471c8f0774c13378e651ae7de8` (`design-templates/web-prototype`, `design-systems/default` renamed to `neutral-modern`, `design-systems/warm-editorial`, `craft/{anti-ai-slop,color,typography}.md`). Changes are listed in `plugins/official/web-prototype/NOTICE.md`. The craft files are themselves adapted from [refero_skill](https://github.com/referodesign/refero_skill) (MIT), credited in each file.
+
+```
+Copyright 2026 Open Design contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
