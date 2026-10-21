@@ -104,6 +104,13 @@ export function notificationView(n: NotificationDto, tr: (t: I18nText) => string
         group: '',
         href: `/bot/${p('botId')}`,
       }
+    case 'git_operation_request':
+      return {
+        label: say(n.resolvedAt ? 'Git 操作申请' : '待审批 Git 操作'),
+        text: say('{by} 申请让 {bot} {action}', { by: p('byName'), bot, action: p('summary') }),
+        group,
+        href: `/g/${p('groupId')}?git=${p('operationId')}`,
+      }
     case 'bot_share_decided':
       return n.payload.approved
         ? {

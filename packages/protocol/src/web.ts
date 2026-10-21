@@ -27,6 +27,11 @@ import {
   CcSwitchCandidate,
   DiffScope,
   FileTreeEntry,
+  GitActionKind,
+  GitBranch,
+  GitChange,
+  GitCommit,
+  GitRemote,
   GitProtocol,
   MachineInfo,
   McpServer,
@@ -452,6 +457,80 @@ export const FileTextDto = z.object({
   text: z.string().nullable(),
 })
 export type FileTextDto = z.infer<typeof FileTextDto>
+// ── Manual git (plan Git增强) ────────────────────────────────────────────────────────────────────────────────
+// Reads (any member): GET /api/groups/:id/bots/:botId/git/{refs,log,tree,text,compare}.
+// Writes: POST …/git/actions — the bot owner's run at once; anyone else's wait for the owner's approval.
+// Partition groups with a repo only; refused with 409 while a run of the bot (or of a bot sharing its directory) is live.
+/** GET …/git/refs */
+export const GitRefsDto = z.object({ branches: z.array(GitBranch), remotes: z.array(GitRemote) })
+export type GitRefsDto = z.infer<typeof GitRefsDto>
+/** GET …/git/log?ref=&skip= */
+export const GitLogQuery = z.object({
+  ref: z.string().min(1).max(255).optional(),
+  skip: z.coerce.number().int().min(0).default(0),
+})
+export const GitLogDto = z.object({ commits: z.array(GitCommit), hasMore: z.boolean() })
+export type GitLogDto = z.infer<typeof GitLogDto>
+/** GET …/git/tree?ref=&path= answers FilesTreeDto; GET …/git/text?ref=&path= answers FileTextDto. */
+export const GitRefPathQuery = z.object({ ref: z.string().min(1).max(255), path: z.string().default('') })
+/** GET …/git/compare?from=&to= — `to` omitted = the work tree. */
+export const GitCompareQuery = z.object({
+  from: z.string().min(1).max(255),
+  to: z.string().min(1).max(255).optional(),
+})
+export const GitCompareDto = z.object({ changes: z.array(GitChange) })
+export type GitCompareDto = z.infer<typeof GitCompareDto>
+
+const gitBranchName = z.string().trim().min(1).max(255)
+/** POST …/git/actions. `confirmBase`: the owner's second confirmation to push the protected base branch. */
+export const GitActionReq = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('checkout'), branch: gitBranchName }),
+  z.object({ action: z.literal('pull') }),
+  z.object({ action: z.literal('commit'), message: z.string().trim().min(1, '请填写提交说明').max(10_000) }),
+  z.object({
+    action: z.literal('push'),
+    remote: gitBranchName.default('origin'),
+    branch: gitBranchName,
+    confirmBase: z.boolean().default(false),
+  }),
+])
+export type GitActionReq = z.infer<typeof GitActionReq>
+export const GitOperationStatus = z.enum([
+  'pending_approval',
+  'running',
+  'succeeded',
+  'failed',
+  'rejected',
+  'expired',
+])
+export type GitOperationStatus = z.infer<typeof GitOperationStatus>
+export const GitOperationDto = z.object({
+  id: z.string(),
+  groupId: z.string(),
+  botId: z.string(),
+  action: GitActionKind,
+  branch: z.string().nullable(),
+  remote: z.string().nullable(),
+  message: z.string().nullable(),
+  /** A push of the protected base branch: approving it is the owner's second confirmation. */
+  pushesBase: z.boolean(),
+  status: GitOperationStatus,
+  requestedBy: z.object({ id: z.string(), name: z.string() }),
+  decidedBy: z.object({ id: z.string(), name: z.string() }).nullable(),
+  /** git's summary on success; why it failed otherwise. */
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  finishedAt: z.string().nullable(),
+})
+export type GitOperationDto = z.infer<typeof GitOperationDto>
+/** GET /api/groups/:id/git/operations — pending ones plus the latest settled, newest first. */
+export const GitOperationsDto = z.object({ operations: z.array(GitOperationDto) })
+export type GitOperationsDto = z.infer<typeof GitOperationsDto>
+/** POST /api/git-operations/:id/decide — the bot owner only. */
+export const DecideGitOperationReq = z.object({ approve: z.boolean() })
+
 /** MIME types `GET …/files/raw?path=` serves inline (Range supported); anything else is a download. */
 export const INLINE_FILE_MIMES = [
   'image/png',
@@ -552,6 +631,7 @@ export const NotificationType = z.enum([
   'mention',
   'bot_share_request',
   'bot_share_decided',
+  'git_operation_request',
 ])
 export const NotificationDto = z.object({
   id: z.string(),
@@ -578,6 +658,7 @@ export const PUSHED_NOTIFICATION_TYPES: readonly NotificationDto['type'][] = [
   'mention',
   'bot_share_request',
   'bot_share_decided',
+  'git_operation_request',
 ]
 export const PushKeyDto = z.object({ publicKey: z.string() })
 export const PushSubscriptionReq = z.object({
@@ -1801,6 +1882,8 @@ export type RepoCandidatesDto = z.infer<typeof RepoCandidatesDto>
 
 export const WebEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('group.botState'), groupId: z.string(), state: GroupBotStateDto }),
+  /** A manual git operation of the group was requested, decided or finished. */
+  z.object({ t: z.literal('group.gitOperation'), groupId: z.string(), operation: GitOperationDto }),
   /** The group's previews or services changed; replaces both lists (`canManage` is per receiving user). */
   GroupPreviewsDto.extend({ t: z.literal('group.previews'), groupId: z.string() }),
   GroupSchedulesDto.extend({ t: z.literal('group.schedules'), groupId: z.string() }),

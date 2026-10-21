@@ -1,0 +1,23 @@
+{
+  "t": "git.action",
+  "requestId": "q1",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": {
+    "repo": {
+      "id": "r_pay",
+      "url": "git@git.corp:pay/pay-server.git",
+      "branch": "main",
+      "protocol": "auto"
+    },
+    "cdPath": null
+  },
+  "action": "commit",
+  "branch": null,
+  "remote": null,
+  "message": "修复退款金额",
+  "identity": {
+    "name": "小王的 Claude",
+    "email": "b1@bots.gonggong.local"
+  }
+}

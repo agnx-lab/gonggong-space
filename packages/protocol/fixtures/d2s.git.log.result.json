@@ -1,0 +1,18 @@
+{
+  "t": "git.log.result",
+  "requestId": "q1",
+  "commits": [
+    {
+      "hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+      "shortHash": "a1b2c3d",
+      "author": "小王的 Claude",
+      "email": "b1@bots.gonggong.local",
+      "at": "2026-10-21T08:00:00Z",
+      "subject": "修复退款金额",
+      "parents": ["9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"],
+      "refs": ["HEAD -> feat/refund", "origin/feat/refund"]
+    }
+  ],
+  "hasMore": true,
+  "error": null
+}

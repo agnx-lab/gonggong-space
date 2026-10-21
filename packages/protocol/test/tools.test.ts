@@ -61,7 +61,9 @@ describe('gonggong tools', () => {
 
   it('client release notes target one published version', () => {
     expect(ClientReleaseNotesArgs.safeParse({ version: '0.3.5', releaseNotes: '## 更新' }).success).toBe(true)
-    expect(ClientReleaseNotesArgs.safeParse({ version: 'latest', releaseNotes: '## 更新' }).success).toBe(false)
+    expect(ClientReleaseNotesArgs.safeParse({ version: 'latest', releaseNotes: '## 更新' }).success).toBe(
+      false,
+    )
     expect(ClientReleaseNotesArgs.safeParse({ version: '0.3.5', releaseNotes: '  ' }).success).toBe(false)
   })
 })

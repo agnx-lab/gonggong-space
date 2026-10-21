@@ -1,0 +1,9 @@
+{
+  "t": "git.read.result",
+  "requestId": "q1",
+  "size": 24,
+  "binary": false,
+  "mime": "text/plain",
+  "text": "export const refund = 1\n",
+  "error": null
+}

@@ -1,0 +1,8 @@
+{
+  "t": "git.action.result",
+  "requestId": "q1",
+  "ok": true,
+  "busy": false,
+  "output": "[feat/refund a1b2c3d] 修复退款金额",
+  "error": null
+}

@@ -26,16 +26,17 @@ describe('contracts', () => {
     expect(DaemonRelease.parse(release)).toEqual(release)
     expect(DaemonRelease.safeParse({ ...release, version: 'latest' }).success).toBe(false)
     expect(
-      DaemonRelease.safeParse({ ...release, builds: { 'macos-aarch64': { url: '/x', sha256: 'nope' } } }).success,
+      DaemonRelease.safeParse({ ...release, builds: { 'macos-aarch64': { url: '/x', sha256: 'nope' } } })
+        .success,
     ).toBe(false)
   })
 
   it('accepts release notes on releases and upgrades, and old payloads without them', () => {
     const notes = '## 0.2.0\n\n- 模型选择更准确'
     expect(DaemonRelease.parse({ ...release, releaseNotes: notes }).releaseNotes).toBe(notes)
-    expect(UpgradeInfo.parse({ version: '0.2.0', url: '/downloads/gg', sha256: 'a'.repeat(64) }).releaseNotes).toBe(
-      undefined,
-    )
+    expect(
+      UpgradeInfo.parse({ version: '0.2.0', url: '/downloads/gg', sha256: 'a'.repeat(64) }).releaseNotes,
+    ).toBe(undefined)
     expect(
       UpgradeInfo.parse({
         version: '0.2.0',

@@ -644,7 +644,9 @@ export const ClientReleasePublishArgs = z.object({
 })
 export const ClientReleaseNotesArgs = z.object({
   version: DaemonRelease.shape.version.describe('要更新说明的已发布版本，如 0.3.5；必须与当前发布版本一致'),
-  releaseNotes: ReleaseNotesReq.shape.releaseNotes.describe('完整的 Markdown 版本说明，会展示在桌面端和 daemon 升级提示里'),
+  releaseNotes: ReleaseNotesReq.shape.releaseNotes.describe(
+    '完整的 Markdown 版本说明，会展示在桌面端和 daemon 升级提示里',
+  ),
 })
 
 export const FEISHU_CARD_IMAGES_MAX = 10

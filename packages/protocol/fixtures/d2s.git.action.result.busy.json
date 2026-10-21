@@ -1,0 +1,8 @@
+{
+  "t": "git.action.result",
+  "requestId": "q1",
+  "ok": false,
+  "busy": true,
+  "output": null,
+  "error": "工作目录正被运行占用"
+}

@@ -1,0 +1,17 @@
+{
+  "t": "git.compare.result",
+  "requestId": "q1",
+  "changes": [
+    {
+      "path": "src/refund.ts",
+      "change": "modified",
+      "oldPath": null
+    },
+    {
+      "path": "src/new.ts",
+      "change": "renamed",
+      "oldPath": "src/old.ts"
+    }
+  ],
+  "error": null
+}

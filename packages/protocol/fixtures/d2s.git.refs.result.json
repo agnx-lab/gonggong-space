@@ -1,0 +1,46 @@
+{
+  "t": "git.refs.result",
+  "requestId": "q1",
+  "branches": [
+    {
+      "name": "feat/refund",
+      "kind": "local",
+      "current": true,
+      "upstream": "origin/feat/refund",
+      "ahead": 2,
+      "behind": 0,
+      "commit": "a1b2c3d",
+      "subject": "修复退款金额",
+      "at": "2026-10-21T08:00:00Z"
+    },
+    {
+      "name": "main",
+      "kind": "local",
+      "current": false,
+      "upstream": null,
+      "ahead": null,
+      "behind": null,
+      "commit": "9f8e7d6",
+      "subject": "发布 v1.2",
+      "at": "2026-10-20T08:00:00Z"
+    },
+    {
+      "name": "origin/main",
+      "kind": "remote",
+      "current": false,
+      "upstream": null,
+      "ahead": null,
+      "behind": null,
+      "commit": "9f8e7d6",
+      "subject": "发布 v1.2",
+      "at": "2026-10-20T08:00:00Z"
+    }
+  ],
+  "remotes": [
+    {
+      "name": "origin",
+      "url": "git@git.corp:pay/pay-server.git"
+    }
+  ],
+  "error": null
+}

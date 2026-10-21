@@ -592,6 +592,105 @@ export const FilesReadResult = z.object({
   error: z.string().nullable(),
 })
 
+// ── Manual git (plan Git增强): read-only views at any ref, and owner-gated writes ──────────────────────────────────
+/** A local branch, or a remote-tracking one (`name` = `origin/feat`). */
+export const GitBranch = z.object({
+  name: z.string(),
+  kind: z.enum(['local', 'remote']),
+  current: z.boolean(),
+  /** Local only: its upstream (`origin/feat`) and how far apart they are; null without one. */
+  upstream: z.string().nullable(),
+  ahead: z.number().int().nullable(),
+  behind: z.number().int().nullable(),
+  /** Tip commit. */
+  commit: z.string(),
+  subject: z.string(),
+  at: z.string(),
+})
+export type GitBranch = z.infer<typeof GitBranch>
+export const GitRemote = z.object({ name: z.string(), url: z.string() })
+export type GitRemote = z.infer<typeof GitRemote>
+export const GitRefsResult = z.object({
+  t: z.literal('git.refs.result'),
+  requestId: z.string(),
+  branches: z.array(GitBranch),
+  remotes: z.array(GitRemote),
+  error: z.string().nullable(),
+})
+export type GitRefsResult = z.infer<typeof GitRefsResult>
+
+export const GitCommit = z.object({
+  hash: z.string(),
+  shortHash: z.string(),
+  author: z.string(),
+  email: z.string(),
+  at: z.string(),
+  subject: z.string(),
+  parents: z.array(z.string()),
+  /** Decorations: branch and tag names pointing at it. */
+  refs: z.array(z.string()),
+})
+export type GitCommit = z.infer<typeof GitCommit>
+export const GitLogResult = z.object({
+  t: z.literal('git.log.result'),
+  requestId: z.string(),
+  commits: z.array(GitCommit),
+  hasMore: z.boolean(),
+  error: z.string().nullable(),
+})
+export type GitLogResult = z.infer<typeof GitLogResult>
+
+/** A directory listing read from a ref (ls-tree): `mtime` 0, `uncommitted` and `ignored` false. */
+export const GitTreeResult = z.object({
+  t: z.literal('git.tree.result'),
+  requestId: z.string(),
+  entries: z.array(FileTreeEntry),
+  truncated: z.boolean(),
+  error: z.string().nullable(),
+})
+export type GitTreeResult = z.infer<typeof GitTreeResult>
+export const GitReadResult = z.object({
+  t: z.literal('git.read.result'),
+  requestId: z.string(),
+  size: z.number().int(),
+  binary: z.boolean(),
+  mime: z.string(),
+  text: z.string().nullable(),
+  error: z.string().nullable(),
+})
+export type GitReadResult = z.infer<typeof GitReadResult>
+
+export const GitChange = z.object({
+  path: z.string(),
+  change: z.enum(['added', 'modified', 'deleted', 'renamed']),
+  /** Renamed only. */
+  oldPath: z.string().nullable(),
+})
+export type GitChange = z.infer<typeof GitChange>
+export const GitCompareResult = z.object({
+  t: z.literal('git.compare.result'),
+  requestId: z.string(),
+  changes: z.array(GitChange),
+  error: z.string().nullable(),
+})
+export type GitCompareResult = z.infer<typeof GitCompareResult>
+
+export const GitActionKind = z.enum(['checkout', 'pull', 'commit', 'push'])
+export type GitActionKind = z.infer<typeof GitActionKind>
+/**
+ * Answer to git.action. `busy`: a turn holds the directory (plan W10), nothing was run. `output`: git's summary
+ * (new HEAD, pushed range…), credentials stripped.
+ */
+export const GitActionResult = z.object({
+  t: z.literal('git.action.result'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  busy: z.boolean(),
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+})
+export type GitActionResult = z.infer<typeof GitActionResult>
+
 /** Answer to files.find: workspace paths whose name or path suffix equals the query (at most `limit`). */
 export const FilesFindResult = z.object({
   t: z.literal('files.find.result'),
@@ -935,6 +1034,12 @@ export const DaemonToServer = z.discriminatedUnion('t', [
   FilesTreeResult,
   FilesReadResult,
   FilesFindResult,
+  GitRefsResult,
+  GitLogResult,
+  GitTreeResult,
+  GitReadResult,
+  GitCompareResult,
+  GitActionResult,
   WorkspaceDiffResult,
   QuestionAsk,
   QuestionWithdraw,
@@ -1108,6 +1213,53 @@ export const FilesRead = z.object({
   maxBytes: z.number().int(),
 })
 
+/** `ref`: a branch, remote branch, tag or commit; null = HEAD. */
+const GitRef = z.string().min(1).max(255).nullable()
+const gitTarget = { requestId: z.string(), groupId: z.string(), botId: z.string(), workspace: WorkspaceSpec }
+
+/** Local and remote-tracking branches, and the remotes. */
+export const GitRefs = z.object({ t: z.literal('git.refs'), ...gitTarget })
+/** Newest first from `ref`; `skip` pages. */
+export const GitLog = z.object({
+  t: z.literal('git.log'),
+  ...gitTarget,
+  ref: GitRef,
+  skip: z.number().int().min(0),
+  limit: z.number().int().min(1).max(200),
+})
+/** One directory of `ref`'s tree, without touching the work tree. */
+export const GitTree = z.object({ t: z.literal('git.tree'), ...gitTarget, ref: GitRef, path: z.string() })
+/** One file of `ref`'s tree, without touching the work tree. */
+export const GitRead = z.object({
+  t: z.literal('git.read'),
+  ...gitTarget,
+  ref: GitRef,
+  path: z.string(),
+  maxBytes: z.number().int(),
+})
+/** Paths that differ from `from` to `to`; `to` null = the work tree (uncommitted changes included). */
+export const GitCompare = z.object({
+  t: z.literal('git.compare'),
+  ...gitTarget,
+  from: z.string().min(1),
+  to: GitRef,
+})
+/**
+ * A manual write, refused (`busy`) while a turn holds the directory. checkout: switch to `branch` (a remote branch
+ * creates its tracking local one); pull: fast-forward only from the upstream; commit: everything, as `identity`;
+ * push: `branch` to `remote`, setting the upstream when missing. Never forced.
+ */
+export const GitAction = z.object({
+  t: z.literal('git.action'),
+  ...gitTarget,
+  action: GitActionKind,
+  branch: z.string().nullable(),
+  remote: z.string().nullable(),
+  message: z.string().nullable(),
+  identity: z.object({ name: z.string(), email: z.string() }).nullable(),
+})
+export type GitAction = z.infer<typeof GitAction>
+
 /**
  * Forks the ACP session `sessionId` (session/fork) in the bot's workspace directory, which is where the adapter keeps
  * the session; answered by session.fork.result with the new session's id.
@@ -1274,6 +1426,12 @@ export const ServerToDaemon = z.discriminatedUnion('t', [
   FilesTree,
   FilesRead,
   FilesFind,
+  GitRefs,
+  GitLog,
+  GitTree,
+  GitRead,
+  GitCompare,
+  GitAction,
   WorkspaceDiff,
   QuestionAnswer,
   RunAppend,

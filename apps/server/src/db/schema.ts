@@ -243,6 +243,42 @@ export const botShares = pgTable(
   (t) => [primaryKey({ columns: [t.botId, t.userId] }), index('bot_shares_user').on(t.userId)],
 )
 
+/**
+ * A manual git write in a group (plan Git增强): the bot owner's run at once; anyone else's wait here for the owner's
+ * approval, then the server sends it to the daemon. Kept as the record of who asked, who decided and what git said.
+ */
+export const gitOperations = pgTable(
+  'git_operations',
+  {
+    id: id(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    botId: uuid('bot_id')
+      .notNull()
+      .references(() => bots.id, { onDelete: 'cascade' }),
+    /** 'checkout' | 'pull' | 'commit' | 'push' */
+    action: text('action').notNull(),
+    branch: text('branch'),
+    remote: text('remote'),
+    message: text('message'),
+    /** A push of the group's protected base branch. */
+    pushesBase: boolean('pushes_base').notNull().default(false),
+    /** GitOperationStatus */
+    status: text('status').notNull(),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => users.id),
+    decidedBy: uuid('decided_by').references(() => users.id),
+    output: text('output'),
+    error: text('error'),
+    createdAt: createdAt(),
+    expiresAt: ts('expires_at').notNull(),
+    finishedAt: ts('finished_at'),
+  },
+  (t) => [index('git_operations_group').on(t.groupId, t.createdAt)],
+)
+
 /** 申请共享: a member asks the owner to share a bot with them; one pending request per bot and member. */
 export const botShareRequests = pgTable(
   'bot_share_requests',

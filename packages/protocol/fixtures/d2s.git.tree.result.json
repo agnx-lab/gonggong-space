@@ -1,0 +1,16 @@
+{
+  "t": "git.tree.result",
+  "requestId": "q1",
+  "entries": [
+    {
+      "name": "refund.ts",
+      "dir": false,
+      "size": 2048,
+      "mtime": 0,
+      "uncommitted": false,
+      "ignored": false
+    }
+  ],
+  "truncated": false,
+  "error": null
+}
