@@ -30,6 +30,7 @@ export const PARAM_DEFAULTS: SystemParams = {
   feishuAutoSignup: true,
   publicUrl: '',
   demoMode: false,
+  pluginsEnabled: false,
 }
 
 const KEYS = Object.keys(PARAM_DEFAULTS) as (keyof SystemParams)[]

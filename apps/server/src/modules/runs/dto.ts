@@ -6,7 +6,7 @@ import { PARAM_DEFAULTS } from '../admin/params.js'
 import { mirrorRun } from '../feishu/mirror.js'
 import { cachedGroupParams } from '../groups/params.js'
 import { memberIds } from '../messages/service.js'
-import { attachmentDto, questionSetDto } from '../questions/dto.js'
+import { attachmentDto, leaningsOf, questionSetDto } from '../questions/dto.js'
 import { stepI18nOf } from './step.js'
 
 export type RunRow = typeof runs.$inferSelect
@@ -130,15 +130,25 @@ export async function runDtoLoader(ctx: Ctx, rows: CardRow[]): Promise<(r: CardR
     Promise.all(groupIds.map((id) => cachedGroupParams(ctx, id))),
   ])
   const fileIds = qs.flatMap((x) => x.q.attachmentIds)
-  const files = fileIds.length
-    ? (await ctx.db.select().from(attachments).where(inArray(attachments.id, fileIds))).map(attachmentDto)
-    : []
+  const [files, leanings] = await Promise.all([
+    fileIds.length
+      ? ctx.db
+          .select()
+          .from(attachments)
+          .where(inArray(attachments.id, fileIds))
+          .then((rows) => rows.map(attachmentDto))
+      : [],
+    leaningsOf(
+      ctx.db,
+      qs.filter((x) => x.q.status === 'pending').map((x) => x.q.id),
+    ),
+  ])
   const params = new Map(groupIds.map((id, i) => [id, paramsByGroup[i]]))
   return (r) => {
     const p = params.get(r.groupId) as GroupParams
     return runDto(r, {
       approvals: aps.filter((x) => x.a.runId === r.id).map((x) => approvalDto(x.a, x.name)),
-      questions: qs.filter((x) => x.q.runId === r.id).map((x) => questionSetDto(x.q, x.name, files)),
+      questions: qs.filter((x) => x.q.runId === r.id).map((x) => questionSetDto(x.q, x.name, files, leanings)),
       hopMax: p.chainMaxHops,
       offlineWaitMin: p.offlineWaitMin,
     })

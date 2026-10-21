@@ -1,7 +1,7 @@
 import type { Answer, DaemonToServer, Question } from '@gonggong/protocol'
 import { and, eq, inArray, lte, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
-import { auditLogs, bots, groups, questionSets, runs } from '../../db/schema.js'
+import { auditLogs, bots, groups, questionLeanings, questionSets, runs } from '../../db/schema.js'
 import { teamOfGroupSql } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { startSweep } from '../../lib/sweep.js'
@@ -10,7 +10,8 @@ import { claimAttachments } from '../attachments/service.js'
 import { notify, resolveNotifications } from '../notifications/notify.js'
 import { publishRun } from '../runs/dto.js'
 import { runStep } from '../runs/step.js'
-import { questionSetDto } from './dto.js'
+import { requireMember } from '../groups/service.js'
+import { leaningsOf, questionSetDto } from './dto.js'
 
 type QuestionSet = typeof questionSets.$inferSelect
 type QuestionAsk = Extract<DaemonToServer, { t: 'question.ask' }>
@@ -120,6 +121,33 @@ export async function answerQuestions(
     })
   await syncRun(ctx, runId)
   return questionSetDto(settled, user.name, files)
+}
+
+/**
+ * POST /api/runs/:runId/questions/:id/leanings: any group member toggles a leaning on an option of a pending card
+ * (倾向, for reference only); the card is pushed again.
+ */
+export async function toggleLeaning(ctx: Ctx, user: { id: string }, runId: string, id: string, lean: { questionId: string; choice: number }) {
+  const [row] = await scoped(ctx).where(and(eq(questionSets.id, id), eq(questionSets.runId, runId)))
+  if (!row) return fail('not_found', '提问不存在')
+  await requireMember(ctx, row.run.groupId, user.id)
+  const q = (row.q.questions as Question[]).find((x) => x.id === lean.questionId)
+  if (!q || q.type === 'text' || lean.choice >= q.options.length) return fail('invalid', '选项不存在')
+  if (row.q.status !== 'pending') return fail('conflict', '该提问已处理')
+  const where = and(
+    eq(questionLeanings.questionSetId, id),
+    eq(questionLeanings.questionId, lean.questionId),
+    eq(questionLeanings.choice, lean.choice),
+    eq(questionLeanings.userId, user.id),
+  )
+  const removed = await ctx.db.delete(questionLeanings).where(where).returning()
+  if (!removed.length)
+    await ctx.db
+      .insert(questionLeanings)
+      .values({ questionSetId: id, questionId: lean.questionId, choice: lean.choice, userId: user.id })
+      .onConflictDoNothing()
+  await publishRun(ctx, row.run)
+  return questionSetDto(row.q, null, [], await leaningsOf(ctx.db, [id]))
 }
 
 /** Overdue cards: the agent proceeds with the recommendations and lists its assumptions (spec §8.8). */

@@ -418,6 +418,28 @@ export const en = {
   'Skill 不能超过 5 MB': 'A skill cannot exceed 5 MB',
   '该机器上没有可使用这个 skill 的 Bot': 'No Bot on this machine can use this skill',
 
+  // Plugins
+  插件不存在: 'Plugin not found',
+  '插件不能超过 5 MB': 'A plugin cannot exceed 5 MB',
+  '缺少 gonggong-plugin.json': 'gonggong-plugin.json is missing',
+  'gonggong-plugin.json 不是合法的 JSON': 'gonggong-plugin.json is not valid JSON',
+  'gonggong-plugin.json 不符合清单格式：{field}': 'gonggong-plugin.json does not match the manifest format: {field}',
+  '缺少文件：{path}': 'Missing file: {path}',
+  '{path} 的 name 必须是 {name}': 'The name in {path} must be {name}',
+  '插件正在被修改，请重试': 'The plugin is being changed, please retry',
+  插件功能未开启: 'Plugins are turned off',
+  '该机器上没有正在使用这个插件版本的运行': 'No run on this machine was sent this plugin version',
+  这个插件没有在本群启用: 'This plugin is not enabled in this group',
+  请选择模板: 'Pick a template',
+  模板不存在: 'Template not found',
+  请选择设计系统: 'Pick a design system',
+  设计系统不存在: 'Design system not found',
+  '参数格式不对：{label}': 'Invalid value: {label}',
+  '请填写{label}': 'Please fill in {label}',
+  '{label}的取值不在选项里': '{label} is not one of the options',
+  '{bot} 现在用不了这个插件': "{bot} can't use this plugin now",
+  选项不存在: 'Option not found',
+
   // Messages
   引用的内容不存在: 'Quoted content not found',
   引用的消息不存在: 'Quoted message not found',

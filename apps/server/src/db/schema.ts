@@ -3,6 +3,8 @@ import {
   type DiffRepo,
   type I18nText,
   LIVE_RUN_STATUSES,
+  type PluginManifest,
+  type PluginRef,
   type RunConfigPick,
   type RunSecret,
   type RunSettingsSnapshot,
@@ -573,6 +575,8 @@ export const runs = pgTable(
     patchRepos: jsonb('patch_repos').$type<DiffRepo[]>().notNull().default([]),
     /** Secrets injected into the run: names and sources, never values. */
     secrets: jsonb('secrets').$type<RunSecret[]>().notNull().default([]),
+    /** Plugins sent in its run.start: the only versions its machine may download. */
+    plugins: jsonb('plugins').$type<PluginRef[]>().notNull().default([]),
     /** Latest state of each subagent / background task by id: { subagents: {id: state}, tasks: {id: state} }. */
     delegation: jsonb('delegation').notNull().default({}),
     /**
@@ -706,6 +710,23 @@ export const questionSets = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('question_sets_run').on(t.runId), index('question_sets_pending').on(t.status, t.expiresAt)],
+)
+
+/** 倾向: a member's leaning toward an option of a pending card, for reference only (not a vote). */
+export const questionLeanings = pgTable(
+  'question_leanings',
+  {
+    questionSetId: uuid('question_set_id')
+      .notNull()
+      .references(() => questionSets.id, { onDelete: 'cascade' }),
+    questionId: text('question_id').notNull(),
+    choice: integer('choice').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.questionSetId, t.questionId, t.choice, t.userId] })],
 )
 
 // ── Previews (plan 结果预览) ─────────────────────────────────────────────────
@@ -984,6 +1005,63 @@ export const groupSkillOverrides = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.groupId, t.name] })],
+)
+
+/** Plugins (plan 插件体系), layered like skills; `name` mirrors the current version's manifest. */
+export const plugins = pgTable(
+  'plugins',
+  {
+    id: id(),
+    /** 'platform' | 'team' | 'group' */
+    scope: text('scope').notNull(),
+    teamId: uuid('team_id').references(() => teams.id),
+    groupId: uuid('group_id').references(() => groups.id),
+    name: text('name').notNull(),
+    /** Not a foreign key: versions reference the plugin, and the first one is inserted after it. */
+    versionId: uuid('version_id'),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.scope, t.teamId, t.groupId, t.name).nullsNotDistinct()],
+)
+
+/** Immutable snapshots of a plugin folder. */
+export const pluginVersions = pgTable(
+  'plugin_versions',
+  {
+    id: id(),
+    pluginId: uuid('plugin_id')
+      .notNull()
+      .references(() => plugins.id, { onDelete: 'cascade' }),
+    /** Increments with every upload, independent of `manifest.version`. */
+    revision: integer('revision').notNull(),
+    /** SkillFile[] sorted by path. */
+    files: jsonb('files').notNull(),
+    manifest: jsonb('manifest').$type<PluginManifest>().notNull(),
+    /** sha256 over the files: the daemon's cache key. */
+    digest: text('digest').notNull(),
+    size: integer('size').notNull(),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [unique().on(t.pluginId, t.revision)],
+)
+
+/** A group's switch of a plugin; no row = off. */
+export const groupPlugins = pgTable(
+  'group_plugins',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    pluginId: uuid('plugin_id')
+      .notNull()
+      .references(() => plugins.id, { onDelete: 'cascade' }),
+    enabled: boolean('enabled').notNull(),
+    updatedBy: uuid('updated_by').references(() => users.id),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.pluginId] })],
 )
 
 /** Scheduled tasks (plan 定时任务): at each firing the first available bot of `botIds` is @-ed in the owner's name. */

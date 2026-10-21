@@ -391,6 +391,7 @@ describe('system params', () => {
       feishuAutoSignup: true,
       publicUrl: '',
       demoMode: false,
+      pluginsEnabled: false,
     })
   })
 

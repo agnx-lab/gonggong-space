@@ -69,6 +69,7 @@ import { startScheduleEngine } from './modules/schedules/engine.js'
 import { scheduleRoutes } from './modules/schedules/routes.js'
 import { searchRoutes } from './modules/search/routes.js'
 import { secretRoutes } from './modules/secrets/routes.js'
+import { pluginRoutes } from './modules/plugins/routes.js'
 import { skillRoutes } from './modules/skills/routes.js'
 import { startSyncEngine } from './modules/sync/engine.js'
 import { syncRoutes } from './modules/sync/routes.js'
@@ -185,6 +186,7 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   await app.register(mcpRoutes(ctx))
   await app.register(secretRoutes(ctx))
   await app.register(skillRoutes(ctx))
+  await app.register(pluginRoutes(ctx))
   await app.register(agentToolRoutes(ctx))
   await app.register(searchRoutes(ctx, mirrors))
   await app.register(candidateRoutes(ctx, mirrors))

@@ -1,5 +1,7 @@
 import type { Answer, Attachment, Question, QuestionSetDto } from '@gonggong/protocol'
-import type { attachments, questionSets } from '../../db/schema.js'
+import { asc, eq, inArray } from 'drizzle-orm'
+import type { Db } from '../../db/client.js'
+import { type attachments, questionLeanings, type questionSets, users } from '../../db/schema.js'
 
 type QuestionSet = typeof questionSets.$inferSelect
 type AttachmentRow = typeof attachments.$inferSelect
@@ -22,10 +24,14 @@ export const attachmentDto = (a: AttachmentRow): Attachment => ({
   messageId: a.messageId ?? '',
 })
 
+export type Leaning = QuestionSetDto['leanings'][number] & { questionSetId: string }
+
+/** `leanings` may hold other cards' too; only a pending card shows its own. */
 export const questionSetDto = (
   q: QuestionSet,
   answeredByName: string | null,
   files: Attachment[],
+  leanings: Leaning[] = [],
 ): QuestionSetDto => ({
   id: q.id,
   runId: q.runId,
@@ -38,4 +44,27 @@ export const questionSetDto = (
   answeredAt: q.answeredAt?.toISOString() ?? null,
   expiresAt: q.expiresAt.toISOString(),
   createdAt: q.createdAt.toISOString(),
+  leanings:
+    q.status === 'pending'
+      ? leanings
+          .filter((l) => l.questionSetId === q.id)
+          .map(({ questionId, choice, userId, name }) => ({ questionId, choice, userId, name }))
+      : [],
 })
+
+/** Members' leanings on the cards, oldest first, with their names. */
+export async function leaningsOf(db: Pick<Db, 'select'>, setIds: string[]): Promise<Leaning[]> {
+  if (!setIds.length) return []
+  return db
+    .select({
+      questionSetId: questionLeanings.questionSetId,
+      questionId: questionLeanings.questionId,
+      choice: questionLeanings.choice,
+      userId: questionLeanings.userId,
+      name: users.name,
+    })
+    .from(questionLeanings)
+    .innerJoin(users, eq(users.id, questionLeanings.userId))
+    .where(inArray(questionLeanings.questionSetId, setIds))
+    .orderBy(asc(questionLeanings.createdAt))
+}

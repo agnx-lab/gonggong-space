@@ -1,0 +1,295 @@
+import {
+  compareVersions,
+  PLUGIN_MANIFEST,
+  PLUGIN_MAX_BYTES,
+  type PluginBlocker,
+  type PluginDto,
+  type PluginLayer,
+  PluginManifest,
+  type PluginRef,
+  type SkillFile,
+} from '@gonggong/protocol'
+import { and, asc, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm'
+import type { Ctx } from '../../context.js'
+import type { Db } from '../../db/client.js'
+import { bots, groupBots, groupPlugins, groups, machines, plugins, pluginVersions, users } from '../../db/schema.js'
+import { audit } from '../../lib/audit.js'
+import { fail } from '../../lib/errors.js'
+import { sysParams } from '../admin/params.js'
+import type { Layer } from '../mcp/service.js'
+import { resolveSecrets } from '../secrets/resolve.js'
+import { checkFiles, frontmatter, mergeSkills } from '../skills/service.js'
+
+type Read = Pick<Db, 'select'>
+export type PluginRow = typeof plugins.$inferSelect
+
+/** Everything of a version but its files, which only downloads need (up to 5 MB each). */
+const versionCols = {
+  id: pluginVersions.id,
+  revision: pluginVersions.revision,
+  manifest: pluginVersions.manifest,
+  digest: pluginVersions.digest,
+  size: pluginVersions.size,
+}
+export type Listed = {
+  plugin: PluginRow
+  version: { id: string; revision: number; manifest: PluginManifest; digest: string; size: number }
+  updatedBy: string | null
+}
+
+const has = (files: SkillFile[], path: string) => files.some((f) => f.path === path)
+
+/** Validates a plugin folder (plan 插件体系 S2) and returns it sorted, with its manifest, digest and size. */
+export function pluginSnapshot(input: SkillFile[]) {
+  const checked = checkFiles(input, PLUGIN_MAX_BYTES, '插件不能超过 5 MB')
+  const { files } = checked
+  const raw = files.find((f) => f.path === PLUGIN_MANIFEST)
+  if (!raw || raw.encoding !== 'utf8') return fail('invalid', '缺少 gonggong-plugin.json')
+  let json: unknown
+  try {
+    json = JSON.parse(raw.content)
+  } catch {
+    return fail('invalid', 'gonggong-plugin.json 不是合法的 JSON')
+  }
+  const parsed = PluginManifest.safeParse(json)
+  if (!parsed.success)
+    return fail('invalid', 'gonggong-plugin.json 不符合清单格式：{field}', {
+      field: parsed.error.issues[0]?.path.join('.') ?? '',
+    })
+  const manifest = parsed.data
+  const entry = `skills/${manifest.entry}/SKILL.md`
+  if (!has(files, entry)) fail('invalid', '缺少文件：{path}', { path: entry })
+  if (frontmatter(files, entry).name !== manifest.entry)
+    fail('invalid', '{path} 的 name 必须是 {name}', { path: entry, name: manifest.entry })
+  const required = [
+    ...manifest.designSystems.flatMap((d) =>
+      ['DESIGN.md', 'tokens.css'].map((f) => `skills/${manifest.entry}/${d.dir}/${f}`),
+    ),
+    ...manifest.templates.flatMap((tp) => (tp.preview ? [tp.preview] : [])),
+  ]
+  for (const path of required) if (!has(files, path)) fail('invalid', '缺少文件：{path}', { path })
+  return { ...checked, manifest }
+}
+export type PluginSnapshot = ReturnType<typeof pluginSnapshot>
+
+export const inLayer = (l: Layer) =>
+  and(
+    eq(plugins.scope, l.scope),
+    l.teamId ? eq(plugins.teamId, l.teamId) : isNull(plugins.teamId),
+    l.groupId ? eq(plugins.groupId, l.groupId) : isNull(plugins.groupId),
+  )
+
+/** Plugins joined with their current version (without files) and last editor. */
+export const listed = (db: Read, where?: SQL) =>
+  db
+    .select({ plugin: plugins, version: versionCols, updatedBy: users.name })
+    .from(plugins)
+    .innerJoin(pluginVersions, eq(pluginVersions.id, plugins.versionId))
+    .leftJoin(users, eq(users.id, plugins.updatedBy))
+    .where(where)
+    .orderBy(asc(plugins.name))
+
+export const pluginDto = ({ plugin, version, updatedBy }: Listed): PluginDto => ({
+  id: plugin.id,
+  layer: plugin.scope as PluginLayer,
+  manifest: version.manifest,
+  versionId: version.id,
+  revision: version.revision,
+  size: version.size,
+  updatedBy,
+  updatedAt: plugin.updatedAt.toISOString(),
+})
+
+const log = (ctx: Ctx, actorId: string, l: Layer, action: string, row: PluginRow, revision?: number) =>
+  audit(ctx, {
+    category: 'admin',
+    actorUserId: actorId,
+    teamId: l.teamId,
+    groupId: l.groupId,
+    action,
+    detail: { id: row.id, layer: l.scope, name: row.name, revision },
+  })
+
+/** A new plugin, or a new version of the layer's plugin of the same name unless the content is identical. */
+export async function savePlugin(ctx: Ctx, l: Layer, s: PluginSnapshot, actorId: string) {
+  const name = s.manifest.name
+  const saved = await ctx.db.transaction(async (tx) => {
+    const values = { ...l, name, updatedBy: actorId, updatedAt: ctx.now() }
+    const [made] = await tx.insert(plugins).values(values).onConflictDoNothing().returning()
+    const [plugin] = made
+      ? [made]
+      : await tx
+          .select()
+          .from(plugins)
+          .where(and(inLayer(l), eq(plugins.name, name)))
+          .for('update')
+    if (!plugin) return fail('conflict', '插件正在被修改，请重试')
+    const [last] = await tx
+      .select({ revision: pluginVersions.revision, digest: pluginVersions.digest, id: pluginVersions.id })
+      .from(pluginVersions)
+      .where(eq(pluginVersions.pluginId, plugin.id))
+      .orderBy(desc(pluginVersions.revision))
+      .limit(1)
+    const current = plugin.versionId === last?.id ? last : undefined
+    if (current && current.digest === s.digest) return { plugin, created: false, revision: null }
+    const revision = (last?.revision ?? 0) + 1
+    const [v] = await tx
+      .insert(pluginVersions)
+      .values({
+        pluginId: plugin.id,
+        revision,
+        files: s.files,
+        manifest: s.manifest,
+        digest: s.digest,
+        size: s.size,
+        createdBy: actorId,
+      })
+      .returning({ id: pluginVersions.id })
+    await tx
+      .update(plugins)
+      .set({ versionId: v!.id, updatedBy: actorId, updatedAt: ctx.now() })
+      .where(eq(plugins.id, plugin.id))
+    return { plugin, created: !!made, revision }
+  })
+  if (saved.revision)
+    await log(ctx, actorId, l, saved.created ? 'plugin.create' : 'plugin.update', saved.plugin, saved.revision)
+  return saved
+}
+
+export async function deletePlugin(ctx: Ctx, l: Layer, row: PluginRow, actorId: string) {
+  await ctx.db.delete(plugins).where(eq(plugins.id, row.id))
+  await log(ctx, actorId, l, 'plugin.delete', row)
+}
+
+/** Plugins applying to the group: platform, the group's team and the group itself. */
+function visibleIn(db: Read, groupId: string) {
+  const team = db.select({ id: groups.teamId }).from(groups).where(eq(groups.id, groupId))
+  return or(
+    eq(plugins.scope, 'platform'),
+    and(eq(plugins.scope, 'team'), inArray(plugins.teamId, team)),
+    and(eq(plugins.scope, 'group'), eq(plugins.groupId, groupId)),
+  )
+}
+
+/** One per name across the layers (a lower layer replaces a same-named one above it), with the group's switch. */
+export async function groupPluginList(db: Read, groupId: string) {
+  const [rows, on] = await Promise.all([
+    listed(db, visibleIn(db, groupId)),
+    db
+      .select({ id: groupPlugins.pluginId })
+      .from(groupPlugins)
+      .where(and(eq(groupPlugins.groupId, groupId), eq(groupPlugins.enabled, true))),
+  ])
+  const enabled = new Set(on.map((r) => r.id))
+  return mergeSkills(rows.map((r) => ({ ...r, scope: r.plugin.scope, name: r.plugin.name }))).map((r) => ({
+    ...r,
+    enabledInGroup: enabled.has(r.plugin.id),
+  }))
+}
+
+export async function setGroupPlugin(
+  ctx: Ctx,
+  groupId: string,
+  plugin: PluginRow,
+  enabled: boolean,
+  actorId: string,
+) {
+  const set = { enabled, updatedBy: actorId, updatedAt: ctx.now() }
+  await ctx.db
+    .insert(groupPlugins)
+    .values({ groupId, pluginId: plugin.id, ...set })
+    .onConflictDoUpdate({ target: [groupPlugins.groupId, groupPlugins.pluginId], set })
+  await audit(ctx, {
+    category: 'admin',
+    actorUserId: actorId,
+    groupId,
+    action: 'plugin.group_toggle',
+    detail: { id: plugin.id, name: plugin.name, enabled },
+  })
+}
+
+export const pluginsOn = async (db: Read) => (await sysParams(db)).pluginsEnabled
+
+export async function requirePluginsOn(db: Read) {
+  if (!(await pluginsOn(db))) fail('forbidden', '插件功能未开启')
+}
+
+/** What decides whether a bot may use a plugin this turn. */
+export type BotState = {
+  agentKind: string
+  online: boolean
+  features: string[]
+  daemonVersion: string | null
+  /** The secrets this turn would get (resolveSecrets env). */
+  env: Record<string, string>
+}
+
+/** Why the bot cannot use the plugin now, or null; shared by the group list, creations and run.start. */
+export function pluginBlocker(m: PluginManifest, b: BotState): PluginBlocker | null {
+  if (!(m.agents as string[]).includes(b.agentKind)) return 'agent'
+  if (!b.online) return 'offline'
+  if (!b.features.includes('plugins') || !b.daemonVersion || compareVersions(b.daemonVersion, m.minDaemon) < 0)
+    return 'daemon'
+  if (m.secrets.some((name) => !(name in b.env))) return 'secret'
+  return null
+}
+
+/** The group's bots (or one of them) as a turn `originUserId` starts now would see them. */
+export async function botStates(ctx: Ctx, groupId: string, originUserId: string, botId?: string) {
+  const rows = await ctx.db
+    .select({
+      id: bots.id,
+      name: bots.name,
+      agentKind: bots.agentKind,
+      machineId: bots.machineId,
+      daemonVersion: machines.daemonVersion,
+    })
+    .from(groupBots)
+    .innerJoin(bots, eq(bots.id, groupBots.botId))
+    .leftJoin(machines, eq(machines.id, bots.machineId))
+    .where(
+      and(
+        eq(groupBots.groupId, groupId),
+        isNull(groupBots.removedAt),
+        isNull(bots.deletedAt),
+        botId ? eq(bots.id, botId) : undefined,
+      ),
+    )
+    .orderBy(asc(groupBots.addedAt))
+  return Promise.all(
+    rows.map(async (r) => {
+      const online = !!r.machineId && ctx.hub.isOnline(r.machineId)
+      const { env } = await resolveSecrets(ctx.db, { groupId, botId: r.id, originUserId }, ctx.now())
+      const state: BotState = {
+        agentKind: r.agentKind,
+        online,
+        features: online ? ctx.hub.features(r.machineId!) : [],
+        daemonVersion: r.daemonVersion,
+        env,
+      }
+      return { id: r.id, name: r.name, state }
+    }),
+  )
+}
+
+/** RunStart.plugins (the caller checks the master switch): enabled in the group and usable by the bot this turn. */
+export async function runPlugins(
+  db: Read,
+  groupId: string,
+  bot: { agentKind: string },
+  machineId: string,
+  features: string[],
+  env: Record<string, string>,
+): Promise<PluginRef[]> {
+  const [list, [machine]] = await Promise.all([
+    groupPluginList(db, groupId),
+    db
+      .select({ version: machines.daemonVersion })
+      .from(machines)
+      .where(eq(machines.id, machineId)),
+  ])
+  const state = { agentKind: bot.agentKind, online: true, features, daemonVersion: machine?.version ?? null, env }
+  return list
+    .filter((r) => r.enabledInGroup && !pluginBlocker(r.version.manifest, state))
+    .map((r) => ({ name: r.plugin.name, versionId: r.version.id, digest: r.version.digest }))
+}

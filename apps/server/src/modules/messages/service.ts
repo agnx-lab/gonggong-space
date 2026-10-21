@@ -3,6 +3,7 @@ import type {
   I18nParams,
   I18nText,
   McpSecretCard,
+  MessageCard,
   MessageDto,
   ProtocolKey,
   ReactionDto,
@@ -50,6 +51,8 @@ export type MessageMeta = {
   mcpSecret?: McpSecretCard
   /** A bot's 填写密钥 card (secret_request). */
   secretCard?: SecretCard
+  /** Generic card (plan 插件体系), e.g. a creation request. */
+  card?: MessageCard
 }
 
 /** A recalled message keeps only its envelope (its body, attachments and quote are already erased). */
@@ -79,6 +82,7 @@ export const messageDto = (m: MessageRow, authorName: string, reactions: Reactio
     ...((m.meta as MessageMeta).syncConflict && { syncConflict: (m.meta as MessageMeta).syncConflict }),
     ...((m.meta as MessageMeta).mcpSecret && { mcpSecret: (m.meta as MessageMeta).mcpSecret }),
     ...((m.meta as MessageMeta).secretCard && { secretCard: (m.meta as MessageMeta).secretCard }),
+    ...((m.meta as MessageMeta).card && { card: (m.meta as MessageMeta).card }),
   }
 }
 

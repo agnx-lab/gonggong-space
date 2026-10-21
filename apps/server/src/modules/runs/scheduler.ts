@@ -24,6 +24,7 @@ import { knowledgeContext } from '../knowledge/context.js'
 import { substitute } from '../mcp/secrets.js'
 import { enabledMcpServers } from '../mcp/service.js'
 import type { MessageMeta } from '../messages/service.js'
+import { runPlugins } from '../plugins/service.js'
 import { resolveSecrets } from '../secrets/resolve.js'
 import { enabledSkills } from '../skills/service.js'
 import { runSyncStart } from '../sync/store.js'
@@ -114,7 +115,7 @@ export async function schedule(ctx: Ctx, botId: string) {
       }
       if (machineId && busy < bot.concurrency) {
         const at = ctx.now()
-        const start = await buildRunStart(tx, bot, run, !unsynced, at)
+        const start = await buildRunStart(tx, bot, run, !unsynced, at, ctx.hub.features(machineId))
         if (start.settled) out.push(start.settled)
         // Marked running inside the transaction, sent only after it committed: a fast run.done then finds the
         // committed running row, and a rollback never leaves a daemon executing a run the server has queued.
@@ -128,6 +129,7 @@ export async function schedule(ctx: Ctx, botId: string) {
             sync: null,
             ...start.config,
             secrets: start.secrets,
+            plugins: start.msg.plugins,
             // Known up front so the live round already starts its own session; run.done may refine it.
             newSessionReason: start.msg.resumeSessionId ? null : (start.msg.newSessionReason ?? 'first'),
           })
@@ -188,7 +190,15 @@ export async function schedule(ctx: Ctx, botId: string) {
 const branchHint = (base: string) =>
   `本群开启了「禁止直推基准分支」：不要直接提交或推送到基准分支 ${base}。当前在 ${base} 上时，改代码前先新建一个分支（名字不限）；已经在其他分支上就直接在该分支开发、提交并推送，不用另建分支。需要合并时告诉触发人发起合并请求。推送到 ${base} 需要 Bot 主人审批。`
 
-async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean, now: Date) {
+/** `features`: the bot's daemon's (it is online). */
+export async function buildRunStart(
+  tx: Tx,
+  bot: Bot,
+  run: RunRow,
+  synced: boolean,
+  now: Date,
+  features: string[],
+) {
   // Reads issued together are pipelined on the transaction's connection: one round trip per batch, not per read.
   const [[trigger], [group], [gb], [repo], [owner], params, catalog, mcpServers, skills, secrets] =
     await Promise.all([
@@ -239,7 +249,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean, now
   )
   // A /new request wins over any session id a still-running turn reported after the request.
   const resumeSessionId = gb.newSessionReason ? null : gb.sessionId
-  const [recent, replay, interrupted, feishu, relay, scheduled, tier, sync, kb] = await Promise.all([
+  const [recent, replay, interrupted, feishu, relay, scheduled, tier, sync, kb, plugins] = await Promise.all([
     // Older messages stay out of the prompt; the agent reads them with the gonggong tools (plan C1).
     command ? null : contextMessages(tx, since, params.contextInlineTokens),
     resumeSessionId && !command
@@ -258,6 +268,9 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean, now
     synced ? runSyncStart(tx, run.groupId, bot.id, meta.syncResolve?.decisions ?? null) : null,
     // A resumed session that already got the knowledge base only hears what changed since.
     command ? null : knowledgeContext(tx, run.groupId, bot.id, resumeSessionId ? gb.knowledgeAt : null),
+    params.pluginsEnabled && bot.machineId
+      ? runPlugins(tx, run.groupId, bot, bot.machineId, features, secrets.env)
+      : [],
   ])
   const context = recent?.kept.reverse() ?? []
   const fallbackContext = replay?.kept.reverse() ?? []
@@ -319,6 +332,7 @@ async function buildRunStart(tx: Tx, bot: Bot, run: RunRow, synced: boolean, now
     // A server missing a secret's value is left out of this run (plan 团队密钥-方案 §8).
     mcpServers: mcpServers.flatMap((c) => substitute(c, secrets.env) ?? []),
     skills: skills.map(({ name, versionId, digest }) => ({ name, versionId, digest })),
+    plugins,
     command,
     sync,
     env: secrets.env,

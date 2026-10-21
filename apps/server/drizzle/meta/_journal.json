@@ -498,6 +498,13 @@
       "when": 1792400054143,
       "tag": "0070_curious_pet_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792545952991,
+      "tag": "0071_awesome_magdalene",
+      "breakpoints": true
     }
   ]
 }

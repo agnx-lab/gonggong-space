@@ -5,6 +5,7 @@ import { parse as parseYaml } from 'yaml'
 import type { Ctx } from '../../context.js'
 import type { Db } from '../../db/client.js'
 import { groupSkillOverrides, groups, skills, skillVersions, users } from '../../db/schema.js'
+import type { MessageKey } from '../../i18n/index.js'
 import { audit } from '../../lib/audit.js'
 import { fail } from '../../lib/errors.js'
 import { keptIn, turnedOff as offIn, setInherited as setOverride } from '../../lib/group-overrides.js'
@@ -29,8 +30,8 @@ const bytes = (f: SkillFile) =>
 const validPath = (p: string) =>
   !p.includes('\\') && !p.includes('\0') && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..')
 
-export function frontmatter(files: SkillFile[]) {
-  const main = files.find((f) => f.path === 'SKILL.md')
+export function frontmatter(files: SkillFile[], path = 'SKILL.md') {
+  const main = files.find((f) => f.path === path)
   if (!main || main.encoding !== 'utf8') return fail('invalid', '缺少 SKILL.md')
   const m = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(main.content)
   let meta: unknown
@@ -50,6 +51,12 @@ export function frontmatter(files: SkillFile[]) {
 
 /** Validates the folder and returns it sorted by path, with its frontmatter, digest and size. */
 export function snapshot(input: SkillFile[]) {
+  const checked = checkFiles(input, SKILL_MAX_BYTES, 'Skill 不能超过 5 MB')
+  return { ...checked, ...frontmatter(checked.files) }
+}
+
+/** Paths, encodings and total size of a folder upload; returns it sorted by path with its digest and size. */
+export function checkFiles(input: SkillFile[], max: number, tooBig: MessageKey) {
   const files = [...input].sort((a, b) => (a.path < b.path ? -1 : 1))
   const seen = new Set<string>()
   for (const f of files) {
@@ -60,10 +67,10 @@ export function snapshot(input: SkillFile[]) {
     seen.add(f.path)
   }
   const size = files.reduce((n, f) => n + bytes(f), 0)
-  if (size > SKILL_MAX_BYTES) fail('invalid', 'Skill 不能超过 5 MB')
+  if (size > max) fail('invalid', tooBig)
   const hash = createHash('sha256')
   for (const f of files) hash.update(`${f.path}\0${f.encoding}\0${f.content}\0`)
-  return { files, size, digest: hash.digest('hex'), ...frontmatter(files) }
+  return { files, size, digest: hash.digest('hex') }
 }
 
 export const inLayer = (l: Layer) =>
