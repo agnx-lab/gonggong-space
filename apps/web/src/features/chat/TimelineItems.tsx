@@ -148,6 +148,7 @@ function eventIcon(body: string): IconName {
   if (body.includes('下一轮将开新会话')) return 'arrow-clockwise'
   if (/\/cd|绑定到|绑定工作区|托管工作区|默认工作区/.test(body)) return 'folder-open'
   if (body === '没有运行中的轮次' || body.includes(' /stop · ')) return 'stop'
+  if (/ 切换到 | 拉取了更新| 的改动：| 推送到 /.test(body)) return 'git-branch'
   return 'info'
 }
 

@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { FilesTreeDto, GitOperationDto } from '@gonggong/protocol'
+import type { FilesTreeDto, GitCompareDto, GitOperationDto } from '@gonggong/protocol'
 import { expect, type Page, test } from '@playwright/test'
 import { bindManaged, buildDaemon, memberWithMachine, ROOT, remoteRepo } from './helpers'
 
@@ -89,13 +89,29 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
     })
 
     await test.step('the owner commits the bot’s change and pushes it', async () => {
-      writeFileSync(join(dirname(m.find('README.md')!), 'hello.txt'), 'hi\n')
+      const dir = dirname(m.find('README.md')!)
+      writeFileSync(join(dir, 'hello.txt'), 'hi\n')
+      writeFileSync(join(dir, 'later.txt'), 'not yet\n')
+      // Opening the menu re-reads the status, so files written outside a turn show up.
       await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
       await page.getByRole('button', { name: '提交…' }).click()
       const commit = page.getByRole('dialog', { name: '提交改动' })
+      await expect(commit).toContainText('已选 2 / 2 个文件', { timeout: 30_000 })
+      await commit.locator('label', { hasText: 'later.txt' }).click()
+      await expect(commit).toContainText('已选 1 / 2 个文件')
       await commit.getByLabel('提交说明').fill('add hello')
-      await commit.getByRole('button', { name: '提交' }).click()
+      await commit.getByRole('button', { name: '提交', exact: true }).click()
       await expect(commit).toBeHidden({ timeout: 30_000 })
+      const left = await api.call<GitCompareDto>('get', `${base}/git/compare?from=HEAD`)
+      expect(left.changes.map((c) => c.path)).toEqual(['later.txt'])
+      await expect(page.getByText(/提交了 .* 的改动：add hello/).first()).toBeAttached({ timeout: 30_000 })
+
+      await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
+      await page.getByRole('button', { name: '提交历史' }).click()
+      await page.locator('.git-log__row', { hasText: 'add hello' }).click()
+      await expect(page.locator('.diff__line').filter({ hasText: 'hi' }).first()).toBeVisible({
+        timeout: 30_000,
+      })
       await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
       await page.getByRole('button', { name: '推送…' }).click()
       const push = page.getByRole('dialog', { name: '推送' })
