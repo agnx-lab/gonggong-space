@@ -196,7 +196,10 @@ describe('管理后台 · 客户端发布', () => {
       'GET /admin/machines': [],
       'PUT /admin/daemon-release/notes': { ...release, releaseNotes: '## 0.2.0\n\n- 在线修改' },
     })
-    const sent = fakeXhr(() => ({ status: 200, body: { ...release, releaseNotes: '## 0.2.0\n\n- 文件说明' } }))
+    const sent = fakeXhr(() => ({
+      status: 200,
+      body: { ...release, releaseNotes: '## 0.2.0\n\n- 文件说明' },
+    }))
     const { container } = renderPage()
     expect(await screen.findByText(/未填写版本说明/)).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: '编辑版本说明' }))

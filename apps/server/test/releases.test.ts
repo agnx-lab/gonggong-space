@@ -39,9 +39,9 @@ describe('upgradeFor', () => {
     expect(upgradeFor(release, mac, '0.3.0')).toBeNull()
     expect(upgradeFor(release, { os: 'windows', arch: 'x86_64' }, '0.1.0')).toBeNull()
     expect(upgradeFor(null, mac, '0.1.0')).toBeNull()
-    expect(
-      upgradeFor({ ...release, releaseNotes: undefined }, mac, '0.1.0'),
-    ).not.toHaveProperty('releaseNotes')
+    expect(upgradeFor({ ...release, releaseNotes: undefined }, mac, '0.1.0')).not.toHaveProperty(
+      'releaseNotes',
+    )
   })
 })
 
@@ -408,9 +408,9 @@ describe('daemon release files (管理后台 · 客户端发布)', () => {
     expect((await send(mine.id, other, notes)).status).toBe(404)
     expect((await send((await run(member.id)).id, token, notes)).status).toBe(403)
     expect((await send((await run(adminUser.id, 'completed')).id, token, notes)).status).toBe(404)
-    expect(
-      (await send(mine.id, token, { ...notes, version: '0.3.0' })).body.message,
-    ).toContain('当前发布版本是 0.3.1')
+    expect((await send(mine.id, token, { ...notes, version: '0.3.0' })).body.message).toContain(
+      '当前发布版本是 0.3.1',
+    )
     expect((await send(mine.id, token, { ...notes, releaseNotes: '  ' })).status).toBe(400)
     const ok = await send(mine.id, token, notes)
     expect(ok.status).toBe(200)

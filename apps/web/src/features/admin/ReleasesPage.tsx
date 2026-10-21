@@ -9,7 +9,18 @@ import { useEffect, useState } from 'react'
 import { t } from '../../i18n'
 import { api, errorText } from '../../lib/api'
 import { toastError } from '../../lib/errors'
-import { Alert, AlertDialog, Button, type DropFile, DropZone, Spinner, Table, Tag, Textarea, toast } from '../../ui'
+import {
+  Alert,
+  AlertDialog,
+  Button,
+  type DropFile,
+  DropZone,
+  Spinner,
+  Table,
+  Tag,
+  Textarea,
+  toast,
+} from '../../ui'
 import { fmtSize, postForm } from '../attachments/api'
 import { OS_LABEL } from '../machines/model'
 import { AdminPage } from './AdminPage'
