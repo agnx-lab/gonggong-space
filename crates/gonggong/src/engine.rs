@@ -59,6 +59,8 @@ pub struct EngineConfig {
     /// A conversation whose adapter is gone is dropped after this long without a run, unless its last turn was
     /// stopped: run.discard still needs that turn's snapshot.
     pub reap: Duration,
+    /// A cancelled turn whose agent has not ended its prompt this long is cut off: the adapter is torn down.
+    pub cancel_grace: Duration,
     /// Server REST access for downloading attachments; `None` (tests) skips them.
     pub api: Option<Config>,
 }

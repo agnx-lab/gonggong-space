@@ -3,6 +3,7 @@
 //   "mock:echo"  reply with a JSON summary of what the agent received (pid, cwd, mode, system prompt, settings meta,
 //                provider env, GG_SECRET_* env, MCP servers, prompt, blocks)
 //   "mock:slow"  stream text until cancelled
+//   "mock:hang"  stream one chunk, then hang, ignoring session/cancel
 //   "mock:crash" stream one chunk, then exit with code 3
 //   "mock:commands" report available commands (compact, new), then reply "ok"
 //   "mock:sh <command>" run the rest of the prompt (from its last "mock:sh") with sh in the session cwd (like Codex
@@ -299,6 +300,11 @@ async function prompt({ sessionId, prompt: blocks }, client) {
     await say('about to crash')
     await sleep(50)
     process.exit(3)
+  }
+  // A hung agent: streams once, then never answers, not even session/cancel.
+  if (text.includes('mock:hang')) {
+    await say('working ')
+    await new Promise(() => {})
   }
   if (text.includes('mock:slow')) {
     for (let i = 0; i < 300 && !abort.signal.aborted; i++) {

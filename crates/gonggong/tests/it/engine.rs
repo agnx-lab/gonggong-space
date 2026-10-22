@@ -20,6 +20,10 @@ fn rig(idle: Duration) -> Rig {
 }
 
 fn rig_reaping(idle: Duration, reap: Duration) -> Rig {
+    rig_with(idle, reap, Duration::from_secs(30))
+}
+
+fn rig_with(idle: Duration, reap: Duration, cancel_grace: Duration) -> Rig {
     gonggong::i18n::set_locale(gonggong::i18n::Locale::Zh);
     let home = tempfile::tempdir().unwrap();
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
@@ -29,6 +33,7 @@ fn rig_reaping(idle: Duration, reap: Duration) -> Rig {
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle,
         reap,
+        cancel_grace,
         api: None,
     });
     let (out, rx) = Outbox::channel();
@@ -388,6 +393,20 @@ async fn cancel_interrupts_and_the_session_continues() {
     let (_, next) = r.finish("r2").await;
     assert_eq!(next.outcome, RunOutcome::Completed);
     assert_eq!(next.session_id, done.session_id);
+}
+
+#[tokio::test]
+async fn a_turn_whose_agent_ignores_the_cancel_ends_after_the_grace_and_the_next_one_runs() {
+    let mut r = rig_with(Duration::from_secs(60), Duration::from_secs(600), Duration::from_millis(500));
+    r.run(start("r1", "mock:hang"));
+    assert!(matches!(r.next().await, DaemonToServer::RunEvent { event: RunEvent::Text { .. }, .. }));
+    r.send(ServerToDaemon::RunCancel { run_id: "r1".into() });
+    let (_, done) = r.finish("r1").await;
+    assert_eq!(done.outcome, RunOutcome::Interrupted);
+
+    r.run(follow_up("r2", "mock:echo", &done));
+    let (_, next) = r.finish("r2").await;
+    assert_eq!(next.outcome, RunOutcome::Completed);
 }
 
 #[tokio::test]

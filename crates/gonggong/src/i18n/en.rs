@@ -403,6 +403,7 @@ pub(super) const EN: &[(&str, &str)] = &[
     ("等待回答：{n} 个问题", "Awaiting answers: {n} {n:question|questions}"),
     ("agent 已不再等待回答，提问作废", "The agent is no longer waiting; the question was withdrawn"),
     ("agent 进程意外退出", "The agent process exited unexpectedly"),
+    ("agent 停止后没有响应，已结束其进程", "The agent did not respond to the stop; its process was ended"),
     ("无法建立 agent 会话：{e}", "Can't start an agent session: {e}"),
     ("模型", "model"),
     ("推理强度", "reasoning effort"),

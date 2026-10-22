@@ -12,7 +12,13 @@ import {
   runs,
 } from '../src/db/schema.js'
 import { callTool } from '../src/modules/agent-tools/service.js'
-import { expireOfflineRuns, isChainStopped, notifyChainDone } from '../src/modules/runs/stop.js'
+import {
+  expireOfflineRuns,
+  isChainStopped,
+  notifyChainDone,
+  stopGrace,
+  stopRuns,
+} from '../src/modules/runs/stop.js'
 import { createTestApp, type TestApp } from './support/app.js'
 import { client } from './support/http.js'
 
@@ -22,7 +28,10 @@ beforeEach(async () => {
   clock = new Date('2026-09-23T10:00:00Z')
   t = await createTestApp({ now: () => clock })
 })
-afterEach(() => t.close())
+afterEach(() => {
+  stopGrace.ms = 30_000
+  return t.close()
+})
 
 const minutes = (n: number) => {
   clock = new Date(clock.getTime() + n * 60_000)
@@ -209,6 +218,49 @@ describe('/stop command', () => {
       interrupt: 'pending',
       step: '赵敏 执行了 /stop · 分区模式：已改的 2 个文件留在工作区，未提交',
     })
+  })
+
+  it('a live run whose daemon never answers the cancel is interrupted after a grace period, and the queue moves on', async () => {
+    stopGrace.ms = 50
+    const w = await world()
+    await w.say(w.as.li, '@小王的 Claude 改退款接口')
+    await w.say(w.as.li, '@小王的 Claude 再补测试')
+    const [first, second] = await w.runsOf(w.claude.id)
+    expect(first!.status).toBe('running')
+
+    await stopRuns(t.ctx, { groupId: w.g.id, runId: first!.id }, { id: w.zhao.id, name: '赵敏' })
+    expect(await w.run(first!.id)).toMatchObject({ status: 'running', stoppedBy: w.zhao.id })
+    const stopped = await until(
+      () => w.run(first!.id),
+      (r) => r.status === 'interrupted',
+    )
+    expect(stopped).toMatchObject({ stoppedBy: w.zhao.id, step: '赵敏 执行了 /stop' })
+    expect(stopped.endedAt).not.toBeNull()
+    await until(
+      () => w.run(second!.id),
+      (r) => r.status === 'running',
+    )
+
+    // A late run.done changes nothing.
+    w.done(first!.id)
+    await new Promise((r) => setTimeout(r, 50))
+    expect((await w.run(first!.id)).interrupt).toBeNull()
+  })
+
+  it('a daemon answering the cancel in time ends the run as before', async () => {
+    stopGrace.ms = 300
+    const w = await world()
+    await w.say(w.as.li, '@小王的 Claude 改退款接口')
+    const [first] = await w.runsOf(w.claude.id)
+    await stopRuns(t.ctx, { groupId: w.g.id, runId: first!.id }, { id: w.zhao.id, name: '赵敏' })
+    w.done(first!.id)
+    const stopped = await until(
+      () => w.run(first!.id),
+      (r) => r.status === 'interrupted',
+    )
+    expect(stopped).toMatchObject({ interrupt: 'pending' })
+    await new Promise((r) => setTimeout(r, 350))
+    expect((await w.run(first!.id)).interrupt).toBe('pending')
   })
 
   it('without @ stops every unfinished run of the group, chains included, and ends the chain', async () => {

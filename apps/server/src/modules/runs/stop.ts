@@ -25,6 +25,9 @@ type User = { id: string; name: string }
 
 const WAITING = ['queued', 'offline_wait']
 const DISCARD_TIMEOUT_MS = 60_000
+/** How long a stopped live run waits for the daemon's run.done before the server ends it (a hung agent, or a daemon
+ * that lost the run). A mutable box so tests can shorten it. */
+export const stopGrace = { ms: 30_000 }
 
 /** Ids of the relay chain `runId` belongs to: its root and every descendant. */
 async function chainIds(db: Db | Tx, runId: string): Promise<string[]> {
@@ -93,7 +96,13 @@ export async function stopRuns(ctx: Ctx, target: StopTarget, by: User): Promise<
       .where(and(eq(runs.id, run.id), notInArray(runs.status, [...TERMINAL_RUN_STATUS])))
       .returning()
     if (!row) continue
-    if (live && machineId) ctx.hub.send(machineId, { t: 'run.cancel', runId: run.id })
+    if (live && machineId) {
+      ctx.hub.send(machineId, { t: 'run.cancel', runId: run.id })
+      setTimeout(
+        () => void forceStopped(ctx, row.id, step).catch((e) => console.error('stop:', e)),
+        stopGrace.ms,
+      ).unref()
+    }
     await publishRun(ctx, row)
     // Also republishes the run, as running again while the daemon winds the turn down.
     await voidApprovals(
@@ -109,6 +118,21 @@ export async function stopRuns(ctx: Ctx, target: StopTarget, by: User): Promise<
   }
   for (const run of stopped) if (run.status === 'interrupted') await notifyChainDone(ctx, run)
   return stopped
+}
+
+/** A stopped run the daemon never wound down: ended here so its bot's queue goes on; a late run.done is ignored. */
+async function forceStopped(ctx: Ctx, runId: string, step: Partial<RunRow>) {
+  const [row] = await ctx.db
+    .update(runs)
+    .set({ status: 'interrupted', ...step, endedAt: ctx.now() })
+    .where(
+      and(eq(runs.id, runId), isNotNull(runs.stoppedBy), notInArray(runs.status, [...TERMINAL_RUN_STATUS])),
+    )
+    .returning()
+  if (!row) return
+  await publishRun(ctx, row)
+  await schedule(ctx, row.botId)
+  await notifyChainDone(ctx, row)
 }
 
 /**

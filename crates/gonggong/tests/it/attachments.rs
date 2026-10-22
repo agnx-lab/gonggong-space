@@ -63,6 +63,7 @@ fn rig(server: &str) -> Rig {
         adapter_cmd: Some(format!("node {}", agent.display())),
         idle: Duration::from_secs(60),
         reap: Duration::from_secs(600),
+        cancel_grace: Duration::from_secs(30),
         api: Some(Config {
             server: server.into(),
             token: TOKEN.into(),

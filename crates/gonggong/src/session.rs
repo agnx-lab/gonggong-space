@@ -769,6 +769,14 @@ impl Shared {
     }
 }
 
+/// Resolves `grace` after `run_id` is cancelled; never if it is not.
+async fn cut_off(shared: &Shared, run_id: &str, grace: std::time::Duration) {
+    while !shared.is_cancelled(run_id) {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    tokio::time::sleep(grace).await;
+}
+
 /// Cancels the prompt in flight. ACP: every pending permission request is then answered `cancelled`; pending
 /// questions are withdrawn with it.
 fn interrupt(s: &mut State) {
@@ -1098,6 +1106,7 @@ async fn connect(
                 plugins: first.plugins.clone(),
                 session: None,
                 mode: None,
+                cancel_grace: engine.config.cancel_grace,
                 options: vec![],
                 initial: HashMap::new(),
                 applied: HashMap::new(),
@@ -1165,6 +1174,8 @@ struct Conversation<'a> {
     plugins: plugins::Installed,
     session: Option<SessionId>,
     mode: Option<String>,
+    /// A cancelled prompt still unanswered after this long is abandoned with its adapter.
+    cancel_grace: std::time::Duration,
     /// The session's config options as last reported, their values when it was opened, and the values we set
     /// (by config id; adapters may report a set alias under its canonical id).
     options: Vec<SessionConfigOption>,
@@ -1245,7 +1256,15 @@ impl Conversation<'_> {
         // 打断并追加 cancels a prompt and continues the same turn with the appended text (spec §8.9).
         let result = loop {
             let prompt = PromptRequest::new(session.clone(), blocks);
-            let result = self.cx.send_request(prompt).block_task().await.map(|mut resp| {
+            // An agent ignoring session/cancel would hold the turn (and the bot's queue) forever.
+            let result = tokio::select! {
+                result = self.cx.send_request(prompt).block_task() => result,
+                () = cut_off(self.shared, &s.run_id, self.cancel_grace) => Err(
+                    agent_client_protocol::Error::internal_error()
+                        .data(serde_json::Value::from(t!("agent 停止后没有响应，已结束其进程").to_string())),
+                ),
+            }
+            .map(|mut resp| {
                 spent = add_usage(spent.take(), resp.usage.take());
                 resp.usage = spent.clone();
                 resp
