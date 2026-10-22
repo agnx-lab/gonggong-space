@@ -26,6 +26,7 @@ import { BotAvatar, useBotCostume } from '../bots/avatars'
 import { CreationCardView } from '../plugins/CreationCard'
 import { PreviewCard } from '../previews/PreviewCard'
 import { ReactionBar } from '../reactions'
+import { RichMessage } from '../rich/context'
 import { ApprovalBlock } from '../runs/ApprovalBlock'
 import { InterruptBlock } from '../runs/InterruptBlock'
 import { runMascot } from '../runs/mascot'
@@ -518,7 +519,9 @@ function ReplyMessage({
           />
         ) : (
           <Clamp>
-            <Markdown text={m.body} botId={m.authorId ?? undefined} />
+            <RichMessage.Provider value={m}>
+              <Markdown text={m.body} botId={m.authorId ?? undefined} />
+            </RichMessage.Provider>
           </Clamp>
         )}
         <ReactionBar message={m} />
