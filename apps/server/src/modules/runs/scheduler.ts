@@ -86,6 +86,7 @@ export async function schedule(ctx: Ctx, botId: string) {
       msg: RunStart
       triggerSeq: number
       knowledgeAt: Date | null
+      detached: boolean
     }[] = []
     const setRun = async (id: string, patch: Partial<RunRow>) =>
       out.push(...(await tx.update(runs).set(patch).where(eq(runs.id, id)).returning()))
@@ -146,6 +147,7 @@ export async function schedule(ctx: Ctx, botId: string) {
             triggerSeq: start.triggerSeq,
             // An agent command got no knowledge base either.
             knowledgeAt: start.msg.command ? null : at,
+            detached: start.detached,
           })
         }
         continue
@@ -158,17 +160,19 @@ export async function schedule(ctx: Ctx, botId: string) {
     return { out, dispatches }
   })
   const unsent = new Map<string, RunRow>()
-  for (const { run, machineId, msg, triggerSeq, knowledgeAt } of changed.dispatches) {
+  for (const { run, machineId, msg, triggerSeq, knowledgeAt, detached } of changed.dispatches) {
     if (ctx.hub.send(machineId, msg)) {
       // After the send: a cursor advanced for a start that never went out would drop that context for good.
-      await ctx.db
-        .update(groupBots)
-        .set({
-          contextSeq: sql`greatest(${groupBots.contextSeq}, ${triggerSeq})`,
-          newSessionReason: null,
-          ...(knowledgeAt && { knowledgeAt }),
-        })
-        .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, botId)))
+      // A detached (scheduled) turn moves none of the conversation's cursors, nor uses up a pending /new.
+      if (!detached)
+        await ctx.db
+          .update(groupBots)
+          .set({
+            contextSeq: sql`greatest(${groupBots.contextSeq}, ${triggerSeq})`,
+            newSessionReason: null,
+            ...(knowledgeAt && { knowledgeAt }),
+          })
+          .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, botId)))
     } else {
       // The machine dropped since the transaction. (A crash between commit and send leaves a running run the
       // daemon never got; its next hello lists no such run and reconcileRuns interrupts it.)
@@ -247,8 +251,10 @@ export async function buildRunStart(
     lt(messages.seq, trigger.seq),
     or(isNull(messages.authorBotId), ne(messages.authorBotId, bot.id)),
   )
+  // A scheduled turn runs in a session of its own and leaves the group's conversation as it was (see detached).
+  const detached = !!meta.scheduleOf
   // A /new request wins over any session id a still-running turn reported after the request.
-  const resumeSessionId = gb.newSessionReason ? null : gb.sessionId
+  const resumeSessionId = detached || gb.newSessionReason ? null : gb.sessionId
   const [recent, replay, interrupted, feishu, relay, scheduled, tier, sync, kb, plugins] = await Promise.all([
     // Older messages stay out of the prompt; the agent reads them with the gonggong tools (plan C1).
     command ? null : contextMessages(tx, since, params.contextInlineTokens),
@@ -319,7 +325,7 @@ export async function buildRunStart(
       extraDirs: gb.extraDirs,
     },
     resumeSessionId,
-    newSessionReason: gb.newSessionReason,
+    newSessionReason: detached ? 'schedule' : gb.newSessionReason,
     prompt: {
       text: trigger.body,
       triggeredBy: trigger.author ?? trigger.bot ?? '',
@@ -343,6 +349,7 @@ export async function buildRunStart(
     secrets: secrets.secrets,
     triggerSeq: command ? 0 : trigger.seq,
     settled: interrupted?.settled,
+    detached,
   }
 }
 

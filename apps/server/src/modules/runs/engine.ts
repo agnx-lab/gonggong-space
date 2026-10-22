@@ -9,7 +9,14 @@ import { publishBot } from '../bots/dto.js'
 import { mirrorDelta, mirrorRun } from '../feishu/mirror.js'
 import { requeueAppends } from '../messages/append.js'
 import { memberMentions, notifyMentions } from '../messages/mentions.js'
-import { authorName, memberIds, messageDto, postEvent, publishMessage } from '../messages/service.js'
+import {
+  authorName,
+  type MessageMeta,
+  memberIds,
+  messageDto,
+  postEvent,
+  publishMessage,
+} from '../messages/service.js'
 import { onQuestionAsk, onQuestionWithdraw, voidQuestions } from '../questions/service.js'
 import { settleSchedule } from '../schedules/engine.js'
 import { forgetRedactors, runRedactors } from '../secrets/resolve.js'
@@ -569,12 +576,17 @@ async function terminate(ctx: Ctx, owned: RunRow, done: RunDone) {
       .where(and(eq(runs.id, owned.id), inArray(runs.status, LIVE)))
       .returning(unpatched)
     if (!run) return null
+    // A scheduled turn's session is its own (see buildRunStart): the group keeps resuming its conversation.
+    const [trigger] = done.sessionId
+      ? await tx.select({ meta: messages.meta }).from(messages).where(eq(messages.id, run.triggerMessageId))
+      : []
+    const sessionId = (trigger?.meta as MessageMeta | undefined)?.scheduleOf ? null : done.sessionId
     const [state] =
-      done.sessionId || done.git
+      sessionId || done.git
         ? await tx
             .update(groupBots)
             .set({
-              ...(done.sessionId && { sessionId: done.sessionId }),
+              ...(sessionId && { sessionId }),
               ...(done.git && { gitStatus: done.git }),
             })
             .where(and(eq(groupBots.groupId, run.groupId), eq(groupBots.botId, run.botId)))
