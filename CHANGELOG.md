@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.7 — 2026-10-22
+
+- 手动 Git 第一期：Git 状态实时刷新、「获取远程更新」，提交可只选部分文件（成员申请同样），提交历史与文件对比显示差异，推送说明与被拒提示，切换分支、提交、推送进群事件 / Manual Git, phase one: live status and "Fetch remote updates", commits of selected files only (member requests too), diffs in the history and file compare, clearer push, and group events for switch, commit and push
+- 定时任务每次在独立的新会话中运行，不续接群内会话 / Scheduled tasks run in a fresh session each time and no longer resume the group's session
+- `client_release_publish` 支持 `dir` 一次上传整个发布目录，审批一次 / `client_release_publish` takes `dir` to upload a whole release directory with one approval
+
 ## v0.3.6 — 2026-10-21
 
 - 手动 Git 操作：Git 状态条切换分支、拉取、提交、推送，非主人发起需 Bot 主人审批，运行中禁止写操作，推送基准分支需二次确认 / Manual Git: switch branches, pull, commit and push from the Git bar; non-owners' requests need the Bot owner's approval, writes are refused during runs, pushing the base branch asks again
