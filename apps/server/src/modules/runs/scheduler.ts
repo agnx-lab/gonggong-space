@@ -1,4 +1,12 @@
-import type { AgentKind, Approval, ContextMessage, GitProtocol, RunStart, Tier } from '@gonggong/protocol'
+import {
+  type AgentKind,
+  type Approval,
+  type ContextMessage,
+  type GitProtocol,
+  type RunStart,
+  type Tier,
+  UI_BLOCKS_GUIDE,
+} from '@gonggong/protocol'
 import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, or, type SQL, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import type { Db } from '../../db/client.js'
@@ -299,6 +307,7 @@ export async function buildRunStart(
       systemPrompt: [
         ...(feishu ? [FEISHU_HINT] : []),
         ...(protectBase && repo ? [branchHint(repo.baseBranch)] : []),
+        ...(command ? [] : [UI_BLOCKS_GUIDE]),
         bot.systemPrompt,
       ]
         .filter((s) => s.trim())

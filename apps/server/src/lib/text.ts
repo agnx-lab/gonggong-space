@@ -1,3 +1,5 @@
+import { findUiBlocks, summarizeUiBlock } from '@gonggong/protocol'
+
 export const likePattern = (q: string) => `%${q.replace(/[\\%_]/g, '\\$&')}%`
 
 /** One line around the first match, so long messages still show why they matched. */
@@ -9,3 +11,14 @@ export function snippet(body: string, q: string) {
 
 export const patchPaths = (patch: string) =>
   [...patch.matchAll(/^diff --git a\/.+? b\/(?<path>.+)$/gm)].map((m) => m.groups?.path ?? '')
+
+/** `markdown` with each rich UI block (plan 富交互消息) replaced by its one-line summary, for places that can't render it. */
+export function summarizeBlocks(markdown: string) {
+  let out = ''
+  let at = 0
+  for (const b of findUiBlocks(markdown)) {
+    out += markdown.slice(at, b.start) + summarizeUiBlock(b.block)
+    at = b.end
+  }
+  return out + markdown.slice(at)
+}

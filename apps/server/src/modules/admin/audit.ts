@@ -101,6 +101,8 @@ export function summarize(row: Pick<Row, 'category' | 'action'>, d: Detail, n: N
       return approval ? t(approval, { bot, title }) : `${row.action} ${bot} ${title}`
     }
     case 'question':
+      if (row.action === 'actions.answer')
+        return t('点选 Bot 回复中的按钮（{block}）', { block: str(d.blockId) })
       return t(QUESTION[row.action] ?? '{bot} 的 {n} 个问题已作废', { bot, n: count(d.questions) })
     case 'run':
       switch (row.action) {

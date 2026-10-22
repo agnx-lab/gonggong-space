@@ -7,6 +7,7 @@ import type {
   RunStatus,
 } from '@gonggong/protocol'
 import { translator } from '../../i18n/index.js'
+import { summarizeBlocks } from '../../lib/text.js'
 import { answerText } from '../questions/dto.js'
 
 /** Cards are read by everyone in the chat: always Chinese, whatever request led to them. */
@@ -180,6 +181,12 @@ export function interactionElements(items: Interaction[]) {
     .filter(isPending)
     .flatMap((i) => (i.k === 'approval' ? approvalBlock(i) : questionBlock(i)))
   return [...history, ...pending]
+}
+
+/** A bot reply as card markdown: its rich UI blocks as summaries (not clickable), plus a link to the message in 共工. */
+export function replyMarkdown(body: string, url: string | null) {
+  const text = summarizeBlocks(body)
+  return text === body || !url ? text : `${text}\n\n[${zt('在共工查看')}](${url})`
 }
 
 /** One card per run: status while it works, then the final reply. `url` (查看过程) is null without 对外地址. */
