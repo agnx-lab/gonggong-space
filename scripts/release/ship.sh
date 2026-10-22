@@ -76,7 +76,7 @@ if [ "$(gonggong_version)" != "$v" ]; then
   cargo update -q --workspace --offline
 fi
 git add "${release_files[@]}"
-git diff --cached --quiet || git commit -qm "chore(release): $tag——版本号、CHANGELOG 与更新说明"
+git diff --cached --quiet || git commit -qm "chore(release): ${tag}——版本号、CHANGELOG 与更新说明"
 git rev-parse -q --verify "refs/tags/$tag" >/dev/null || git tag "$tag"
 step "push main and $tag"
 direct git push -q gitlab HEAD:main
