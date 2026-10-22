@@ -1,5 +1,6 @@
 import type { GroupBotStateDto, GroupDto, RepoStatus } from '@gonggong/protocol'
 import { useEffect, useRef } from 'react'
+import { useSession } from '../../app/session'
 import { loadBotStates, loadGitOperations, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { copyWithToast } from '../../lib/clipboard'
@@ -291,6 +292,7 @@ export function GitBar({ group }: { group: GroupDto }) {
   const showGit = group.mode === 'partition' && !!group.repo
   const states = useWorkspace((s) => s.botStates[group.id])
   const bots = useWorkspace((s) => s.bots)
+  const me = useSession((s) => s.user?.id)
   const botKey = group.botIds.join()
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload when the group's bots change
@@ -321,9 +323,12 @@ export function GitBar({ group }: { group: GroupDto }) {
   }, [group.id, botKey, showGit])
 
   if (!group.botIds.length) return null
+  // My own bots first (what I act on most), the group's order otherwise; sort is stable.
+  const mine = (id: string) => bots.find((b) => b.id === id)?.ownerId === me
+  const ordered = [...group.botIds].sort((a, b) => Number(mine(b)) - Number(mine(a)))
   return (
     <div className="git-bar" data-testid="git-bar">
-      {group.botIds.map((id) => {
+      {ordered.map((id) => {
         const bot = bots.find((b) => b.id === id)
         return (
           <Item

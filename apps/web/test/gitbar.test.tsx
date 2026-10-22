@@ -1,6 +1,7 @@
-import type { BotDto, GroupBotStateDto, GroupDto, RepoStatus } from '@gonggong/protocol'
+import type { BotDto, GroupBotStateDto, GroupDto, RepoStatus, UserDto } from '@gonggong/protocol'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useSession } from '../src/app/session'
 import { useWorkbench } from '../src/app/workbench'
 import { loadBotStates, useWorkspace } from '../src/app/workspace'
 import { GitBar } from '../src/features/chat/GitBar'
@@ -74,6 +75,27 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('git status bar', () => {
+  it('puts my own bots first, keeping the group order otherwise', async () => {
+    mockApi({ 'GET /groups/g1/bot-states': [] })
+    useWorkspace.setState({
+      bots: [
+        { ...bot('b1', '小王的 Claude'), ownerId: 'u1' },
+        { ...bot('b2', '老李的 Codex'), ownerId: 'u2' },
+        { ...bot('b3', '阿杰的 Claude'), ownerId: 'u3' },
+        { ...bot('b4', '老李的 Claude'), ownerId: 'u2' },
+      ],
+    })
+    const order = () =>
+      [...screen.getByTestId('git-bar').children].map((el) => el.getAttribute('data-testid'))
+    useSession.setState({ user: { id: 'u2' } as UserDto })
+    const { unmount } = render(<GitBar group={group({ mode: 'force', repo: null })} />)
+    expect(order()).toEqual(['git-b2', 'git-b4', 'git-b1', 'git-b3'])
+    unmount()
+    useSession.setState({ user: { id: 'u9' } as UserDto })
+    render(<GitBar group={group({ mode: 'force', repo: null })} />)
+    expect(order()).toEqual(['git-b1', 'git-b2', 'git-b3', 'git-b4'])
+  })
+
   it('loads the states and renders branch, behind/ahead, dirty, workspace kind and workspace hints', async () => {
     vi.stubGlobal(
       'fetch',
