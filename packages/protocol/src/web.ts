@@ -54,6 +54,7 @@ import { MessageCard } from './plugins.js'
 import { GroupSchedulesDto } from './schedules.js'
 import { RunSecret, SecretCard } from './secrets.js'
 import { RunSyncDone, SyncStatusDto } from './sync.js'
+import { ActionAnswer } from './ui-blocks.js'
 
 /** REST base: /api. Auth: httpOnly cookie `gonggong_session`. Errors: { error: ErrorCode, message }. */
 export const ErrorCode = z.enum([
@@ -940,6 +941,8 @@ export const MessageDto = z.object({
   secretCard: SecretCard.optional(),
   /** A bot's progress card (progress_card), updated in place. */
   progress: ProgressCard.optional(),
+  /** A bot reply's answered ```actions blocks, by block id (plan 富交互消息). */
+  actions: z.record(z.string(), ActionAnswer).optional(),
   /** Generic card (plan 插件体系-方案); unknown kinds are shown as the body. */
   card: MessageCard.optional(),
 })
