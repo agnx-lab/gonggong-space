@@ -888,6 +888,67 @@ export type PinnedMessageDto = z.infer<typeof PinnedMessageDto>
 /** GET /api/groups/:id/pins (newest pin first); POST …/pins {messageId}; DELETE …/pins/:messageId. */
 export const GroupPinsDto = z.object({ pins: z.array(PinnedMessageDto) })
 export type GroupPinsDto = z.infer<typeof GroupPinsDto>
+
+/** 群标签栏 (docs/plan/群标签栏-设计.md): shared tabs under the group header; any member edits them. */
+export const MAX_GROUP_TABS = 30
+export const GROUP_TAB_TITLE_MAX = 40
+export const GROUP_TAB_URL_MAX = 2000
+/** Built-in pages a tab can pin; `git-log` needs the bot whose history it shows. */
+export const GroupTabEntry = z.enum(['notice', 'pins', 'schedules', 'git-log'])
+export type GroupTabEntry = z.infer<typeof GroupTabEntry>
+const tabUrl = z
+  .string()
+  .trim()
+  .max(GROUP_TAB_URL_MAX)
+  .refine((u) => /^https?:\/\//i.test(u) && URL.canParse(u), '只支持 http/https 链接')
+export const GroupTabTargetReq = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('link'), url: tabUrl }),
+  z.object({ kind: z.literal('knowledge'), knowledgeId: z.string().uuid() }),
+  z.object({ kind: z.literal('file'), botId: z.string().uuid(), path: z.string().trim().min(1).max(500) }),
+  z.object({ kind: z.literal('entry'), entry: GroupTabEntry, botId: z.string().uuid().optional() }),
+])
+export type GroupTabTargetReq = z.infer<typeof GroupTabTargetReq>
+/** What a tab opens. A link carries what the server learnt fetching it: favicon, and whether it may be framed. */
+export const GroupTabTarget = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('link'),
+    url: z.string(),
+    icon: z.string().nullable(),
+    embeddable: z.boolean(),
+  }),
+  z.object({ kind: z.literal('knowledge'), knowledgeId: z.string() }),
+  z.object({ kind: z.literal('file'), botId: z.string(), path: z.string() }),
+  z.object({ kind: z.literal('entry'), entry: GroupTabEntry, botId: z.string().optional() }),
+])
+export type GroupTabTarget = z.infer<typeof GroupTabTarget>
+export const GroupTabDto = z.object({
+  id: z.string(),
+  title: z.string(),
+  target: GroupTabTarget,
+  /** The knowledge entry or bot it points at is gone. */
+  stale: z.boolean(),
+  createdBy: z.object({ name: z.string(), bot: z.boolean() }),
+  createdAt: z.string(),
+})
+export type GroupTabDto = z.infer<typeof GroupTabDto>
+/** GET /api/groups/:id/tabs, in bar order; every change answers and broadcasts the whole list. */
+export const GroupTabsDto = z.object({ tabs: z.array(GroupTabDto) })
+export type GroupTabsDto = z.infer<typeof GroupTabsDto>
+const tabTitle = z.string().trim().min(1).max(GROUP_TAB_TITLE_MAX)
+/** POST /api/groups/:id/tabs. No title: the link's page title, the entry's or file's name. */
+export const CreateGroupTabReq = z.object({ title: tabTitle.optional(), target: GroupTabTargetReq })
+/** PATCH /api/groups/:id/tabs/:tabId */
+export const UpdateGroupTabReq = z.object({ title: tabTitle })
+/** PUT /api/groups/:id/tabs/order: every tab id, in the new order. */
+export const ReorderGroupTabsReq = z.object({ ids: z.array(z.string().uuid()).max(MAX_GROUP_TABS) })
+/** POST /api/link-meta {url}: what a link tab would show; title null when the page can't be read. */
+export const LinkMetaReq = z.object({ url: tabUrl })
+export const LinkMetaDto = z.object({
+  title: z.string().nullable(),
+  icon: z.string().nullable(),
+  embeddable: z.boolean(),
+})
+export type LinkMetaDto = z.infer<typeof LinkMetaDto>
 export const PinMessageReq = z.object({ messageId: z.string().uuid() })
 
 /** A stage of a progress card. */
@@ -1934,6 +1995,8 @@ export const WebEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('group.botState'), groupId: z.string(), state: GroupBotStateDto }),
   /** The group's pinned messages changed; replaces the list. */
   GroupPinsDto.extend({ t: z.literal('group.pins'), groupId: z.string() }),
+  /** The group's tab bar changed; replaces it. */
+  GroupTabsDto.extend({ t: z.literal('group.tabs'), groupId: z.string() }),
   /** A manual git operation of the group was requested, decided or finished. */
   z.object({ t: z.literal('group.gitOperation'), groupId: z.string(), operation: GitOperationDto }),
   /** The group's previews or services changed; replaces both lists (`canManage` is per receiving user). */

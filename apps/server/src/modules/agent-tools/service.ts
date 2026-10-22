@@ -46,6 +46,7 @@ import {
   skillToggle,
   skillUpdate,
 } from './skills.js'
+import { tabCreate, tabList } from './tabs.js'
 
 type Run = typeof runs.$inferSelect
 type Group = typeof groups.$inferSelect
@@ -410,6 +411,8 @@ const TOOLS: { [N in GonggongToolName]: (ctx: Ctx, s: Scope, a: Args<N>) => Prom
   kb_create: (ctx, s, a) => kbCreate(ctx, s.run, a),
   kb_update: (ctx, s, a) => kbUpdate(ctx, s.run, a),
   kb_delete: (ctx, s, a) => kbDelete(ctx, s.run, a),
+  tab_list: (ctx, s) => tabList(ctx, s.run),
+  tab_create: (ctx, s, a) => tabCreate(ctx, s.run, a),
   mcp_list: (ctx, s) => mcpList(ctx, s.run),
   mcp_get: (ctx, s, a) => mcpGet(ctx, s.run, a),
   mcp_create: (ctx, s, a) => mcpCreate(ctx, s.run, a),

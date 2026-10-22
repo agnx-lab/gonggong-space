@@ -31,6 +31,8 @@ export const GONGGONG_TOOL_TITLES = {
   kb_create: '新建知识库条目',
   kb_update: '修改知识库条目',
   kb_delete: '删除知识库条目',
+  tab_list: '群标签列表',
+  tab_create: '添加群标签',
   mcp_list: 'MCP 列表',
   mcp_get: '查看 MCP',
   mcp_create: '新建 MCP',

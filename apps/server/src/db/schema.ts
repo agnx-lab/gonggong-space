@@ -1,6 +1,7 @@
 import {
   type AgentSettingValues,
   type DiffRepo,
+  type GroupTabTarget,
   type I18nText,
   LIVE_RUN_STATUSES,
   type PluginManifest,
@@ -359,6 +360,24 @@ export const groups = pgTable('groups', {
 })
 
 /** Every published notice; `groups.notice` holds the current one. */
+/** 群标签栏: shared tabs under the group header, in `position` order (protocol GroupTabTarget). */
+export const groupTabs = pgTable(
+  'group_tabs',
+  {
+    id: id(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    target: jsonb('target').$type<GroupTabTarget>().notNull(),
+    position: integer('position').notNull(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id),
+    createdByBotId: uuid('created_by_bot_id').references(() => bots.id),
+    createdAt: createdAt(),
+  },
+  (t) => [index('group_tabs_group').on(t.groupId, t.position)],
+)
+
 export const groupNotices = pgTable('group_notices', {
   id: id(),
   groupId: uuid('group_id')

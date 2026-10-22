@@ -3,6 +3,10 @@ export const en = {
   系统事件不能置顶: "System events can't be pinned",
   '本群最多置顶 {n} 条消息，请先取消一条': 'A group pins at most {n} messages; unpin one first',
   '进度 {n}%': 'Progress {n}%',
+  标签不存在: 'Tab not found',
+  'Git 记录标签需要指定 Bot': 'A Git history tab needs a bot',
+  '本群最多 {n} 个标签，请先删除一个': 'A group has at most {n} tabs; delete one first',
+  '标签已被他人修改，请刷新后重试': 'Someone changed the tabs; refresh and try again',
   // Daemon and request guards
   'missing machine token': 'missing machine token',
   'machine token revoked': 'machine token revoked',

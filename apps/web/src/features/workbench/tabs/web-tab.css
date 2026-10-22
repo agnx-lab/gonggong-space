@@ -43,3 +43,12 @@
 .wt-web__stage > .ui-empty {
   align-self: center;
 }
+.wt-web__url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

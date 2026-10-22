@@ -3,6 +3,8 @@ import { SkillFile } from './daemon.js'
 import { GONGGONG_TOOL_TITLES } from './tool-titles.js'
 import {
   DaemonRelease,
+  GROUP_TAB_TITLE_MAX,
+  GROUP_TAB_URL_MAX,
   KNOWLEDGE_BODY_MAX,
   KNOWLEDGE_TAGS_MAX,
   KNOWLEDGE_TITLE_MAX,
@@ -277,6 +279,23 @@ export const KbUpdateArgs = z.object({
 })
 export const KbDeleteArgs = z.object({ id: kbId })
 
+export const TabListArgs = z.object({})
+export const TabCreateArgs = z.object({
+  kind: z
+    .enum(['link', 'knowledge', 'file'])
+    .describe('link 网页链接；knowledge 知识库条目；file 你工作区里的文件'),
+  url: z.string().max(GROUP_TAB_URL_MAX).describe('kind=link 时必填，http/https 地址').optional(),
+  knowledge_id: z.string().describe('kind=knowledge 时必填，条目 id（kb_list 列出）').optional(),
+  path: z.string().max(500).describe('kind=file 时必填，工作区内的相对路径').optional(),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(GROUP_TAB_TITLE_MAX)
+    .describe('标签名，简短；不填时取网页标题、条目标题或文件名')
+    .optional(),
+})
+
 const mcpName = z.string().min(1).max(64).describe('MCP 名称（mcp_list 可查）')
 const mcpLayer = z
   .enum(['platform', 'team', 'group'])
@@ -528,6 +547,18 @@ export const GONGGONG_TOOLS = {
     title: GONGGONG_TOOL_TITLES.kb_delete,
     description: '删除知识库条目。需要发起本轮的人是本群管理员；内容过时优先用 kb_update 修正。',
     input: KbDeleteArgs,
+  },
+  tab_list: {
+    title: GONGGONG_TOOL_TITLES.tab_list,
+    description: '本群顶部标签栏的标签：标题、类型、指向（链接、知识库条目、文件、内置入口）。',
+    input: TabListArgs,
+  },
+  tab_create: {
+    title: GONGGONG_TOOL_TITLES.tab_create,
+    description:
+      '把链接、知识库条目或你工作区里的文件钉到本群顶部标签栏，群成员一键打开。用于需要长期反复查看的报告、文档、看板；' +
+      '先用 tab_list 看是否已经有了，不要重复添加，一次性内容不要钉。',
+    input: TabCreateArgs,
   },
   mcp_list: {
     title: GONGGONG_TOOL_TITLES.mcp_list,

@@ -200,6 +200,8 @@ export default {
   读取知识库条目: 'Read knowledge entry',
   检索知识库: 'Search knowledge base',
   新建知识库条目: 'Create knowledge entry',
+  群标签列表: 'List group tabs',
+  添加群标签: 'Add group tab',
   修改知识库条目: 'Update knowledge entry',
   删除知识库条目: 'Delete knowledge entry',
   修改定时任务: 'Edit scheduled task',

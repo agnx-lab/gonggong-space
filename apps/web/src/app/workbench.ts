@@ -33,6 +33,9 @@ export type WorkbenchTab =
     }
   /** A bot workspace's commit history; `ref` null = HEAD, `commit` the one opened, `file` its file shown (null = first). */
   | { kind: 'git-log'; botId: string; ref: string | null; commit: string | null; file?: string | null }
+  /** A third-party page pinned in the group's tab bar (群标签栏). */
+  | { kind: 'link'; url: string; title: string }
+  | { kind: 'knowledge'; knowledgeId: string; title: string }
 
 export type WorkbenchMode = 'split' | 'focus' | 'full'
 
@@ -87,8 +90,15 @@ export function tabKey(t: WorkbenchTab): string {
         : `file:${t.source.botId}:${t.source.path}${t.source.rev ? `@${t.source.rev}` : ''}`
     case 'git-log':
       return `git-log:${t.botId}`
+    case 'link':
+      return `link:${t.url}`
+    case 'knowledge':
+      return `kb:${t.knowledgeId}`
   }
 }
+
+/** Tabs showing a page in an iframe: only the most recently used stay mounted. */
+export const isFrameKey = (key: string) => key.startsWith('web:') || key.startsWith('link:')
 
 const empty = (): Bench => ({ tabs: [], active: null, used: {} })
 
@@ -112,7 +122,7 @@ const save = (s: Saved) => {
 
 /** Keys of the web tabs whose iframe stays mounted: the `LIVE_FRAMES` most recently used. */
 export function liveFrames(bench: Bench): Set<string> {
-  const web = bench.tabs.map(tabKey).filter((k) => k.startsWith('web:'))
+  const web = bench.tabs.map(tabKey).filter(isFrameKey)
   web.sort((a, b) => (bench.used[b] ?? 0) - (bench.used[a] ?? 0))
   return new Set(web.slice(0, LIVE_FRAMES))
 }
@@ -144,14 +154,15 @@ export const useWorkbench = create<WorkbenchState>()((set, get) => {
       if (!groupId || (tabs.length >= WORKBENCH_MAX_TABS && !tabs.some((t) => tabKey(t) === key)))
         return false
       // A web page needs the room: it folds the conversation list (design §10.1).
-      const nextMode = tab.kind === 'web' && mode === 'split' ? 'focus' : mode
+      const page = tab.kind === 'web' || tab.kind === 'link'
+      const nextMode = page && mode === 'split' ? 'focus' : mode
       update(
         (b) => {
           const at = b.tabs.findIndex((t) => tabKey(t) === key)
           const tabs = at >= 0 ? b.tabs.map((t, i) => (i === at ? tab : t)) : [...b.tabs, tab]
           return { tabs, active: key, used: { ...b.used, [key]: Date.now() } }
         },
-        { open: true, mode: open ? nextMode : tab.kind === 'web' ? 'focus' : nextMode },
+        { open: true, mode: open ? nextMode : page ? 'focus' : nextMode },
       )
       return true
     },

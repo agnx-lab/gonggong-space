@@ -1,7 +1,14 @@
 import { memo, useEffect, useRef } from 'react'
 import { useBenchMode } from '../../app/ChatLayout'
 import { useIsMobile } from '../../app/viewport'
-import { liveFrames, tabKey, useBench, useWorkbench, type WorkbenchMode } from '../../app/workbench'
+import {
+  isFrameKey,
+  liveFrames,
+  tabKey,
+  useBench,
+  useWorkbench,
+  type WorkbenchMode,
+} from '../../app/workbench'
 import { t } from '../../i18n'
 import { Icon, Popover, Tooltip } from '../../ui'
 import { TabBar } from './TabBar'
@@ -187,7 +194,7 @@ function DesktopWorkbench() {
         {bench.tabs.map((tab) => {
           const key = tabKey(tab)
           // A sleeping web tab renders nothing, so its iframe unmounts; activating it wakes (reloads) it.
-          if (key.startsWith('web:') && !live.has(key)) return null
+          if (isFrameKey(key) && !live.has(key)) return null
           return (
             <div key={key} role="tabpanel" className="bench__pane" hidden={key !== bench.active}>
               <TabContent tab={tab} active={key === bench.active} />

@@ -959,6 +959,8 @@ mod tests {
                 "kb_create",
                 "kb_update",
                 "kb_delete",
+                "tab_list",
+                "tab_create",
                 "mcp_list",
                 "mcp_get",
                 "mcp_create",

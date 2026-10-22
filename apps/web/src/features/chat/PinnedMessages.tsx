@@ -1,11 +1,12 @@
 import type { PinnedMessageDto } from '@gonggong/protocol'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { setPins, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
 import { attempt } from '../../lib/errors'
 import { Linkified } from '../../lib/links'
-import { Button, Icon, PinnedBanner } from '../../ui'
+import { Button, Icon, PinnedBanner, toast } from '../../ui'
+import { usePinsExpanded } from '../group-tabs/store'
 
 const NONE: PinnedMessageDto[] = []
 
@@ -59,10 +60,23 @@ export function PinnedMessages({
 }) {
   const pins = usePins(groupId)
   const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  const count = useRef(0)
+  count.current = pins.length
+  // The 置顶消息 group tab: show them all.
+  useEffect(
+    () =>
+      usePinsExpanded.subscribe(() => {
+        if (!count.current) return toast({ message: t('本群还没有置顶消息') })
+        setOpen(true)
+        box.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+      }),
+    [],
+  )
   const [first] = pins
   if (!first) return null
   return (
-    <div data-testid="pinned-messages">
+    <div ref={box} data-testid="pinned-messages">
       <PinnedBanner
         icon="pin"
         title={t('置顶')}

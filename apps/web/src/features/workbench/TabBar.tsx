@@ -1,5 +1,5 @@
 import { type DragEvent, useEffect, useRef } from 'react'
-import { tabKey, useWorkbench, type WorkbenchTab } from '../../app/workbench'
+import { isFrameKey, tabKey, useWorkbench, type WorkbenchTab } from '../../app/workbench'
 import { t } from '../../i18n'
 import { cx } from '../../lib/cx'
 import { ContextMenu, Icon, MenuButton, Spinner } from '../../ui'
@@ -113,7 +113,7 @@ export function TabBar({
                     </span>
                     <span className="bench-tab__title">{meta.title}</span>
                     {meta.badge ? <span className="bench-tab__badge">{meta.badge}</span> : null}
-                    {key.startsWith('web:') && !live.has(key) ? (
+                    {isFrameKey(key) && !live.has(key) ? (
                       <Icon name="moon" size={11} label={t('休眠')} className="bench-tab__sleep" />
                     ) : null}
                     <button

@@ -937,6 +937,51 @@
     }
   },
   {
+    "name": "tab_list",
+    "title": "群标签列表",
+    "description": "本群顶部标签栏的标签：标题、类型、指向（链接、知识库条目、文件、内置入口）。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "tab_create",
+    "title": "添加群标签",
+    "description": "把链接、知识库条目或你工作区里的文件钉到本群顶部标签栏，群成员一键打开。用于需要长期反复查看的报告、文档、看板；先用 tab_list 看是否已经有了，不要重复添加，一次性内容不要钉。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["link", "knowledge", "file"],
+          "description": "link 网页链接；knowledge 知识库条目；file 你工作区里的文件"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "kind=link 时必填，http/https 地址"
+        },
+        "knowledge_id": {
+          "type": "string",
+          "description": "kind=knowledge 时必填，条目 id（kb_list 列出）"
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "kind=file 时必填，工作区内的相对路径"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "标签名，简短；不填时取网页标题、条目标题或文件名"
+        }
+      },
+      "required": ["kind"]
+    }
+  },
+  {
     "name": "mcp_list",
     "title": "MCP 列表",
     "description": "本群可见的 MCP（平台、团队、群三层，含已停用和本群已关闭的）：名称、层级、类型、启动命令或地址、是否生效（同名时下层覆盖上层）、发起人能否修改；密钥只显示是否已填写。",

@@ -287,6 +287,8 @@ export const protocolEn = {
   '{bot} 的进度：{title}': "{bot}'s progress: {title}",
   '{user} 置顶了一条消息：{text}': '{user} pinned a message: {text}',
   '{user} 取消置顶了一条消息：{text}': '{user} unpinned a message: {text}',
+  '{user} 添加了标签：{title}': '{user} added the tab: {title}',
+  '{user} 删除了标签：{title}': '{user} deleted the tab: {title}',
   '{who} 新建了知识库条目「{title}」': '{who} added the knowledge entry "{title}"',
   '{who} 更新了知识库条目「{title}」': '{who} updated the knowledge entry "{title}"',
   '{who} 删除了知识库条目「{title}」': '{who} deleted the knowledge entry "{title}"',

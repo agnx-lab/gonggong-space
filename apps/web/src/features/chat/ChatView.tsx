@@ -41,6 +41,7 @@ import { AGENT_LABEL } from '../bots/model'
 import { McpSecretCard } from '../config/McpSecretCard'
 import { FeishuChatLink } from '../feishu/FeishuChatLink'
 import { LinkedGitOperation } from '../git/GitOperations'
+import { GroupTabBar } from '../group-tabs/GroupTabBar'
 import { GroupAvatar } from '../groups/GroupAvatar'
 import { GroupInfo, type InfoView, type SettingsTab } from '../groups/GroupInfo'
 import { GroupNotice } from '../groups/GroupNotice'
@@ -604,6 +605,7 @@ export function ChatView({
                 ]),
           ]}
         />
+        {dm || readOnly ? null : <GroupTabBar group={group} />}
         <InspectorPortal view="group-info">
           <GroupInfo
             key={String(infoView)}
