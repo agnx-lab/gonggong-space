@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.8 — 2026-10-22
+
+- 子仓库与嵌套仓库并入 Git 分支下拉，按「仓库 → 分支」两级树展示，可直接切换或拉取主仓库和子仓库分支；执行位置、Git 操作与文件入口合并到统一的工作区菜单 / Subrepositories and nested repositories join the Git branch picker as a two-level repository → branch tree; switch or pull branches in the main repository and subrepositories, and use one workspace menu for location, Git, and files
+- `git.refs` / `git.action` 支持可选 `repo` 参数，daemon 拒绝越出工作区或附加目录的路径，并上报新的 `gitRepos` 能力 / `git.refs` / `git.action` accept an optional `repo` parameter; the daemon rejects paths outside the workspace or extra folders and advertises the new `gitRepos` capability
+- 托管目录 / 本机目录标签与基准分支说明收进菜单，去掉重复的当前分支、未提交数量与独立子仓库入口 / Workspace kind and base-branch details move into the menu; duplicate current-branch, uncommitted-count, and standalone subrepository entries are removed
+
 ## v0.3.7 — 2026-10-22
 
 - 手动 Git 第一期：Git 状态实时刷新、「获取远程更新」，提交可只选部分文件（成员申请同样），提交历史与文件对比显示差异，推送说明与被拒提示，切换分支、提交、推送进群事件 / Manual Git, phase one: live status and "Fetch remote updates", commits of selected files only (member requests too), diffs in the history and file compare, clearer push, and group events for switch, commit and push
