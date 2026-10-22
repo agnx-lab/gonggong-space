@@ -8,6 +8,7 @@
 //   "mock:commands" report available commands (compact, new), then reply "ok"
 //   "mock:sh <command>" run the rest of the prompt (from its last "mock:sh") with sh in the session cwd (like Codex
 //                editing via shell)
+//   "mock:say <text>" reply with the rest of the prompt (from its last "mock:say") verbatim
 //   "mock:exec <command>" ask permission for an execute tool call running <command>, reply "ran" or "denied"
 //   "mock:ask <json>" call the injected gonggong MCP ask tool with <json> as arguments (after a permission request)
 //                     and reply with the tool's text result
@@ -168,6 +169,11 @@ async function prompt({ sessionId, prompt: blocks }, client) {
     return { stopReason: 'end_turn' }
   }
   // The trigger comes last: earlier group messages in the context may hold other bots' commands.
+  const verbatim = text.lastIndexOf('mock:say ')
+  if (verbatim >= 0) {
+    await say(text.slice(verbatim + 9))
+    return { stopReason: 'end_turn' }
+  }
   const sh = text.lastIndexOf('mock:sh ')
   if (sh >= 0) {
     await say(execSync(text.slice(sh + 8), { cwd: s.cwd, encoding: 'utf8' }))
