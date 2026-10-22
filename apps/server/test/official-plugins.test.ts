@@ -4,7 +4,7 @@ import { PLUGIN_MANIFEST, PLUGIN_MAX_BYTES, PLUGIN_MAX_FILES, PluginManifest } f
 import { describe, expect, it } from 'vitest'
 import { frontmatter } from '../src/modules/skills/service.js'
 
-const ROOT = join(import.meta.dirname, '../../../plugins/official/web-prototype')
+const ROOT = join(import.meta.dirname, '../plugins/official/web-prototype')
 
 function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>

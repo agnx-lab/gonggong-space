@@ -41,6 +41,7 @@ function PluginInfo({ p, extra }: { p: PluginDto; extra?: ReactNode }) {
           <b>{m.title}</b>
           <span className="plg-row__id">{`${m.name} ${m.version}`}</span>
           <Tag tone={p.layer === 'group' ? 'blue' : 'gray'}>{LAYER_LABEL[p.layer]}</Tag>
+          {p.builtin ? <Tag tone="gray">{t('内置')}</Tag> : null}
         </div>
         <div className="plg-row__desc">
           {[
@@ -175,7 +176,7 @@ export function PluginLayerList({ base }: { base: string }) {
               label={<PluginInfo p={p} />}
               description={[p.updatedBy, ago(p.updatedAt), kb(p.size)].filter(Boolean).join(' · ')}
             >
-              <DeletePlugin base={base} p={p} onDone={reload} />
+              {p.builtin ? null : <DeletePlugin base={base} p={p} onDone={reload} />}
             </GroupRow>
           ))}
         </GroupBox>

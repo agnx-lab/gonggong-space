@@ -29,7 +29,7 @@ SOFTWARE.```
 
 ## open-design
 
-`plugins/official/web-prototype/` is adapted from [open-design](https://github.com/nexu-io/open-design) at commit `4f69a426689bbd471c8f0774c13378e651ae7de8` (`design-templates/web-prototype`, `design-systems/default` renamed to `neutral-modern`, `design-systems/warm-editorial`, `craft/{anti-ai-slop,color,typography}.md`). Changes are listed in `plugins/official/web-prototype/NOTICE.md`. The craft files are themselves adapted from [refero_skill](https://github.com/referodesign/refero_skill) (MIT), credited in each file.
+`apps/server/plugins/official/web-prototype/` is adapted from [open-design](https://github.com/nexu-io/open-design) at commit `4f69a426689bbd471c8f0774c13378e651ae7de8` (`design-templates/web-prototype`, `design-systems/default` renamed to `neutral-modern`, `design-systems/warm-editorial`, `craft/{anti-ai-slop,color,typography}.md`). Changes are listed in `apps/server/plugins/official/web-prototype/NOTICE.md`. The craft files are themselves adapted from [refero_skill](https://github.com/referodesign/refero_skill) (MIT), credited in each file.
 
 ```
 Copyright 2026 Open Design contributors

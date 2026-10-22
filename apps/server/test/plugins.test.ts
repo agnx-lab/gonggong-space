@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import {
   type GroupPluginDto,
   type MeDto,
@@ -25,6 +28,7 @@ import {
   teamMembers,
 } from '../src/db/schema.js'
 import { saveSysParams } from '../src/modules/admin/params.js'
+import { BUILTIN_PLUGINS, syncBuiltinPlugins } from '../src/modules/plugins/builtin.js'
 import { pluginBlocker } from '../src/modules/plugins/service.js'
 import { buildRunStart } from '../src/modules/runs/scheduler.js'
 import { triggerRuns } from '../src/modules/runs/trigger.js'
@@ -276,6 +280,45 @@ describe('plugin upload', () => {
     expect(
       (await t.app.inject({ url: missing, headers: { cookie: await t.seed.cookie(w.mia.id) } })).statusCode,
     ).toBe(404)
+  })
+})
+
+describe('built-in plugins', () => {
+  /** A built-in folder holding pkg() as `web-prototype`. */
+  function builtinDir(files = pkg()) {
+    const root = mkdtempSync(join(tmpdir(), 'gg-builtin-'))
+    for (const f of files) {
+      const full = join(root, 'web-prototype', f.path)
+      mkdirSync(dirname(full), { recursive: true })
+      writeFileSync(full, 'encoding' in f ? Buffer.from(f.content, 'base64') : f.content)
+    }
+    return root
+  }
+
+  it('installs the repo built-ins on the platform layer, each a valid plugin', async () => {
+    await syncBuiltinPlugins(t.ctx, BUILTIN_PLUGINS)
+    const rows = await t.db.select().from(plugins)
+    expect(rows.map((r) => [r.scope, r.name, r.updatedBy])).toEqual([['platform', 'web-prototype', null]])
+  })
+
+  it('syncs at startup: new version only when the folder changed; no upload or delete over it', async () => {
+    const w = await world()
+    const root = await w.as(w.root)
+    await syncBuiltinPlugins(t.ctx, builtinDir())
+    await syncBuiltinPlugins(t.ctx, builtinDir())
+    let [p] = (await root.get<PluginDto[]>('/api/admin/plugins')).body
+    expect(p).toMatchObject({ builtin: true, revision: 1, updatedBy: null })
+    await syncBuiltinPlugins(t.ctx, builtinDir(pkg(manifest({ version: '1.1.0' }))))
+    ;[p] = (await root.get<PluginDto[]>('/api/admin/plugins')).body
+    expect(p).toMatchObject({ builtin: true, revision: 2, manifest: { version: '1.1.0' } })
+
+    expect((await root.del(`/api/admin/plugins/${p!.id}`)).status).toBe(403)
+    expect((await root.post('/api/admin/plugins', { files: pkg() })).status).toBe(403)
+    // A team or group may still override it by name.
+    await switchOn(w)
+    expect((await (await w.as(w.bob)).post(`/api/teams/${w.team}/plugins`, { files: pkg() })).status).toBe(
+      201,
+    )
   })
 })
 

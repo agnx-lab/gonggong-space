@@ -17,7 +17,7 @@
       "!videos",
       "!website/scripts/shots-workbench.data.json",
       "!apps/web/src/ui/im/twemoji",
-      "!plugins/*/*/skills"
+      "!apps/server/plugins/*/*/skills"
     ]
   },
   "formatter": {

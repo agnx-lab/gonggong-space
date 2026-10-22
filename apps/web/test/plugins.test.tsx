@@ -133,6 +133,7 @@ const layerPlugin = (o: Partial<PluginDto> = {}): PluginDto => ({
   size: 20480,
   updatedBy: '陈晨',
   updatedAt: now,
+  builtin: false,
   ...o,
 })
 
@@ -547,6 +548,22 @@ describe('插件 · 管理', () => {
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(await within(dialog).findByRole('button', { name: '插件' }))
     expect(await within(dialog).findByText('本群插件')).toBeTruthy()
+  })
+
+  it('配置中心 · 插件: a built-in plugin is tagged and cannot be deleted', async () => {
+    mockApi({
+      'GET /admin/mcp': [],
+      'GET /bots': [],
+      'GET /machines': [],
+      'GET /groups': [],
+      'GET /notifications/unread': { n: 0 },
+      'GET /admin/plugins': [layerPlugin({ builtin: true, updatedBy: null })],
+    })
+    renderAt('/admin/config')
+    fireEvent.click(await screen.findByRole('tab', { name: '插件' }))
+    const row = (await screen.findByText('网页原型')).closest('.cfg__item') as HTMLElement
+    expect(row.textContent).toContain('内置')
+    expect(within(row).queryByRole('button', { name: '删除 网页原型' })).toBeNull()
   })
 
   it('配置中心 · 插件: lists the layer with its manifest, uploads a zip as a new version and deletes', async () => {

@@ -103,6 +103,8 @@ export const PluginDto = z.object({
   size: z.number().int(),
   updatedBy: z.string().nullable(),
   updatedAt: z.string(),
+  /** Shipped with the server and installed on the platform layer at startup: no upload over it, no delete. */
+  builtin: z.boolean(),
 })
 export type PluginDto = z.infer<typeof PluginDto>
 export const PluginFiles = z.array(SkillFile).min(1).max(PLUGIN_MAX_FILES)

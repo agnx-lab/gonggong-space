@@ -8,6 +8,7 @@ import { ensureBootstrapAdmin } from './modules/auth/bootstrap.js'
 import { larkApi } from './modules/feishu/client.js'
 import { larkConnector } from './modules/feishu/gateway.js'
 import { liveKitFromEnv } from './modules/live/livekit.js'
+import { syncBuiltinPlugins } from './modules/plugins/builtin.js'
 import { previewConfig } from './modules/previews/config.js'
 import { TunnelHub } from './modules/previews/tunnel.js'
 import { Bus } from './realtime/bus.js'
@@ -32,5 +33,6 @@ const ctx: Ctx = {
   },
 }
 await ensureBootstrapAdmin(ctx, process.env.GONGGONG_ADMIN_PASSWORD)
+await syncBuiltinPlugins(ctx)
 const app = await buildApp(ctx, { https })
 await app.listen({ port: Number(process.env.PORT ?? 8787), host: process.env.HOST ?? '127.0.0.1' })

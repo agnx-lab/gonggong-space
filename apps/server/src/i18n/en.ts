@@ -443,6 +443,9 @@ export const en = {
   '缺少文件：{path}': 'Missing file: {path}',
   '{path} 的 name 必须是 {name}': 'The name in {path} must be {name}',
   '插件正在被修改，请重试': 'The plugin is being changed, please retry',
+  '内置插件不能覆盖，可以上传到团队或群里替换':
+    'A built-in plugin cannot be replaced here; upload one of the same name to a team or group instead',
+  内置插件不能删除: 'A built-in plugin cannot be deleted',
   插件功能未开启: 'Plugins are turned off',
   该机器上没有正在使用这个插件版本的运行: 'No run on this machine was sent this plugin version',
   这个插件没有在本群启用: 'This plugin is not enabled in this group',

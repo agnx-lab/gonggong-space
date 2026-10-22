@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { MessageDto, PluginDto, TimelineDto } from '@gonggong/protocol'
 import { expect, test } from '@playwright/test'
 import { adminSession, bindManaged, buildDaemon, call, memberWithMachine, ROOT } from './helpers'
@@ -9,18 +9,8 @@ test.beforeAll(buildDaemon)
 const composer = '输入消息，@ 触发 Bot 或引用文件，/ 查看命令'
 // Scripted agent: `mock:echo` replies with the plugins it was started with.
 const MOCK = `${process.execPath} ${join(ROOT, 'tools/mock-agent/agent.js')}`
-const PLUGIN_DIR = join(ROOT, 'plugins/official/web-prototype')
 
-function files(dir: string): { path: string; content: string }[] {
-  return readdirSync(dir).flatMap((name) => {
-    const full = join(dir, name)
-    return statSync(full).isDirectory()
-      ? files(full)
-      : [{ path: relative(PLUGIN_DIR, full), content: readFileSync(full, 'utf8') }]
-  })
-}
-
-test('a sysadmin installs the official plugin; a group turns it on, creates through the panel, and the bot gets the plugin', async ({
+test('the built-in plugin is installed at startup; a group turns it on, creates through the panel, and the bot gets the plugin', async ({
   page,
   request,
 }) => {
@@ -28,7 +18,8 @@ test('a sysadmin installs the official plugin; a group turns it on, creates thro
   await adminSession(request)
   await call(request, 'put', '/api/admin/params', { pluginsEnabled: true })
   try {
-    const plugin = await call<PluginDto>(request, 'post', '/api/admin/plugins', { files: files(PLUGIN_DIR) })
+    const builtins = await call<PluginDto[]>(request, 'get', '/api/admin/plugins')
+    const plugin = builtins.find((p) => p.builtin && p.manifest.name === 'web-prototype')!
     const tag = Date.now().toString(36)
     const { m, api } = await memberWithMachine(page, `pl${tag}`, {
       env: { GONGGONG_ADAPTER_CMD: MOCK },

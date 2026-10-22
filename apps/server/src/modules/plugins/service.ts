@@ -107,9 +107,13 @@ export const pluginDto = ({ plugin, version, updatedBy }: Listed): PluginDto => 
   size: version.size,
   updatedBy,
   updatedAt: plugin.updatedAt.toISOString(),
+  builtin: isBuiltin(plugin),
 })
 
-const log = (ctx: Ctx, actorId: string, l: Layer, action: string, row: PluginRow, revision?: number) =>
+/** Saved by syncBuiltinPlugins at startup, the only writer without an editor. */
+const isBuiltin = (row: PluginRow) => row.scope === 'platform' && row.updatedBy === null
+
+const log = (ctx: Ctx, actorId: string | null, l: Layer, action: string, row: PluginRow, revision?: number) =>
   audit(ctx, {
     category: 'admin',
     actorUserId: actorId,
@@ -120,7 +124,7 @@ const log = (ctx: Ctx, actorId: string, l: Layer, action: string, row: PluginRow
   })
 
 /** A new plugin, or a new version of the layer's plugin of the same name unless the content is identical. */
-export async function savePlugin(ctx: Ctx, l: Layer, s: PluginSnapshot, actorId: string) {
+export async function savePlugin(ctx: Ctx, l: Layer, s: PluginSnapshot, actorId: string | null) {
   const name = s.manifest.name
   const saved = await ctx.db.transaction(async (tx) => {
     const values = { ...l, name, updatedBy: actorId, updatedAt: ctx.now() }
@@ -133,6 +137,7 @@ export async function savePlugin(ctx: Ctx, l: Layer, s: PluginSnapshot, actorId:
           .where(and(inLayer(l), eq(plugins.name, name)))
           .for('update')
     if (!plugin) return fail('conflict', '插件正在被修改，请重试')
+    if (actorId && isBuiltin(plugin)) fail('forbidden', '内置插件不能覆盖，可以上传到团队或群里替换')
     const [last] = await tx
       .select({ revision: pluginVersions.revision, digest: pluginVersions.digest, id: pluginVersions.id })
       .from(pluginVersions)
@@ -173,6 +178,7 @@ export async function savePlugin(ctx: Ctx, l: Layer, s: PluginSnapshot, actorId:
 }
 
 export async function deletePlugin(ctx: Ctx, l: Layer, row: PluginRow, actorId: string) {
+  if (isBuiltin(row)) fail('forbidden', '内置插件不能删除')
   await ctx.db.delete(plugins).where(eq(plugins.id, row.id))
   await log(ctx, actorId, l, 'plugin.delete', row)
 }
