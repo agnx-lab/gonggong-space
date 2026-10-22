@@ -426,7 +426,11 @@ impl Handler for Engine {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let out = out.clone();
                 tokio::spawn(async move {
-                    let (branches, remotes, error) = match git_ops::refs(&dir).await {
+                    let refs = match git_ops::repo_path(&dir, &req.workspace.extra_dirs, req.repo.as_deref()) {
+                        Ok(repo) => git_ops::refs(&repo).await,
+                        Err(e) => Err(e),
+                    };
+                    let (branches, remotes, error) = match refs {
                         Ok((b, r)) => (b, r, None),
                         Err(e) => (vec![], vec![], Some(e)),
                     };
@@ -533,7 +537,11 @@ impl Handler for Engine {
                 };
                 let out = out.clone();
                 tokio::spawn(async move {
-                    let result = git_action(&dir, &req).await;
+                    // The run holds the workspace root; the action works in the chosen repo of it.
+                    let result = match git_ops::repo_path(&dir, &req.workspace.extra_dirs, req.repo.as_deref()) {
+                        Ok(repo) => git_action(&repo, &req).await,
+                        Err(e) => Err(e),
+                    };
                     let (ok, output, error) = match result {
                         Ok(output) => (true, Some(output), None),
                         Err(e) => (false, None, Some(e)),

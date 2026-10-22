@@ -1,0 +1,17 @@
+{
+  "t": "git.refs",
+  "requestId": "q1",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": {
+    "repo": {
+      "id": "r_pay",
+      "url": "git@git.corp:pay/pay-server.git",
+      "branch": "main",
+      "protocol": "auto"
+    },
+    "cdPath": null,
+    "extraDirs": ["/Users/me/sdk"]
+  },
+  "repo": "/Users/me/sdk"
+}

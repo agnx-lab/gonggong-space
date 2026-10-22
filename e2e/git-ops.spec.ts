@@ -93,7 +93,7 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
       writeFileSync(join(dir, 'hello.txt'), 'hi\n')
       writeFileSync(join(dir, 'later.txt'), 'not yet\n')
       // Opening the menu re-reads the status, so files written outside a turn show up.
-      await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
+      await item.getByRole('button', { name: `${botName} 的工作区` }).click()
       await page.getByRole('button', { name: '提交…' }).click()
       const commit = page.getByRole('dialog', { name: '提交改动' })
       await expect(commit).toContainText('已选 2 / 2 个文件', { timeout: 30_000 })
@@ -106,13 +106,13 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
       expect(left.changes.map((c) => c.path)).toEqual(['later.txt'])
       await expect(page.getByText(/提交了 .* 的改动：add hello/).first()).toBeAttached({ timeout: 30_000 })
 
-      await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
+      await item.getByRole('button', { name: `${botName} 的工作区` }).click()
       await page.getByRole('button', { name: '提交历史' }).click()
       await page.locator('.git-log__row', { hasText: 'add hello' }).click()
       await expect(page.locator('.diff__line').filter({ hasText: 'hi' }).first()).toBeVisible({
         timeout: 30_000,
       })
-      await item.getByRole('button', { name: `${botName} 的 Git 操作` }).click()
+      await item.getByRole('button', { name: `${botName} 的工作区` }).click()
       await page.getByRole('button', { name: '推送…' }).click()
       const push = page.getByRole('dialog', { name: '推送' })
       await push.getByRole('button', { name: '推送' }).click()

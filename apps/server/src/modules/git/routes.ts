@@ -18,6 +18,7 @@ import {
   GitRefPathQuery,
   GitRefreshReq,
   type GitRefsDto,
+  GitRefsQuery,
   type ServerToDaemon,
 } from '@gonggong/protocol'
 import { and, desc, eq, ne } from 'drizzle-orm'
@@ -108,8 +109,9 @@ export function gitRoutes(ctx: Ctx) {
 
   return async (app: FastifyInstance) => {
     app.get('/api/groups/:id/bots/:botId/git/refs', async (req: Req): Promise<GitRefsDto> => {
-      const { target } = await member(req)
-      const res = await ask(target, { t: 'git.refs' }, 'git.refs.result')
+      const { repo } = GitRefsQuery.parse(req.query)
+      const { target } = await member(req, repo ? 'gitRepos' : 'gitOps')
+      const res = await ask(target, { t: 'git.refs', ...(repo && { repo }) }, 'git.refs.result')
       return { branches: res.branches, remotes: res.remotes }
     })
 

@@ -106,6 +106,7 @@ const op = (o: Partial<GitOperationDto> = {}): GitOperationDto => ({
   id: 'op1',
   groupId: 'g1',
   botId: 'b1',
+  repo: null,
   action: 'push',
   branch: 'main',
   remote: 'origin',
@@ -151,8 +152,8 @@ const toasts = () => useToasts.getState().items.map((t) => t.message)
 const actionsCalled = (calls: Call[]) => calls.filter((c) => c.path === `${BASE}/actions`).map((c) => c.body)
 const refreshes = (calls: Call[]) => calls.filter((c) => c.path === `${BASE}/refresh`).map((c) => c.body)
 const actions = async () => {
-  fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的 Git 操作' }))
-  return within(await screen.findByRole('dialog', { name: '小王的 Claude 的 Git 操作' }))
+  fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
+  return within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
 }
 const branches = async () => {
   fireEvent.click(await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' }))
@@ -564,8 +565,9 @@ describe('git actions', () => {
   it('stays hidden outside partition groups with a repo', async () => {
     mockApi(routes())
     render(<GitBar group={group({ mode: 'force' })} />)
-    await screen.findByTestId('git-b1')
-    expect(screen.queryByRole('button', { name: '小王的 Claude 的 Git 操作' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
+    const menu = within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
+    expect(menu.queryByRole('button', { name: /拉取/ })).toBeNull()
     expect(screen.queryByRole('button', { name: '切换 小王的 Claude 的分支' })).toBeNull()
   })
 })

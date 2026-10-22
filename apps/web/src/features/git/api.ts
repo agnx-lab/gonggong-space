@@ -35,22 +35,22 @@ export const refreshGitQuietly = (groupId: string, botId: string) => {
 /** A full commit hash reads better shortened; branch names stay as they are. */
 export const shortRev = (rev: string) => (/^[0-9a-f]{40}$/i.test(rev) ? rev.slice(0, 7) : rev)
 
-/** Branches and remotes of a bot workspace, read once per mount. */
-export function useGitRefs(groupId: string, botId: string) {
+/** Branches and remotes of a bot workspace (of one of its sub-repos when `repo` is given), read once per mount. */
+export function useGitRefs(groupId: string, botId: string, repo?: string) {
   const [state, setState] = useState<{ refs: GitRefsDto | null; error: string | null }>({
     refs: null,
     error: null,
   })
   useEffect(() => {
     let live = true
-    api.get<GitRefsDto>(`${gitBase(groupId, botId)}/refs`).then(
+    api.get<GitRefsDto>(`${gitBase(groupId, botId)}/refs${repo ? `?repo=${enc(repo)}` : ''}`).then(
       (refs) => live && setState({ refs, error: null }),
       (e: unknown) => live && setState({ refs: null, error: errorText(e) }),
     )
     return () => {
       live = false
     }
-  }, [groupId, botId])
+  }, [groupId, botId, repo])
   return state
 }
 

@@ -16,8 +16,6 @@ export default {
   '{branch} 是受保护的基准分支，推送会直接改动它':
     '{branch} is the protected base branch; pushing changes it directly',
   我确认推送到基准分支: 'I confirm pushing to the base branch',
-  '{name} 的 Git 操作': "{name}'s Git actions",
-  'Git 操作': 'Git actions',
   拉取: 'Pull',
   '提交…': 'Commit…',
   '推送…': 'Push…',
@@ -62,4 +60,12 @@ export default {
   申请拉取: 'Request pull',
   '申请提交…': 'Request commit…',
   '申请推送…': 'Request push…',
+  '{n} 个子仓库': '{n} {n:sub-repo|sub-repos}',
+  '{n} 个子仓库有改动': '{n} {n:sub-repo|sub-repos} changed',
+  '将 {name} 的 {repo} 切换到 {branch}': "Switch {name}'s {repo} to {branch}",
+  主仓库: 'Main repo',
+  '拉取 {repo}': 'Pull {repo}',
+  '查看 {repo} 的改动': 'View changes of {repo}',
+  '{name} 的工作区': "{name}'s workspace",
+  浏览文件: 'Browse files',
 } satisfies Record<string, string>

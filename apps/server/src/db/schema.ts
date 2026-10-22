@@ -275,6 +275,8 @@ export const gitOperations = pgTable(
     botId: uuid('bot_id')
       .notNull()
       .references(() => bots.id, { onDelete: 'cascade' }),
+    /** The workspace's sub-repo acted on (see GitActionReq); null = the root repo. */
+    repo: text('repo'),
     /** 'checkout' | 'pull' | 'commit' | 'push' */
     action: text('action').notNull(),
     branch: text('branch'),

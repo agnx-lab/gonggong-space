@@ -74,6 +74,12 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
+/** Opens a bot's one menu: where it works, then its actions. */
+async function menu(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name: `${name} 的工作区` }))
+  return screen.findByRole('dialog', { name: `${name} 的工作区` })
+}
+
 describe('git status bar', () => {
   it('puts my own bots first, keeping the group order otherwise', async () => {
     mockApi({ 'GET /groups/g1/bot-states': [] })
@@ -96,7 +102,7 @@ describe('git status bar', () => {
     expect(order()).toEqual(['git-b1', 'git-b2', 'git-b3', 'git-b4'])
   })
 
-  it('loads the states and renders branch, behind/ahead, dirty, workspace kind and workspace hints', async () => {
+  it('loads the states and renders branch, behind/ahead, dirty and workspace hints', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -117,12 +123,12 @@ describe('git status bar', () => {
     render(<GitBar group={group()} />)
     const b1 = await screen.findByTestId('git-b1')
     expect(fetch).toHaveBeenCalledWith('/api/groups/g1/bot-states', expect.anything())
-    expect(b1.textContent).toBe('小王的 Claudefeat/refund-v23未提交托管')
+    expect(b1.textContent).toBe('小王的 Claudefeat/refund-v23未提交')
     expect(within(b1).getByRole('img', { name: '领先 3 个提交' }).querySelector('svg')).toBeTruthy()
-    expect(screen.getByTestId('git-b2').textContent).toBe('老李的 Codexclone 中…托管')
-    expect(screen.getByTestId('git-b3').textContent).toBe('阿杰的 Claude工作区创建失败托管')
+    expect(screen.getByTestId('git-b2').textContent).toBe('老李的 Codexclone 中…')
+    expect(screen.getByTestId('git-b3').textContent).toBe('阿杰的 Claude工作区创建失败')
     expect(screen.getByText('工作区创建失败').getAttribute('title')).toBe('Permission denied (publickey)')
-    expect(screen.getByTestId('git-b4').textContent).toBe('小周的 Codex—本机目录')
+    expect(screen.getByTestId('git-b4').textContent).toBe('小周的 Codex—')
   })
 
   it('opens the bot workspace changes: uncommitted work first, else the branch against main', async () => {
@@ -141,22 +147,25 @@ describe('git status bar', () => {
     )
     useWorkbench.setState({ groupId: 'g1', benches: {} })
     render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
-    // One git menu per bot: its changes come first, next to pull, commit and push.
-    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的 Git 操作' }))
-    fireEvent.click(await screen.findByRole('button', { name: '查看 小王的 Claude 的改动' }))
+    // One menu per bot: its changes come first, next to its files, pull, commit and push.
+    fireEvent.click(
+      within(await menu('小王的 Claude')).getByRole('button', { name: '查看 小王的 Claude 的改动' }),
+    )
     const tabs = () => useWorkbench.getState().benches.g1?.tabs
     expect(tabs()).toEqual([{ kind: 'diff', botId: 'b1', scope: 'uncommitted', file: null }])
-    fireEvent.click(screen.getByRole('button', { name: '老李的 Codex 的 Git 操作' }))
-    fireEvent.click(await screen.findByRole('button', { name: '查看 老李的 Codex 的改动' }))
+    fireEvent.click(
+      within(await menu('老李的 Codex')).getByRole('button', { name: '查看 老李的 Codex 的改动' }),
+    )
     expect(tabs()?.at(-1)).toEqual({ kind: 'diff', botId: 'b2', scope: 'base', file: null })
+    const cloning = await menu('阿杰的 Claude')
     expect(
-      (screen.getByRole('button', { name: '查看 阿杰的 Claude 的改动' }) as HTMLButtonElement).disabled,
+      (within(cloning).getByRole('button', { name: '查看 阿杰的 Claude 的改动' }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true)
+    expect(within(cloning).queryByRole('button', { name: /拉取/ })).toBeNull()
   })
 
-  it('expands where a bot works: repo, machine, copyable directory, base vs current branch, changes and extra dirs', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-10-15T02:05:00.000Z'))
+  it('heads the menu with where a bot works: machine, copyable directory and its kind, repo, base branch, extra dirs', async () => {
     const writeText = vi.fn(async () => {})
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
     useWorkspace.setState({
@@ -169,13 +178,9 @@ describe('git status bar', () => {
           new Response(
             JSON.stringify([
               state('b1', {
-                path: '/Users/w/.gonggong/workspaces/g1/b1/r1/refund',
-                git: git({
-                  branch: 'feat/x',
-                  dirty: true,
-                  dirtyCount: 3,
-                  checkedAt: '2026-10-15T02:00:00.000Z',
-                }),
+                workspace: 'cd',
+                path: '/Users/w/code/refund',
+                git: git({ branch: 'feat/x', dirty: true, workspace: 'cd' }),
                 extraDirs: ['/Users/w/shared'],
               }),
               state('b2', { path: '/w/b2', git: git() }),
@@ -184,25 +189,21 @@ describe('git status bar', () => {
       ),
     )
     render(<GitBar group={group({ botIds: ['b1', 'b2'] })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的执行位置' }))
-    const panel = await screen.findByRole('dialog', { name: '小王的 Claude 的执行位置' })
+    const panel = await menu('小王的 Claude')
     expect(within(panel).getByText('git@git.corp:pay/refund.git')).toBeTruthy()
     expect(within(panel).getByText('王磊的 MacBook')).toBeTruthy()
-    expect(within(panel).getByText('/Users/w/.gonggong/workspaces/g1/b1/r1/refund')).toBeTruthy()
+    expect(within(panel).getByText('/Users/w/code/refund')).toBeTruthy()
+    expect(within(panel).getByText('本机目录')).toBeTruthy()
     expect(within(panel).getByText('main')).toBeTruthy()
-    expect(within(panel).getByText('feat/x').closest('[data-mismatch="true"]')).toBeTruthy()
-    expect(within(panel).getByText('与基准分支不同')).toBeTruthy()
-    expect(within(panel).getByText('3 个未提交 · 5 分钟前检查')).toBeTruthy()
+    expect(within(panel).getByText('当前在 feat/x')).toBeTruthy()
     expect(within(panel).getByText('/Users/w/shared')).toBeTruthy()
     fireEvent.click(within(panel).getByRole('button', { name: '复制目录' }))
-    expect(writeText).toHaveBeenCalledWith('/Users/w/.gonggong/workspaces/g1/b1/r1/refund')
-    vi.useRealTimers()
+    expect(writeText).toHaveBeenCalledWith('/Users/w/code/refund')
 
-    fireEvent.click(screen.getByRole('button', { name: '老李的 Codex 的执行位置' }))
-    const other = await screen.findByRole('dialog', { name: '老李的 Codex 的执行位置' })
+    const other = await menu('老李的 Codex')
     expect(within(other).getByText('未绑定机器')).toBeTruthy()
-    expect(within(other).queryByText('与基准分支不同')).toBeNull()
-    expect(within(other).getByText('无未提交改动')).toBeTruthy()
+    expect(within(other).getByText('托管目录')).toBeTruthy()
+    expect(within(other).queryByText(/当前在/)).toBeNull()
     expect(within(other).queryByText('附加目录')).toBeNull()
   })
 
@@ -222,13 +223,19 @@ describe('git status bar', () => {
     )
     useWorkbench.setState({ groupId: 'g1', benches: {} })
     render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '浏览 小王的 Claude 的文件' }))
+    fireEvent.click(
+      within(await menu('小王的 Claude')).getByRole('button', { name: '浏览 小王的 Claude 的文件' }),
+    )
     const tabs = () => useWorkbench.getState().benches.g1?.tabs
     expect(tabs()).toEqual([{ kind: 'files', botId: 'b1', dir: '', selected: null }])
-    fireEvent.click(screen.getByRole('button', { name: '浏览 老李的 Codex 的文件' }))
+    fireEvent.click(
+      within(await menu('老李的 Codex')).getByRole('button', { name: '浏览 老李的 Codex 的文件' }),
+    )
     expect(tabs()?.at(-1)).toEqual({ kind: 'files', botId: 'b2', dir: '', selected: null })
+    const cloning = await menu('阿杰的 Claude')
     expect(
-      (screen.getByRole('button', { name: '浏览 阿杰的 Claude 的文件' }) as HTMLButtonElement).disabled,
+      (within(cloning).getByRole('button', { name: '浏览 阿杰的 Claude 的文件' }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true)
   })
 
@@ -248,15 +255,21 @@ describe('git status bar', () => {
     )
     useWorkbench.setState({ groupId: 'g1', benches: {} })
     render(<GitBar group={group({ mode: 'force', repo: null, botIds: ['b1', 'b2', 'b3'] })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '浏览 小王的 Claude 的文件' }))
+    const first = await menu('小王的 Claude')
+    expect(within(first).queryByRole('button', { name: /的改动$/ })).toBeNull()
+    expect(within(first).queryByRole('button', { name: /拉取/ })).toBeNull()
+    fireEvent.click(within(first).getByRole('button', { name: '浏览 小王的 Claude 的文件' }))
     const tabs = () => useWorkbench.getState().benches.g1?.tabs
     expect(tabs()).toEqual([{ kind: 'files', botId: 'b1', dir: '', selected: null }])
-    fireEvent.click(screen.getByRole('button', { name: '浏览 老李的 Codex 的文件' }))
+    fireEvent.click(
+      within(await menu('老李的 Codex')).getByRole('button', { name: '浏览 老李的 Codex 的文件' }),
+    )
     expect(tabs()?.at(-1)).toEqual({ kind: 'files', botId: 'b2', dir: '', selected: null })
+    const unbound = await menu('阿杰的 Claude')
     expect(
-      (screen.getByRole('button', { name: '浏览 阿杰的 Claude 的文件' }) as HTMLButtonElement).disabled,
+      (within(unbound).getByRole('button', { name: '浏览 阿杰的 Claude 的文件' }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true)
-    expect(screen.queryByRole('button', { name: /的改动$/ })).toBeNull()
   })
 
   it('shows 待创建 before the daemon reports and follows realtime updates', async () => {
@@ -266,19 +279,19 @@ describe('git status bar', () => {
     )
     render(<GitBar group={group({ botIds: ['b1'] })} />)
     await waitFor(() => expect(fetch).toHaveBeenCalled())
-    expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claude待创建托管')
+    expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claude待创建')
     useWorkspace.getState().applyEvent({
       t: 'group.botState',
       groupId: 'g1',
       // A turn's git report counts even before a workspace.state arrives.
       state: state('b1', { state: 'pending', git: git({ behind: 2 }) }),
     })
-    await waitFor(() => expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claudemain2托管'))
+    await waitFor(() => expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claudemain2'))
     expect(screen.getByRole('img', { name: '落后 2 个提交' })).toBeTruthy()
     useWorkspace
       .getState()
       .applyEvent({ t: 'group.botState', groupId: 'g1', state: state('b1', { state: 'unbound' }) })
-    await waitFor(() => expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claude待绑定托管'))
+    await waitFor(() => expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claude待绑定'))
   })
 
   it('loads once on the first connect and again after a reconnect', async () => {
@@ -328,7 +341,7 @@ describe('git status bar', () => {
     expect(calls.filter((c) => c.path.endsWith('/git/refresh'))).toEqual([])
   })
 
-  it('summarizes sub-repos and opens the diff tab on the picked one', async () => {
+  it('folds sub-repos into the branch picker: a tree of repos, each unfolding its branches to switch or pull', async () => {
     const sub = (path: string, o: Partial<RepoStatus> = {}): RepoStatus => ({
       path,
       kind: 'submodule',
@@ -338,62 +351,116 @@ describe('git status bar', () => {
       dirty: false,
       ...o,
     })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify([
-              state('b1', {
-                git: git({
-                  repos: [
-                    sub('lib', { dirty: true }),
-                    sub('vendor/x', { branch: null, ahead: 2, behind: 1 }),
-                    sub('docs'),
-                  ],
-                }),
-              }),
-              state('b2', { git: git({ repos: [sub('lib')] }) }),
-              // The root itself is not a repo: the summary stands in for the branch.
-              state('b3', {
-                git: git({ branch: null, ahead: null, behind: null, repos: [sub('a', { kind: 'nested' })] }),
-              }),
-            ]),
-          ),
-      ),
-    )
+    const refs = {
+      branches: [
+        {
+          name: 'main',
+          kind: 'local',
+          current: true,
+          upstream: null,
+          ahead: 0,
+          behind: 0,
+          subject: null,
+          at: null,
+        },
+        {
+          name: 'feat/a',
+          kind: 'local',
+          current: false,
+          upstream: null,
+          ahead: 0,
+          behind: 0,
+          subject: null,
+          at: null,
+        },
+      ],
+      remotes: [],
+    }
+    const calls = mockApi({
+      'GET /groups/g1/bot-states': [
+        state('b1', {
+          git: git({
+            repos: [
+              sub('lib', { dirty: true }),
+              sub('vendor/x', { branch: null, ahead: 2, behind: 1 }),
+              sub('/Users/w/sdk', { kind: 'extra' }),
+            ],
+          }),
+        }),
+        state('b2', { git: git({ repos: [sub('lib')] }) }),
+        // The root itself is not a repo: the summary stands in for the branch.
+        state('b3', {
+          git: git({ branch: null, ahead: null, behind: null, repos: [sub('a', { kind: 'nested' })] }),
+        }),
+      ],
+      'GET /groups/g1/git/operations': { operations: [] },
+      'POST /groups/g1/bots/b1/git/refresh': undefined,
+      'GET /groups/g1/bots/b1/git/refs?repo=vendor%2Fx': refs,
+      'POST /groups/g1/bots/b1/git/actions': { id: 'op1', status: 'succeeded', action: 'checkout' },
+    })
+    useSession.setState({ user: { id: 'u1' } as UserDto })
+    useWorkspace.setState({
+      bots: [
+        { ...bot('b1', '小王的 Claude'), ownerId: 'u1' },
+        bot('b2', '老李的 Codex'),
+        bot('b3', '阿杰的 Claude'),
+      ],
+    })
     useWorkbench.setState({ groupId: 'g1', benches: {} })
     render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
-    const b1 = await screen.findByTestId('git-b1')
-    expect(within(b1).getByRole('button', { name: '+2 个子仓库有改动' })).toBeTruthy()
-    expect(within(screen.getByTestId('git-b2')).getByRole('button', { name: '1 个子仓库' })).toBeTruthy()
-    expect(screen.getByTestId('git-b3').textContent).toBe('阿杰的 Claude1 个子仓库托管')
+    const picker = await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' })
+    expect(picker.textContent).toBe('main · 2 个子仓库有改动')
+    expect(screen.getByRole('button', { name: '切换 老李的 Codex 的分支' }).textContent).toBe(
+      'main · 1 个子仓库',
+    )
+    expect(screen.getByTestId('git-b3').textContent).toBe('阿杰的 Claude1 个子仓库')
 
-    fireEvent.click(within(b1).getByRole('button', { name: '+2 个子仓库有改动' }))
-    const pop = await screen.findByRole('dialog', { name: '小王的 Claude 的子仓库' })
-    const lib = within(pop).getByRole('button', { name: /^lib/ })
-    expect(lib.textContent).toBe('libmain未提交')
-    const vendor = within(pop).getByRole('button', { name: /^vendor\/x/ })
-    expect(vendor.textContent).toBe('vendor/x游离12')
-    expect(within(vendor).getByRole('img', { name: '领先 2 个提交' })).toBeTruthy()
+    fireEvent.click(picker)
+    const pop = await screen.findByRole('dialog', { name: '小王的 Claude 的分支' })
+    const rows = within(pop).getAllByRole('button', { expanded: false })
+    expect(rows.map((r) => r.getAttribute('aria-label'))).toEqual([
+      '主仓库',
+      'lib',
+      'vendor/x',
+      '/Users/w/sdk',
+    ])
+    expect(rows[1]?.textContent).toBe('libmain未提交')
+    expect(rows[2]?.textContent).toBe('vendor/x游离12')
+    expect(rows[3]?.textContent).toBe('/Users/w/sdk附加目录main')
 
-    fireEvent.click(lib)
+    // A changed sub-repo opens its diff; a behind one pulls.
+    fireEvent.click(within(pop).getByRole('button', { name: '查看 lib 的改动' }))
     const tabs = () => useWorkbench.getState().benches.g1?.tabs
     expect(tabs()).toEqual([{ kind: 'diff', botId: 'b1', scope: 'uncommitted', file: null, repo: 'lib' }])
-    fireEvent.click(within(b1).getByRole('button', { name: '+2 个子仓库有改动' }))
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /^vendor\/x/ }))
-    expect(tabs()?.at(-1)).toEqual({ kind: 'diff', botId: 'b1', scope: 'base', file: null, repo: 'vendor/x' })
+    fireEvent.click(picker)
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '拉取 vendor/x' }))
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path.endsWith('/git/actions')).map((c) => c.body)).toEqual([
+        { action: 'pull', repo: 'vendor/x' },
+      ]),
+    )
+
+    // Unfolding a sub-repo lists its own branches; picking one switches that repo.
+    fireEvent.click(picker)
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'vendor/x' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^feat\/a/ }))
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path.endsWith('/git/actions')).map((c) => c.body)).toEqual([
+        { action: 'pull', repo: 'vendor/x' },
+        { action: 'checkout', branch: 'feat/a', repo: 'vendor/x' },
+      ]),
+    )
   })
 
-  it('outside partition groups shows every bot with 执行位置; the context meter appears once known', async () => {
+  it('outside partition groups shows every bot with its menu; the context meter appears once known', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('[]')),
     )
     render(<GitBar group={group({ mode: 'force', botIds: ['b1', 'b2'] })} />)
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/groups/g1/bot-states', expect.anything()))
-    expect(screen.getByRole('button', { name: '小王的 Claude 的执行位置' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '老李的 Codex 的执行位置' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '小王的 Claude 的工作区' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '老李的 Codex 的工作区' })).toBeTruthy()
     useWorkspace.getState().applyEvent({
       t: 'group.botState',
       groupId: 'g1',
@@ -403,7 +470,7 @@ describe('git status bar', () => {
     expect(screen.getByTestId('git-b1').textContent).toBe('小王的 Claude')
   })
 
-  it('shows 执行位置 in a group without a repo: the repo row says so, branch and changes are hidden', async () => {
+  it('heads the menu with 执行位置 in a group without a repo: the repo row says so, base branch is hidden', async () => {
     useWorkspace.setState({ bots: [{ ...bot('b1', '小王的 Claude'), machineName: '王磊的 MacBook' }] })
     const writeText = vi.fn(async () => {})
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
@@ -412,13 +479,11 @@ describe('git status bar', () => {
       vi.fn(async () => new Response(JSON.stringify([state('b1', { path: '/w/b1', git: null })]))),
     )
     render(<GitBar group={group({ kind: 'dm', mode: 'force', repo: null, botIds: ['b1'] })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的执行位置' }))
-    const panel = await screen.findByRole('dialog', { name: '小王的 Claude 的执行位置' })
+    const panel = await menu('小王的 Claude')
     expect(within(panel).getByText('未绑定仓库')).toBeTruthy()
     expect(within(panel).getByText('王磊的 MacBook')).toBeTruthy()
     expect(within(panel).getByText('/w/b1')).toBeTruthy()
-    expect(within(panel).queryByText('分支')).toBeNull()
-    expect(within(panel).queryByText('改动')).toBeNull()
+    expect(within(panel).queryByText('基准')).toBeNull()
     fireEvent.click(within(panel).getByRole('button', { name: '复制目录' }))
     expect(writeText).toHaveBeenCalledWith('/w/b1')
   })

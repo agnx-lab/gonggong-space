@@ -132,18 +132,18 @@ test('multi-repo workspace: GitBar sub repos and diff grouped per repo', async (
     const bar = page.getByTestId('git-bar')
     const multiItem = bar.getByTestId(`git-${multi.id}`)
     const subItem = bar.getByTestId(`git-${subBot.id}`)
-    await expect(multiItem).toContainText('本机目录', { timeout: 60_000 })
-    await expect(subItem).toContainText('本机目录', { timeout: 60_000 })
+    const multiPicker = multiItem.getByRole('button', { name: `切换 ${multiName} 的分支` })
+    const subPicker = subItem.getByRole('button', { name: `切换 ${subName} 的分支` })
 
-    await test.step('GitBar lists the nested repos, not node_modules', async () => {
+    await test.step('the branch picker lists the nested repos, not node_modules', async () => {
       // No root repo: no branch of its own, just the sub repo summary.
-      await expect(multiItem.locator('.git-bar__branch')).toHaveCount(0)
-      await multiItem.getByRole('button', { name: '+2 个子仓库有改动' }).click()
-      const pop = page.getByRole('dialog', { name: `${multiName} 的子仓库` })
-      await expect(pop.locator('.git-subs__path')).toHaveText(['app', 'libs/core'])
+      await expect(multiPicker).toHaveText('2 个子仓库有改动', { timeout: 60_000 })
+      await multiPicker.click()
+      const pop = page.getByRole('dialog', { name: `${multiName} 的分支` })
+      await expect(pop.locator('.git-tree__path')).toHaveText(['app', 'libs/core'])
       await expect(pop).not.toContainText('node_modules')
-      await expect(pop.locator('.git-subs__item', { hasText: 'app' })).toContainText('feat/a')
-      await pop.locator('.git-subs__item', { hasText: 'app' }).click()
+      await expect(pop.locator('.git-tree__row', { hasText: 'app' })).toContainText('feat/a')
+      await pop.getByRole('button', { name: '查看 app 的改动' }).click()
       await expect(pop).toBeHidden()
     })
 
@@ -184,11 +184,11 @@ test('multi-repo workspace: GitBar sub repos and diff grouped per repo', async (
     })
 
     await test.step('a root on main still shows its submodule’s branch against the submodule’s main', async () => {
-      await expect(subItem.locator('.git-bar__branch')).toHaveText('main')
-      await subItem.getByRole('button', { name: '1 个子仓库' }).click()
-      const pop = page.getByRole('dialog', { name: `${subName} 的子仓库` })
-      await expect(pop.locator('.git-subs__path')).toHaveText(['sub'])
-      await pop.locator('.git-subs__item', { hasText: 'sub' }).click()
+      await expect(subPicker).toHaveText(/^main · /, { timeout: 60_000 })
+      await subPicker.click()
+      const pop = page.getByRole('dialog', { name: `${subName} 的分支` })
+      await expect(pop.locator('.git-tree__path')).toHaveText(['主仓库', 'sub'])
+      await pop.getByRole('button', { name: '查看 sub 的改动' }).click()
       const pane = diffPane(page)
       await expect(pane.getByRole('radio', { name: '对比主分支' })).toBeChecked()
       const list = await fileList(pane)

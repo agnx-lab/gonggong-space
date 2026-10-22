@@ -8,7 +8,7 @@ use crate::protocol::{
 use crate::repo::{self, remote_git, remote_output};
 use crate::t;
 use std::collections::HashSet;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
@@ -33,6 +33,28 @@ fn tree_path(rel: &str) -> Result<String, String> {
     }
     let parts: Vec<_> = path.components().filter_map(|c| c.as_os_str().to_str()).filter(|p| *p != ".").collect();
     Ok(parts.join("/"))
+}
+
+/// The directory of `repo`, a path as GitStatus.repos reports it, in the workspace `dir` (None = `dir` itself): a
+/// '/'-separated path below `dir`, or an absolute one inside one of `extras`.
+pub fn repo_path(dir: &Path, extras: &[String], repo: Option<&str>) -> Result<PathBuf, String> {
+    let Some(repo) = repo else { return Ok(dir.to_path_buf()) };
+    let path = Path::new(repo);
+    if path.is_absolute() {
+        let inside =
+            !path.components().any(|c| c == Component::ParentDir) && extras.iter().any(|e| path.starts_with(e));
+        return match inside {
+            true => Ok(path.to_path_buf()),
+            false => Err(t!("仓库不在附加目录内：{repo}", repo = repo)),
+        };
+    }
+    let plain = |part: &str| {
+        !matches!(part, "" | "." | "..") && Path::new(part).components().all(|c| matches!(c, Component::Normal(_)))
+    };
+    match repo.split('/').all(plain) {
+        true => Ok(dir.join(path)),
+        false => Err(t!("路径超出工作区：{path}", path = repo)),
+    }
 }
 
 /// `ref:path`, the object git reads.
@@ -347,4 +369,25 @@ pub async fn push(dir: &Path, remote: &str, branch: &str) -> Result<String, Stri
     }
     let summary = refs.first().map_or("", |(_, s)| s);
     Ok(format!("{remote}/{branch} {summary}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_path_stays_in_the_workspace_or_its_extra_dirs() {
+        let dir = Path::new("/w/app");
+        let extras = ["/x/sdk".to_string()];
+        let at = |repo| repo_path(dir, &extras, repo);
+        assert_eq!(at(None).unwrap(), dir);
+        assert_eq!(at(Some("libs/core")).unwrap(), dir.join("libs/core"));
+        assert_eq!(at(Some("/x/sdk")).unwrap(), Path::new("/x/sdk"));
+        assert_eq!(at(Some("/x/sdk/vendor/a")).unwrap(), Path::new("/x/sdk/vendor/a"));
+        for bad in ["", "..", "../x", "libs/../..", "libs//core", "./libs", "libs/", "/x/sdk2", "/x/sdk/../y", "/w/app"]
+        {
+            assert!(at(Some(bad)).is_err(), "{bad}");
+        }
+        assert!(repo_path(dir, &[], Some("/x/sdk")).is_err());
+    }
 }

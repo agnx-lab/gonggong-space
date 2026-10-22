@@ -559,7 +559,7 @@ describe('chat view', () => {
     push({ t: 'message.new', message: msg({ seq: 9, authorId: 'u2', authorName: '李建国', body: '收到' }) })
     expect(within(main).getByText('收到')).toBeTruthy()
 
-    expect(within(main).getByTestId('git-bar').textContent).toContain('老李的 Codex待创建托管')
+    expect(within(main).getByTestId('git-bar').textContent).toContain('老李的 Codex待创建')
     const git = { branch: 'main', ahead: 0, behind: 1, dirty: true, workspace: 'managed' as const, repos: [] }
     push({
       t: 'group.botState',
@@ -579,7 +579,7 @@ describe('chat view', () => {
         extraDirs: [],
       },
     })
-    expect(within(main).getByTestId('git-b1').textContent).toBe('小王的 Claudemain1未提交托管')
+    expect(within(main).getByTestId('git-b1').textContent).toBe('小王的 Claudemain1未提交')
   })
 
   it('marks a group bound to a Feishu chat with a link that opens the chat in the Feishu client', async () => {

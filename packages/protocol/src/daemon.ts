@@ -836,6 +836,8 @@ export const DaemonFeature = z.enum([
   'gitOps',
   /** git.diff, git.refresh and commit `paths`: a daemon without it would commit everything. */
   'gitOps2',
+  /** `repo` of git.refs / git.action: a daemon without it would act on the root repo instead. */
+  'gitRepos',
 ])
 export type DaemonFeature = z.infer<typeof DaemonFeature>
 
@@ -1240,8 +1242,15 @@ export const FilesRead = z.object({
 const GitRef = z.string().min(1).max(255).nullable()
 const gitTarget = { requestId: z.string(), groupId: z.string(), botId: z.string(), workspace: WorkspaceSpec }
 
+/**
+ * Which repo of the workspace git.refs / git.action work on, as reported in GitStatus.repos: a submodule or nested repo
+ * relative to the workspace root, or an `extra` repo's absolute path inside one of `workspace.extraDirs`; omitted = the
+ * root repo.
+ */
+const GitRepo = z.string().min(1).max(4096).optional()
+
 /** Local and remote-tracking branches, and the remotes. */
-export const GitRefs = z.object({ t: z.literal('git.refs'), ...gitTarget })
+export const GitRefs = z.object({ t: z.literal('git.refs'), ...gitTarget, repo: GitRepo })
 /** Newest first from `ref`; `skip` pages. */
 export const GitLog = z.object({
   t: z.literal('git.log'),
@@ -1293,6 +1302,7 @@ export const GitRefresh = z.object({ t: z.literal('git.refresh'), ...gitTarget, 
 export const GitAction = z.object({
   t: z.literal('git.action'),
   ...gitTarget,
+  repo: GitRepo,
   action: GitActionKind,
   branch: z.string().nullable(),
   remote: z.string().nullable(),

@@ -256,6 +256,41 @@ describe('git reads', () => {
     expect(await bad).toMatchObject({ status: 409, body: { message: 'bad ref' } })
   })
 
+  it('needs a daemon with gitRepos for a sub-repo; the root repo asks as before', async () => {
+    const w = await world()
+    const d = await daemon(w.token)
+    const old = { status: 409, body: { message: 'cc 所在机器的客户端版本过旧，升级后才能使用 Git 操作' } }
+    expect(await w.members.get(`${w.base}/refs?repo=libs%2Fcore`)).toMatchObject(old)
+    expect(await w.owners.post(`${w.base}/actions`, { action: 'pull', repo: 'libs/core' })).toMatchObject(old)
+    expect(await w.members.post(`${w.base}/actions`, { action: 'pull', repo: 'libs/core' })).toMatchObject(
+      old,
+    )
+    expect((await ops(w)).body.operations).toEqual([])
+
+    const root = w.members.get<GitRefsDto>(`${w.base}/refs`)
+    const r1 = await d.next('git.refs')
+    expect('repo' in r1).toBe(false)
+    d.send({ t: 'git.refs.result', requestId: r1.requestId, branches: [], remotes: [], error: null })
+    expect((await root).status).toBe(200)
+    const pull = w.owners.post<GitOperationDto>(`${w.base}/actions`, { action: 'pull' })
+    expect('repo' in (await d.act())).toBe(false)
+    expect((await pull).body).toMatchObject({ status: 'succeeded', repo: null })
+  })
+
+  it('relays refs of a sub-repo with the extra dirs', async () => {
+    const w = await world()
+    await t.db
+      .update(groupBots)
+      .set({ extraDirs: ['/x/shared'] })
+      .where(eq(groupBots.groupId, w.group.id))
+    const d = await daemon(w.token, ['gitOps', 'gitOps2', 'gitRepos'])
+    const refs = w.members.get<GitRefsDto>(`${w.base}/refs?repo=libs%2Fcore`)
+    const r1 = await d.next('git.refs')
+    expect(r1).toMatchObject({ repo: 'libs/core', workspace: { extraDirs: ['/x/shared'] } })
+    d.send({ t: 'git.refs.result', requestId: r1.requestId, branches: [], remotes: [], error: null })
+    expect(await refs).toEqual({ status: 200, body: { branches: [], remotes: [] } })
+  })
+
   it('refuses outsiders, groups without a repo or not in partition mode, and offline bots', async () => {
     const w = await world()
     expect((await w.outsiders.get(`${w.base}/refs`)).status).toBe(404)
@@ -500,6 +535,48 @@ describe('git actions', () => {
       '王磊 将 cc 的 feat/x 推送到 origin',
       '陈晨 将 cc 的 main 推送到 origin（王磊 批准）',
       '王磊 为 cc 拉取了更新',
+    ])
+  })
+
+  it('acts on a sub-repo: stored, relayed, listed and announced with the repo', async () => {
+    const w = await world()
+    const d = await daemon(w.token, ['gitOps', 'gitOps2', 'gitRepos'])
+    const repo = 'libs/core'
+    const checkout = w.owners.post<GitOperationDto>(`${w.base}/actions`, {
+      action: 'checkout',
+      repo,
+      branch: 'dev',
+    })
+    expect(await d.act()).toMatchObject({ action: 'checkout', repo, branch: 'dev' })
+    expect((await checkout).body).toMatchObject({ status: 'succeeded', repo, branch: 'dev' })
+
+    const pull = w.owners.post(`${w.base}/actions`, { action: 'pull', repo })
+    expect((await d.act()).repo).toBe(repo)
+    await pull
+    const commit = w.owners.post(`${w.base}/actions`, { action: 'commit', repo, message: '改核心' })
+    expect((await d.act()).repo).toBe(repo)
+    await commit
+    const push = w.owners.post(`${w.base}/actions`, { action: 'push', repo, branch: 'dev' })
+    expect((await d.act()).repo).toBe(repo)
+    await push
+
+    const asked = await w.members.post<GitOperationDto>(`${w.base}/actions`, { action: 'pull', repo })
+    expect(asked.body).toMatchObject({ status: 'pending_approval', repo })
+    const [note] = await t.db.select().from(notifications).where(eq(notifications.userId, w.owner.id))
+    expect(note!.payload).toMatchObject({ summary: 'libs/core: pull' })
+    const approved = w.owners.post(`/api/git-operations/${asked.body.id}/decide`, { approve: true })
+    expect((await d.act()).repo).toBe(repo)
+    await approved
+
+    expect((await ops(w)).body.operations.every((o) => o.repo === repo)).toBe(true)
+    const [log] = await t.db.select().from(auditLogs)
+    expect(log!.detail).toMatchObject({ action: 'checkout', repo })
+    expect(await groupEvents(w.group.id)).toEqual([
+      '王磊 将 cc 的 libs/core 切换到 dev',
+      '王磊 为 cc 的 libs/core 拉取了更新',
+      '王磊 提交了 cc 的 libs/core 改动：改核心',
+      '王磊 将 cc 的 libs/core 的 dev 推送到 origin',
+      '陈晨 为 cc 的 libs/core 拉取了更新（王磊 批准）',
     ])
   })
 

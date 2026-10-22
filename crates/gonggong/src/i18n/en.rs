@@ -602,4 +602,5 @@ pub(super) const EN: &[(&str, &str)] = &[
     ("缺少提交说明", "A commit message is required"),
     ("没有可提交的改动", "Nothing to commit"),
     ("缺少参数：{what}", "Missing parameter: {what}"),
+    ("仓库不在附加目录内：{repo}", "Repo is outside the additional directories: {repo}"),
 ];

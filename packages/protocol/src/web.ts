@@ -462,6 +462,10 @@ export type FileTextDto = z.infer<typeof FileTextDto>
 // Reads (any member): GET /api/groups/:id/bots/:botId/git/{refs,log,tree,text,compare}.
 // Writes: POST …/git/actions — the bot owner's run at once; anyone else's wait for the owner's approval.
 // Partition groups with a repo only; refused with 409 while a run of the bot (or of a bot sharing its directory) is live.
+/** Which repo of the workspace (see GitStatus.repos `path`); omitted = the root repo. Refs and actions only. */
+const gitRepoPath = z.string().min(1).max(4096).optional()
+/** GET …/git/refs?repo= */
+export const GitRefsQuery = z.object({ repo: gitRepoPath })
 /** GET …/git/refs */
 export const GitRefsDto = z.object({ branches: z.array(GitBranch), remotes: z.array(GitRemote) })
 export type GitRefsDto = z.infer<typeof GitRefsDto>
@@ -499,16 +503,18 @@ export type GitRefreshReq = z.infer<typeof GitRefreshReq>
 const gitBranchName = z.string().trim().min(1).max(255)
 /** POST …/git/actions. `confirmBase`: the owner's second confirmation to push the protected base branch. */
 export const GitActionReq = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('checkout'), branch: gitBranchName }),
-  z.object({ action: z.literal('pull') }),
+  z.object({ action: z.literal('checkout'), repo: gitRepoPath, branch: gitBranchName }),
+  z.object({ action: z.literal('pull'), repo: gitRepoPath }),
   z.object({
     action: z.literal('commit'),
+    repo: gitRepoPath,
     message: z.string().trim().min(1, '请填写提交说明').max(10_000),
     /** Work-tree-relative paths to commit (as listed by compare from HEAD); omitted = every change. */
     paths: z.array(z.string().min(1).max(4096)).min(1).max(5000).optional(),
   }),
   z.object({
     action: z.literal('push'),
+    repo: gitRepoPath,
     remote: gitBranchName.default('origin'),
     branch: gitBranchName,
     confirmBase: z.boolean().default(false),
@@ -528,6 +534,8 @@ export const GitOperationDto = z.object({
   id: z.string(),
   groupId: z.string(),
   botId: z.string(),
+  /** The repo acted on (see GitActionReq); null = the root repo. */
+  repo: z.string().nullable(),
   action: GitActionKind,
   branch: z.string().nullable(),
   remote: z.string().nullable(),

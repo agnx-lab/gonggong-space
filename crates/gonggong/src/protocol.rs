@@ -599,6 +599,9 @@ pub struct GitRefs {
     pub group_id: String,
     pub bot_id: String,
     pub workspace: WorkspaceSpec,
+    /// A repo of the workspace as GitStatus.repos reports it; None = the root repo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
 }
 
 /// git.log: newest first from `ref` (None = HEAD).
@@ -694,6 +697,9 @@ pub struct GitAction {
     pub group_id: String,
     pub bot_id: String,
     pub workspace: WorkspaceSpec,
+    /// A repo of the workspace as GitStatus.repos reports it; None = the root repo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
     pub action: GitActionKind,
     pub branch: Option<String>,
     pub remote: Option<String>,
@@ -1249,6 +1255,8 @@ pub const FEATURE_PLUGINS: &str = "plugins";
 pub const FEATURE_GIT_OPS: &str = "gitOps";
 /// git.diff, git.refresh and commit `paths`: without it a server must not send paths, or everything gets committed.
 pub const FEATURE_GIT_OPS2: &str = "gitOps2";
+/// `repo` of git.refs / git.action: without it a server's request would act on the root repo instead.
+pub const FEATURE_GIT_REPOS: &str = "gitRepos";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolsSettings {

@@ -125,13 +125,22 @@ impl Rig {
     }
 
     async fn refs(&mut self) -> (Vec<GitBranch>, Vec<GitRemote>) {
-        let req =
-            GitRefs { request_id: "q".into(), group_id: "g1".into(), bot_id: "b1".into(), workspace: self.spec() };
+        self.refs_of(self.spec(), None).await.unwrap()
+    }
+
+    async fn refs_of(
+        &mut self,
+        workspace: WorkspaceSpec,
+        repo: Option<&str>,
+    ) -> Result<(Vec<GitBranch>, Vec<GitRemote>), String> {
+        let repo = repo.map(String::from);
+        let req = GitRefs { request_id: "q".into(), group_id: "g1".into(), bot_id: "b1".into(), workspace, repo };
         self.send(ServerToDaemon::GitRefs(req));
         match self.next().await {
             DaemonToServer::GitRefsResult { request_id, branches, remotes, error: None } if request_id == "q" => {
-                (branches, remotes)
+                Ok((branches, remotes))
             }
+            DaemonToServer::GitRefsResult { error: Some(e), .. } => Err(e),
             other => panic!("unexpected {other:?}"),
         }
     }
@@ -266,6 +275,7 @@ impl Rig {
             group_id: "g1".into(),
             bot_id: "b1".into(),
             workspace: self.spec(),
+            repo: None,
             action,
             branch: None,
             remote: None,
@@ -670,6 +680,94 @@ async fn push_sets_the_upstream_and_never_forces() {
     assert!(!ok && !busy);
     assert!(error.as_deref().unwrap().contains("rejected"), "{error:?}");
     assert_eq!(sh(&r.remote, &["rev-parse", "refs/heads/main"]), sh(&r.other, &["rev-parse", "HEAD"]));
+}
+
+/// A repo of its own with branches main and dev, `dev` holding a commit main lacks.
+fn side_repo(dir: &Path) {
+    fs::create_dir_all(dir).unwrap();
+    sh(dir, &["init", "-q", "-b", "main"]);
+    commit(dir, "lib.txt", "1", "lib init");
+    sh(dir, &["switch", "-q", "-c", "dev"]);
+    commit(dir, "lib.txt", "2", "lib dev");
+    sh(dir, &["switch", "-q", "main"]);
+}
+
+fn local_names(branches: &[GitBranch]) -> Vec<&str> {
+    branches.iter().filter(|b| b.kind == GitBranchKind::Local).map(|b| b.name.as_str()).collect()
+}
+
+#[tokio::test]
+async fn refs_and_checkout_act_on_a_nested_repo_not_the_root() {
+    let mut r = rig();
+    let lib = r.work.join("libs/core");
+    side_repo(&lib);
+
+    let (branches, remotes) = r.refs_of(r.spec(), Some("libs/core")).await.unwrap();
+    assert_eq!(local_names(&branches), ["dev", "main"]);
+    assert!(remotes.is_empty());
+
+    let req = GitAction {
+        repo: Some("libs/core".into()),
+        branch: Some("dev".into()),
+        ..r.action_req(GitActionKind::Checkout)
+    };
+    let (ok, busy, _, error) = r.act(req).await;
+    assert!(ok && !busy, "{error:?}");
+    assert_eq!(sh(&lib, &["branch", "--show-current"]), "dev");
+    assert_eq!(r.current(), "main");
+    let git = r.state.take().unwrap().git.unwrap();
+    assert_eq!(git.branch.as_deref(), Some("main"), "the root's status is reported");
+}
+
+#[tokio::test]
+async fn refs_and_checkout_act_on_an_extra_repo_inside_the_extra_dirs() {
+    let mut r = rig();
+    let extra = r._tmp.path().join("extra");
+    let sdk = extra.join("sdk");
+    side_repo(&sdk);
+    let spec = WorkspaceSpec { extra_dirs: vec![extra.to_string_lossy().into()], ..r.spec() };
+    let path = sdk.to_string_lossy().to_string();
+
+    let (branches, _) = r.refs_of(spec.clone(), Some(&path)).await.unwrap();
+    assert_eq!(local_names(&branches), ["dev", "main"]);
+
+    let req = GitAction {
+        workspace: spec,
+        repo: Some(path),
+        branch: Some("dev".into()),
+        ..r.action_req(GitActionKind::Checkout)
+    };
+    let (ok, _, _, error) = r.act(req).await;
+    assert!(ok, "{error:?}");
+    assert_eq!(sh(&sdk, &["branch", "--show-current"]), "dev");
+    assert_eq!(r.current(), "main");
+}
+
+#[tokio::test]
+async fn repos_outside_the_workspace_and_its_extra_dirs_are_refused() {
+    let mut r = rig();
+    sh(&r.other, &["branch", "dev"]);
+    let other = r.other.to_string_lossy().to_string();
+    for repo in ["../other", other.as_str(), "libs//core", "./libs"] {
+        let error = r.refs_of(r.spec(), Some(repo)).await.unwrap_err();
+        assert!(!error.is_empty(), "{repo}");
+    }
+
+    let req = GitAction { repo: Some(other), branch: Some("dev".into()), ..r.action_req(GitActionKind::Checkout) };
+    let (ok, busy, _, error) = r.act(req).await;
+    assert!(!ok && !busy);
+    assert!(error.is_some());
+    assert_eq!(sh(&r.other, &["branch", "--show-current"]), "main");
+
+    let req = GitAction {
+        repo: Some("../other".into()),
+        branch: Some("dev".into()),
+        ..r.action_req(GitActionKind::Checkout)
+    };
+    let (ok, _, _, error) = r.act(req).await;
+    assert!(!ok);
+    assert!(error.unwrap().contains("../other"));
+    assert_eq!(sh(&r.other, &["branch", "--show-current"]), "main");
 }
 
 fn slow_run(r: &Rig, run_id: &str, text: &str) -> RunStart {

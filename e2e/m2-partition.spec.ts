@@ -82,11 +82,19 @@ test('partition mode: managed clones, git default actions, status bar, /cd and /
     // /cd to a matching local clone → status shows 本机目录; a clone of another repo is refused.
     const local = repo.cloneTo('local-clone')
     await say(page, `/cd @仓库 Claude ${local}`)
-    await expect(bar.getByTestId(`git-${claude.id}`)).toContainText('本机目录', { timeout: 30_000 })
+    const where = async (id: string, name: string, kind: string) => {
+      await bar
+        .getByTestId(`git-${id}`)
+        .getByRole('button', { name: `${name} 的工作区` })
+        .click()
+      await expect(page.getByRole('dialog', { name: `${name} 的工作区` })).toContainText(kind)
+      await page.keyboard.press('Escape')
+    }
+    await expect(async () => where(claude.id, '仓库 Claude', '本机目录')).toPass({ timeout: 30_000 })
     const foreign = remoteRepo().cloneTo('foreign')
     await say(page, `/cd @仓库 Codex ${foreign}`)
     await expect(page.getByRole('main').getByText(/remote 与群仓库不一致/)).toBeVisible({ timeout: 30_000 })
-    await expect(bar.getByTestId(`git-${codex.id}`)).toContainText('托管')
+    await where(codex.id, '仓库 Codex', '托管目录')
 
     // /new → the next run opens a fresh session and says so.
     await say(page, '/new @仓库 Codex')

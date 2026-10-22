@@ -26,9 +26,9 @@ const LIVE = ['running', 'awaiting_approval', 'awaiting_answer']
 /** Stored once for every reader. */
 const zh = translator('zh')
 
-/** What the bot's daemon must support for an operation: committing chosen paths came with gitOps2. */
-export const featureFor = (op: Pick<GitOperation, 'action' | 'paths'>): DaemonFeature =>
-  op.action === 'commit' && op.paths ? 'gitOps2' : 'gitOps'
+/** What the bot's daemon must support for an operation: committing chosen paths came with gitOps2, sub-repos with gitRepos. */
+export const featureFor = (op: Pick<GitOperation, 'action' | 'paths' | 'repo'>): DaemonFeature =>
+  op.repo ? 'gitRepos' : op.action === 'commit' && op.paths ? 'gitOps2' : 'gitOps'
 
 /** The bot's workspace in a partition group with a repo: the only place manual git is offered. */
 export async function gitTarget(ctx: Ctx, group: Group, rawBotId: string, feature: DaemonFeature = 'gitOps') {
@@ -43,6 +43,7 @@ export async function gitTarget(ctx: Ctx, group: Group, rawBotId: string, featur
       cdPath: groupBots.cdPath,
       state: groupBots.workspaceState,
       path: groupBots.workspacePath,
+      extraDirs: groupBots.extraDirs,
     })
     .from(groupBots)
     .innerJoin(bots, eq(bots.id, groupBots.botId))
@@ -58,7 +59,7 @@ export async function gitTarget(ctx: Ctx, group: Group, rawBotId: string, featur
     group,
     bot: row.bot,
     workspacePath: row.path,
-    workspace: { repo, cdPath: row.cdPath },
+    workspace: { repo, cdPath: row.cdPath, extraDirs: row.extraDirs },
   }
 }
 
@@ -91,7 +92,13 @@ const subject = (message: string | null) => {
 }
 
 /** One line naming the action, for the owner's notification (git verbs read the same in both languages). */
-export function summary(op: Pick<GitOperation, 'action' | 'branch' | 'remote' | 'message' | 'paths'>) {
+export function summary(
+  op: Pick<GitOperation, 'repo' | 'action' | 'branch' | 'remote' | 'message' | 'paths'>,
+) {
+  return op.repo ? `${op.repo}: ${verb(op)}` : verb(op)
+}
+
+function verb(op: Pick<GitOperation, 'action' | 'branch' | 'remote' | 'message' | 'paths'>) {
   if (op.action === 'checkout') return `checkout ${op.branch}`
   if (op.action === 'push') return `push ${op.branch} → ${op.remote}`
   if (op.action === 'commit') {
@@ -102,6 +109,7 @@ export function summary(op: Pick<GitOperation, 'action' | 'branch' | 'remote' | 
 }
 
 export const fields = (req: GitActionReq) => ({
+  repo: req.repo ?? null,
   action: req.action,
   branch: 'branch' in req ? req.branch : null,
   remote: req.action === 'push' ? req.remote : null,
@@ -113,6 +121,7 @@ export const fields = (req: GitActionReq) => ({
 export const auditDetail = (op: GitOperation) => ({
   operationId: op.id,
   botId: op.botId,
+  repo: op.repo,
   action: op.action,
   branch: op.branch,
   remote: op.remote,
@@ -135,6 +144,7 @@ export async function operationDtos(ctx: Ctx, rows: GitOperation[]): Promise<Git
     id: r.id,
     groupId: r.groupId,
     botId: r.botId,
+    repo: r.repo,
     action: r.action as GitOperationDto['action'],
     branch: r.branch,
     remote: r.remote,
@@ -179,6 +189,7 @@ export async function execute(ctx: Ctx, op: GitOperation, t: GitTarget) {
           groupId: t.group.id,
           botId: t.bot.id,
           workspace: t.workspace,
+          ...(op.repo && { repo: op.repo }),
           action: op.action as GitOperationDto['action'],
           branch: op.branch,
           remote: op.remote,
@@ -230,18 +241,37 @@ function announce(ctx: Ctx, op: GitOperationDto, bot: string) {
     approval: op.decidedBy ? { key: '（{owner} 批准）', params: { owner: op.decidedBy.name } } : '',
   }
   const branch = op.branch ?? ''
+  const remote = op.remote ?? ''
+  const commit = { ...who, subject: subject(op.message) }
+  if (op.repo) {
+    const at = { ...who, repo: op.repo }
+    if (op.action === 'checkout')
+      return postEvent(ctx, op.groupId, '{user} 将 {bot} 的 {repo} 切换到 {branch}{approval}', {
+        ...at,
+        branch,
+      })
+    if (op.action === 'pull')
+      return postEvent(ctx, op.groupId, '{user} 为 {bot} 的 {repo} 拉取了更新{approval}', at)
+    if (op.action === 'commit')
+      return postEvent(ctx, op.groupId, '{user} 提交了 {bot} 的 {repo} 改动：{subject}{approval}', {
+        ...commit,
+        repo: op.repo,
+      })
+    return postEvent(ctx, op.groupId, '{user} 将 {bot} 的 {repo} 的 {branch} 推送到 {remote}{approval}', {
+      ...at,
+      branch,
+      remote,
+    })
+  }
   if (op.action === 'checkout')
     return postEvent(ctx, op.groupId, '{user} 将 {bot} 切换到 {branch}{approval}', { ...who, branch })
   if (op.action === 'pull') return postEvent(ctx, op.groupId, '{user} 为 {bot} 拉取了更新{approval}', who)
   if (op.action === 'commit')
-    return postEvent(ctx, op.groupId, '{user} 提交了 {bot} 的改动：{subject}{approval}', {
-      ...who,
-      subject: subject(op.message),
-    })
+    return postEvent(ctx, op.groupId, '{user} 提交了 {bot} 的改动：{subject}{approval}', commit)
   return postEvent(ctx, op.groupId, '{user} 将 {bot} 的 {branch} 推送到 {remote}{approval}', {
     ...who,
     branch,
-    remote: op.remote ?? '',
+    remote,
   })
 }
 

@@ -289,8 +289,7 @@
 .git-bar__dirty {
   color: var(--tint-orange-text);
 }
-.git-bar__hint,
-.git-bar__ws {
+.git-bar__hint {
   color: var(--label-secondary);
 }
 .git-bar__actions {
@@ -317,27 +316,17 @@
   opacity: 0.35;
 }
 .git-bar__subs {
-  height: 20px;
-  padding: 0 var(--space-6);
-  border: 0;
-  border-radius: var(--radius-capsule);
-  background: none;
-  color: var(--label-secondary);
-  font: inherit;
-  white-space: nowrap;
+  font-family: var(--font-sans);
 }
 .git-bar__subs[data-changed="true"] {
   color: var(--tint-orange-text);
-}
-.git-bar__subs:hover {
-  background: var(--selection-fill);
 }
 .git-subs {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-4);
-  max-height: 50vh;
+  max-height: 60vh;
   overflow: auto;
 }
 .git-subs__item {
@@ -356,13 +345,6 @@
 }
 .git-subs__item:hover {
   background: var(--selection-fill);
-}
-.git-subs__path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono);
 }
 .git-bar__error {
   color: var(--tint-red-text);
@@ -418,13 +400,13 @@
   flex: 1;
   min-width: 0;
 }
-.git-loc__branches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4) var(--space-12);
+.git-loc__kind {
+  margin-left: var(--space-6);
+  color: var(--label-secondary);
+  font-family: var(--font-sans);
 }
-.git-loc__branches [data-mismatch="true"],
 .git-loc__warn {
+  margin-left: var(--space-6);
   color: var(--tint-orange-text);
 }
 /* 插件 · N in the group header (shown only once the group has enabled plugins) */

@@ -286,7 +286,82 @@
   color: var(--tint-orange-text);
 }
 
-/* Git menu (status bar) */
+/* Bot menu (status bar): where it works, then the actions */
+.git-menu__head {
+  padding: var(--space-6) var(--space-8) var(--space-8);
+  border-bottom: 1px solid var(--separator);
+  margin-bottom: var(--space-2);
+}
+.git-menu__sep {
+  height: 1px;
+  margin: var(--space-2) var(--space-8);
+  background: var(--separator);
+}
+
+/* Repo tree (branch picker with sub-repos): each repo unfolds its branches */
+.git-tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  max-height: 60vh;
+  overflow: auto;
+}
+.git-tree__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-check);
+}
+.git-tree__row:hover {
+  background: var(--selection-fill);
+}
+.git-tree__toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: var(--control-regular);
+  padding: 0 var(--space-8);
+  border: 0;
+  background: none;
+  color: var(--label);
+  font-size: var(--text-subheadline-size);
+  text-align: left;
+  white-space: nowrap;
+}
+.git-tree__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.git-tree__act {
+  flex: none;
+  height: 20px;
+  padding: 0 var(--space-6);
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-caption-size);
+}
+.git-tree__act:hover {
+  background: var(--selection-fill);
+}
+.git-tree__act[data-hover]:not(:focus-visible) {
+  opacity: 0;
+}
+.git-tree__row:hover .git-tree__act[data-hover] {
+  opacity: 1;
+}
+.git-tree__refs {
+  padding: var(--space-2) 0 var(--space-6) var(--space-16);
+}
+
+/* Git menu items */
 .git-subs__item:disabled {
   color: var(--label-tertiary);
   background: none;
