@@ -5,7 +5,7 @@
 ## Pre-flight (do this once before pasting anything)
 
 1. **Read `assets/template.html`** through the end of the `<style>` block. Every class used below must exist there. If one is missing, add it to `<style>` rather than inlining it on each section.
-2. **Pick a section list before writing copy.** Use the per-template rhythm table in `SKILL.md`; it is the source of truth.
+2. **Pick a section list before writing copy.** Use the per-template rhythm table in `GUIDE.md`; it is the source of truth.
 3. **One accent per screen, used at most twice.** The hero eyebrow and the primary button already use it; budget any third usage carefully.
 4. **Every top-level `<section>` carries `data-section="<id>"`** with a short, unique, kebab-case id so people can point at a section when they give feedback.
 
@@ -315,4 +315,4 @@ Hairline-topped cells, no boxes. Each cell is a destination: a title, one line o
 
 ## Section rhythm — when in doubt
 
-Two stat rows in a row, two quote blocks in a row, two feature triplets in a row — all visual fatigue. Alternate dense and breathing sections. The per-template rhythms live in `SKILL.md`.
+Two stat rows in a row, two quote blocks in a row, two feature triplets in a row — all visual fatigue. Alternate dense and breathing sections. The per-template rhythms live in `GUIDE.md`.

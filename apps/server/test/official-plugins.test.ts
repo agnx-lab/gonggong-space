@@ -18,9 +18,20 @@ describe('official plugin web-prototype', () => {
 
   it('has a valid manifest', () => {
     expect(manifest.name).toBe('web-prototype')
-    expect(manifest.templates.map((t) => t.id)).toEqual(['saas', 'event', 'brand', 'docs'])
-    expect(manifest.designSystems.map((d) => d.id)).toEqual(['neutral-modern', 'warm-editorial'])
+    expect(manifest.templates.slice(0, 4).map((t) => t.id)).toEqual(['saas', 'event', 'brand', 'docs'])
+    expect(manifest.designSystems[0]?.id).toBe('neutral-modern')
+    expect(manifest.templates.every((t) => t.group)).toBe(true)
+    expect(manifest.designSystems.every((d) => d.category)).toBe(true)
     expect(manifest.inputs.find((i) => i.id === 'title')?.required).toBe(true)
+  })
+
+  it('has a guide for every template and every preview file', () => {
+    const shared = ['saas', 'event', 'brand', 'docs']
+    for (const t of manifest.templates) {
+      const guide = shared.includes(t.id) ? 'web-prototype' : t.id
+      expect(existsSync(join(skillDir, 'templates', guide, 'GUIDE.md')), t.id).toBe(true)
+      if (t.preview) expect(existsSync(join(ROOT, t.preview)), t.preview).toBe(true)
+    }
   })
 
   it('has an entry SKILL.md whose frontmatter names the entry', () => {

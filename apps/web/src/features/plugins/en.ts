@@ -18,6 +18,10 @@ export default {
   '只显示本群已启用的插件。还想要别的类型，请群管理员到群设置里启用。':
     'Only plugins enabled in this group are listed. For other kinds, ask a group admin to enable them in group settings.',
   选一个模板: 'Pick a template',
+  模板分组: 'Template groups',
+  设计系统分类: 'Design system categories',
+  搜索设计系统: 'Search design systems',
+  没有匹配的设计系统: 'No matching design systems',
   '{desc} · {n} 个模板': '{desc} · {n:template|templates}',
   '决定颜色、字体和组件样式，只对这一次创作生效。':
     'Sets colors, fonts and component styles, for this creation only.',

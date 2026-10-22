@@ -207,6 +207,27 @@ describe('plugin upload', () => {
     expect(await t.db.select().from(plugins)).toEqual([])
   })
 
+  it('takes a large catalogue: 80 grouped templates and 80 categorised design systems', async () => {
+    const w = await world()
+    const root = await w.as(w.root)
+    const n = Array.from({ length: 80 }, (_, i) => i)
+    const m = manifest({
+      templates: n.map((i) => ({ id: `t${i}`, title: `模板 ${i}`, group: i % 2 ? '营销网页' : '产品界面' })),
+      designSystems: n.map((i) => ({
+        id: `d${i}`,
+        title: `设计 ${i}`,
+        category: '现代极简',
+        swatches: ['#111111', '#ffffff'],
+        dir: `design-systems/d${i}`,
+      })),
+    })
+    const made = await root.post<PluginDto>('/api/admin/plugins', { files: pkg(m) })
+    expect(made.status).toBe(201)
+    expect(made.body.manifest.templates[1]).toMatchObject({ group: '营销网页', preview: null })
+    expect(made.body.manifest.designSystems).toHaveLength(80)
+    expect(made.body.manifest.designSystems[0]?.category).toBe('现代极简')
+  })
+
   it('lets the sysadmin upload platform plugins as versions, skipping identical content, and delete them', async () => {
     const w = await world()
     const root = await w.as(w.root)

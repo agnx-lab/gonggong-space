@@ -11,6 +11,7 @@ import {
   Form,
   FormRow,
   Icon,
+  SearchField,
   SegmentedControl,
   Switch,
   Tag,
@@ -27,6 +28,14 @@ import './plugins.css'
 const STEPS = [t('类型与模板'), t('设计系统'), t('内容与参数'), t('交给谁')]
 
 const blockerOf = (p: GroupPluginDto, botId: string) => p.bots.find((b) => b.botId === botId)?.blocker ?? null
+
+/** A template group or design-system category; null = none, undefined = 全部. */
+type Facet = string | null | undefined
+
+const matches = (f: Facet, k: string | null) => f === undefined || f === k
+
+/** More than 8 design systems get a search. */
+const SEARCH_FROM = 9
 
 const valueText = (v: string | boolean | undefined) =>
   typeof v === 'boolean' ? (v ? t('是') : t('否')) : (v ?? '').trim()
@@ -51,6 +60,15 @@ export function CreationSheet({
     const p = plugins.find((x) => x.id === open.pluginId) ?? (plugins[0] as GroupPluginDto)
     return newDraft(p, usableBot(p))
   })
+  const facetsOf = (d: CreationDraft) => {
+    const pm = (plugins.find((p) => p.id === d.pluginId) ?? (plugins[0] as GroupPluginDto)).manifest
+    return {
+      group: pm.templates.find((x) => x.id === d.templateId)?.group as Facet,
+      category: pm.designSystems.find((x) => x.id === d.designSystemId)?.category as Facet,
+      query: '',
+    }
+  }
+  const [filter, setFilter] = useState(() => facetsOf(draft))
   const [step, setStep] = useState(open.step ?? 0)
   const [busy, setBusy] = useState(false)
   const uploads = useUploads(group.id)
@@ -66,8 +84,17 @@ export function CreationSheet({
   const pickPlugin = (p: GroupPluginDto) => {
     if (p.id === draft.pluginId) return
     const keep = draft.botId && !blockerOf(p, draft.botId) ? draft.botId : usableBot(p)
-    setDraft(newDraft(p, keep))
+    const next = newDraft(p, keep)
+    setDraft(next)
+    setFilter(facetsOf(next))
   }
+  const query = filter.query.trim().toLowerCase()
+  const templates = m.templates.filter((x) => matches(filter.group, x.group))
+  const systems = m.designSystems.filter(
+    (x) =>
+      matches(filter.category, x.category) &&
+      (!query || `${x.title}\n${x.description}`.toLowerCase().includes(query)),
+  )
 
   const filled = m.inputs.flatMap((i) => {
     const v = valueText(draft.inputs[i.id])
@@ -176,8 +203,14 @@ export function CreationSheet({
                 <div className="gs-note">
                   {t('{desc} · {n} 个模板', { desc: m.description, n: m.templates.length })}
                 </div>
+                <Facets
+                  label={t('模板分组')}
+                  keys={m.templates.map((x) => x.group)}
+                  value={filter.group}
+                  onChange={(group) => setFilter((f) => ({ ...f, group }))}
+                />
                 <div className="plg-grid plg-grid--tpl">
-                  {m.templates.map((tp) => (
+                  {templates.map((tp) => (
                     <button
                       key={tp.id}
                       type="button"
@@ -214,8 +247,26 @@ export function CreationSheet({
               <h3 className="plg-heading">{t('设计系统')}</h3>
               <div className="gs-note">{t('决定颜色、字体和组件样式，只对这一次创作生效。')}</div>
               {m.designSystems.length ? (
+                <div className="plg-filters">
+                  <Facets
+                    label={t('设计系统分类')}
+                    keys={m.designSystems.map((x) => x.category)}
+                    value={filter.category}
+                    onChange={(category) => setFilter((f) => ({ ...f, category }))}
+                  />
+                  {m.designSystems.length >= SEARCH_FROM ? (
+                    <SearchField
+                      className="plg-filters__search"
+                      placeholder={t('搜索设计系统')}
+                      value={filter.query}
+                      onChange={(q) => setFilter((f) => ({ ...f, query: q }))}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {systems.length ? (
                 <div className="plg-grid">
-                  {m.designSystems.map((d) => (
+                  {systems.map((d) => (
                     <button
                       key={d.id}
                       type="button"
@@ -232,6 +283,8 @@ export function CreationSheet({
                     </button>
                   ))}
                 </div>
+              ) : m.designSystems.length ? (
+                <EmptyState compact icon="search" title={t('没有匹配的设计系统')} />
               ) : (
                 <EmptyState compact icon="appearance" title={t('这个插件没有设计系统，由 AI 自由发挥')} />
               )}
@@ -354,6 +407,41 @@ export function CreationSheet({
         </aside>
       </div>
     </Dialog>
+  )
+}
+
+/** Filter chips: 全部 and each key in first-seen order, with counts; none for a single key. */
+function Facets({
+  label,
+  keys,
+  value,
+  onChange,
+}: {
+  label: string
+  keys: (string | null)[]
+  value: Facet
+  onChange: (v: Facet) => void
+}) {
+  const counts = new Map<string | null, number>()
+  for (const k of keys) counts.set(k, (counts.get(k) ?? 0) + 1)
+  if (counts.size < 2) return null
+  const chip = (k: Facet, text: string, n: number) => (
+    <button
+      key={k === undefined ? '*' : (k ?? '')}
+      type="button"
+      className="plg-chip plg-chip--filter"
+      aria-pressed={value === k}
+      onClick={() => onChange(k)}
+    >
+      {text}
+      <span className="plg-chip__n">{n}</span>
+    </button>
+  )
+  return (
+    <fieldset className="plg-chips plg-chips--facets" aria-label={label}>
+      {chip(undefined, t('全部'), keys.length)}
+      {[...counts].map(([k, n]) => chip(k, k ?? t('其他'), n))}
+    </fieldset>
   )
 }
 

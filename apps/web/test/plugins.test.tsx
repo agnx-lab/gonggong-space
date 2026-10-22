@@ -69,15 +69,17 @@ const manifest = (o: Partial<PluginManifest> = {}): PluginManifest => ({
       id: 'saas',
       title: 'SaaS 产品落地页',
       description: '首屏 · 功能 · 价格 · CTA',
+      group: null,
       preview: 'previews/saas.png',
     },
-    { id: 'event', title: '活动报名页', description: '倒计时 · 议程 · 报名表', preview: null },
+    { id: 'event', title: '活动报名页', description: '倒计时 · 议程 · 报名表', group: null, preview: null },
   ],
   designSystems: [
     {
       id: 'neutral-modern',
       title: '中性现代',
       description: '黑白灰 + 一种强调色',
+      category: null,
       swatches: ['#1d1d1f', '#6e6e73', '#0088ff'],
       dir: 'design-systems/neutral-modern',
     },
@@ -85,6 +87,7 @@ const manifest = (o: Partial<PluginManifest> = {}): PluginManifest => ({
       id: 'warm-editorial',
       title: '温暖编辑',
       description: '杂志感 · 米色衬线',
+      category: null,
       swatches: ['#3d2b1f', '#c8a27a'],
       dir: 'design-systems/warm-editorial',
     },
@@ -439,6 +442,103 @@ describe('插件 · 创作入口', () => {
   })
 })
 
+const tpl = (id: string, title: string, group: string | null) =>
+  ({ id, title, description: '', group, preview: null }) as PluginManifest['templates'][number]
+const dsys = (id: string, title: string, category: string | null, description = '') =>
+  ({
+    id,
+    title,
+    description,
+    category,
+    swatches: ['#111111', '#ffffff'],
+    dir: `design-systems/${id}`,
+  }) as PluginManifest['designSystems'][number]
+/** 3 grouped templates and 10 categorised design systems. */
+const catalogue = plugin({
+  manifest: manifest({
+    templates: [
+      tpl('saas', 'SaaS 落地页', '营销网页'),
+      tpl('dash', '数据看板', '产品界面'),
+      tpl('event', '活动报名页', '营销网页'),
+    ],
+    designSystems: [
+      dsys('neutral', '中性现代', '入门', '黑白灰'),
+      dsys('warm', '温暖编辑', '入门', '杂志感 · 米色衬线'),
+      ...Array.from({ length: 7 }, (_, i) => dsys(`min${i}`, `极简 ${i}`, '现代极简')),
+      dsys('loud', '霓虹', '大胆张扬', '高饱和撞色'),
+    ],
+  }),
+})
+const cardNames = (el: HTMLElement) =>
+  within(el)
+    .getAllByRole('button')
+    .filter((b) => b.classList.contains('plg-card'))
+    .map((b) => b.querySelector('b')?.textContent)
+
+describe('插件 · 大目录', () => {
+  it('filters templates by group chips and keeps the pick while switching', async () => {
+    mockApi(chatRoutes([catalogue]))
+    renderAt('/g/g1')
+    fireEvent.click(await screen.findByRole('button', { name: '创作' }))
+    const d = within(await screen.findByRole('dialog', { name: '创作' }))
+    const chips = d.getByRole('group', { name: '模板分组' })
+    expect(
+      within(chips)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['全部3', '营销网页2', '产品界面1'])
+    // Opens on the group of the picked template (the first one).
+    expect(within(chips).getByRole('button', { name: /营销网页/, pressed: true })).toBeTruthy()
+    const pane = d.getByText('选一个模板').closest('section') as HTMLElement
+    expect(cardNames(pane)).toEqual(['SaaS 落地页', '活动报名页'])
+    fireEvent.click(within(chips).getByRole('button', { name: /产品界面/ }))
+    expect(cardNames(pane)).toEqual(['数据看板'])
+    fireEvent.click(d.getByRole('button', { name: /数据看板/ }))
+    fireEvent.click(within(chips).getByRole('button', { name: /全部/ }))
+    expect(cardNames(pane)).toEqual(['SaaS 落地页', '数据看板', '活动报名页'])
+    expect(d.getByRole('button', { name: /数据看板/, pressed: true })).toBeTruthy()
+    fireEvent.click(within(chips).getByRole('button', { name: /营销网页/ }))
+    expect(d.getByLabelText('将交给 AI 的内容').textContent).toContain('模板：数据看板')
+  })
+
+  it('filters design systems by category chips and a search', async () => {
+    mockApi(chatRoutes([catalogue]))
+    renderAt('/g/g1')
+    fireEvent.click(await screen.findByRole('button', { name: '创作' }))
+    const d = within(await screen.findByRole('dialog', { name: '创作' }))
+    fireEvent.click(d.getByRole('button', { name: /设计系统/ }))
+    const pane = d.getByRole('heading', { name: '设计系统' }).closest('section') as HTMLElement
+    const chips = d.getByRole('group', { name: '设计系统分类' })
+    expect(
+      within(chips)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['全部10', '入门2', '现代极简7', '大胆张扬1'])
+    expect(within(chips).getByRole('button', { name: /入门/, pressed: true })).toBeTruthy()
+    expect(cardNames(pane)).toEqual(['中性现代', '温暖编辑'])
+    fireEvent.click(within(chips).getByRole('button', { name: /大胆张扬/ }))
+    expect(cardNames(pane)).toEqual(['霓虹'])
+    fireEvent.click(within(chips).getByRole('button', { name: /全部/ }))
+    expect(cardNames(pane)).toHaveLength(10)
+    // The search matches titles and descriptions within the chosen category.
+    fireEvent.change(d.getByRole('searchbox', { name: '搜索设计系统' }), { target: { value: '米色' } })
+    expect(cardNames(pane)).toEqual(['温暖编辑'])
+    fireEvent.click(within(chips).getByRole('button', { name: /现代极简/ }))
+    expect(d.getByText('没有匹配的设计系统')).toBeTruthy()
+  })
+
+  it('shows no chips or search for a small ungrouped catalogue', async () => {
+    mockApi(chatRoutes([plugin()]))
+    renderAt('/g/g1')
+    fireEvent.click(await screen.findByRole('button', { name: '创作' }))
+    const d = within(await screen.findByRole('dialog', { name: '创作' }))
+    expect(d.queryByRole('group', { name: '模板分组' })).toBeNull()
+    fireEvent.click(d.getByRole('button', { name: /设计系统/ }))
+    expect(d.queryByRole('group', { name: '设计系统分类' })).toBeNull()
+    expect(d.queryByRole('searchbox')).toBeNull()
+  })
+})
+
 describe('插件 · 创作请求卡片', () => {
   it('shows a summary with 查看全部, 再来一版 and 改参数重做…', async () => {
     const calls = mockApi({
@@ -483,6 +583,18 @@ describe('插件 · 创作请求卡片', () => {
     expect((within(dialog).getByLabelText('主标题') as HTMLInputElement).value).toBe('共工')
     expect(within(dialog).getByRole('radio', { name: '亲切' }).getAttribute('aria-checked')).toBe('true')
     expect(within(dialog).getByLabelText('将交给 AI 的内容').textContent).toContain('模板：活动报名页')
+  })
+
+  it("改参数重做… opens on the group of the card's template", async () => {
+    mockApi(chatRoutes([catalogue], [msg({ seq: 1, body: 'x', card: { ...card, designSystem: null } })]))
+    renderAt('/g/g1')
+    const c = await screen.findByTestId('creation-card')
+    fireEvent.click(within(c).getByRole('button', { name: '改参数重做…' }))
+    const d = within(await screen.findByRole('dialog', { name: '创作' }))
+    fireEvent.click(d.getByRole('button', { name: /类型与模板/ }))
+    const chips = d.getByRole('group', { name: '模板分组' })
+    expect(within(chips).getByRole('button', { name: /营销网页/, pressed: true })).toBeTruthy()
+    expect(d.getByRole('button', { name: /活动报名页/, pressed: true })).toBeTruthy()
   })
 
   it('shows the body of a card kind it does not know, and keeps 再来一版 off once the plugin is off', async () => {

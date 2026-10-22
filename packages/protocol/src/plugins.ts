@@ -6,7 +6,7 @@ import { SkillFile } from './daemon.js'
 /** The manifest at the root of a plugin folder; the rest is a Claude plugin layout (`skills/<name>/SKILL.md`). */
 export const PLUGIN_MANIFEST = 'gonggong-plugin.json'
 export const PLUGIN_MAX_BYTES = 5 * 1024 * 1024
-export const PLUGIN_MAX_FILES = 300
+export const PLUGIN_MAX_FILES = 600
 const SEMVER = /^\d+\.\d+\.\d+$/
 const ID = /^[a-z][a-z0-9-]{0,39}$/
 const HEX = /^#[0-9a-fA-F]{6}$/
@@ -40,6 +40,8 @@ export const PluginTemplate = z.object({
   id: z.string().regex(ID),
   title: z.string().min(1).max(40),
   description: z.string().max(120).default(''),
+  /** A label the creation panel groups templates under; ungrouped ones form one unnamed group. */
+  group: z.string().min(1).max(20).nullable().default(null),
   /** An image in the folder shown on the template card; null = a placeholder. */
   preview: PkgPath.nullable().default(null),
 })
@@ -50,6 +52,8 @@ export const PluginDesignSystem = z.object({
   id: z.string().regex(ID),
   title: z.string().min(1).max(40),
   description: z.string().max(120).default(''),
+  /** A label the creation panel filters design systems by. */
+  category: z.string().min(1).max(20).nullable().default(null),
   /** 2–6 colours for the picker. */
   swatches: z.array(z.string().regex(HEX)).min(2).max(6),
   dir: PkgPath,
@@ -68,8 +72,8 @@ export const PluginManifest = z.object({
   minDaemon: z.string().regex(SEMVER),
   /** The skill a creation invokes: `skills/<entry>/SKILL.md` must exist. */
   entry: z.string().regex(ID),
-  templates: z.array(PluginTemplate).max(40).default([]),
-  designSystems: z.array(PluginDesignSystem).max(20).default([]),
+  templates: z.array(PluginTemplate).max(80).default([]),
+  designSystems: z.array(PluginDesignSystem).max(80).default([]),
   inputs: z.array(PluginInput).max(12).default([]),
   /** Env var names of secrets it needs (plan 团队密钥-方案); runs without them do not get the plugin. */
   secrets: z
