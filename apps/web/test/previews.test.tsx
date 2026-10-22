@@ -205,7 +205,13 @@ describe('preview card', () => {
 
   it('hands out no public links in demo mode', async () => {
     useSession.setState({
-      tenancy: { teams: [], singleTeamMode: true, canCreateTeam: false, demoMode: true },
+      tenancy: {
+        teams: [],
+        singleTeamMode: true,
+        canCreateTeam: false,
+        demoMode: true,
+        pluginsEnabled: false,
+      },
     })
     mockApi({ 'GET /groups/g1/previews': list([preview({ canManage: true })]) })
     render(<PreviewCard previewId="p1" groupId="g1" botId="b1" fallback="预览：登录页" />)

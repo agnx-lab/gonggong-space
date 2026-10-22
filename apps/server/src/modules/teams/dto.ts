@@ -60,6 +60,7 @@ export async function meDto(ctx: Ctx, user: typeof users.$inferSelect): Promise<
     singleTeamMode: params.singleTeamMode,
     canCreateTeam: !params.singleTeamMode && (params.teamCreation === 'all' || user.role === 'sysadmin'),
     demoMode: params.demoMode,
+    pluginsEnabled: params.pluginsEnabled,
   }
 }
 

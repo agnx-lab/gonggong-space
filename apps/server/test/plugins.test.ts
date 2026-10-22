@@ -1,5 +1,6 @@
 import {
   type GroupPluginDto,
+  type MeDto,
   type MessageDto,
   PLUGIN_MAX_BYTES,
   type PluginDto,
@@ -285,6 +286,14 @@ describe('group plugins', () => {
     const eve = await w.as(w.eve)
     expect((await eve.get(`/api/groups/${w.group.id}/plugins`)).body).toEqual([])
     expect((await eve.put(`/api/groups/${w.group.id}/plugins/${p.id}`, { enabled: true })).status).toBe(403)
+  })
+
+  it('reports the master switch to every account so group settings can offer the 插件 tab', async () => {
+    const w = await world()
+    const mia = await w.as(w.mia)
+    expect((await mia.get<MeDto>('/api/me')).body.pluginsEnabled).toBe(false)
+    await switchOn(w)
+    expect((await mia.get<MeDto>('/api/me')).body.pluginsEnabled).toBe(true)
   })
 
   it('merges platform, team and group plugins by name, off until a group admin turns one on', async () => {

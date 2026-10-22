@@ -170,6 +170,8 @@ export const MeDto = UserDto.extend({
   /** 系统参数 · teamCreation allows the caller to create teams, and single-team mode is off. */
   canCreateTeam: z.boolean(),
   demoMode: z.boolean(),
+  /** 系统参数 · the plugin master switch: group settings offer the 插件 tab while it is on. */
+  pluginsEnabled: z.boolean(),
 })
 export type MeDto = z.infer<typeof MeDto>
 const TeamName = z.string().trim().min(1).max(40)

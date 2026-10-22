@@ -111,8 +111,12 @@ const chatRoutes = {
   'GET /notifications/unread': { n: 0 },
 }
 
-const signIn = (tenancy: Omit<Tenancy, 'demoMode'> | null) =>
-  useSession.setState({ user: me, tenancy: tenancy && { ...tenancy, demoMode: false }, status: 'ready' })
+const signIn = (tenancy: Omit<Tenancy, 'demoMode' | 'pluginsEnabled'> | null) =>
+  useSession.setState({
+    user: me,
+    tenancy: tenancy && { ...tenancy, demoMode: false, pluginsEnabled: false },
+    status: 'ready',
+  })
 
 let assign: ReturnType<typeof vi.fn>
 beforeEach(() => {

@@ -7,6 +7,7 @@ import type {
   PluginDto,
   PluginManifest,
   SystemParams,
+  TeamDto,
   UserDto,
 } from '@gonggong/protocol'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -288,6 +289,19 @@ const chatRoutes = (plugins: GroupPluginDto[] | null, messages: MessageDto[] = [
   ...(plugins ? { 'GET /groups/g1/plugins': plugins } : {}),
 })
 
+const team: TeamDto = {
+  id: 't1',
+  name: '设计组',
+  avatar: null,
+  role: 'owner',
+  archivedAt: null,
+  createdAt: now,
+  unread: 0,
+}
+const tenancy = { teams: [team], singleTeamMode: true, canCreateTeam: false, demoMode: false }
+const setPluginsOn = (pluginsEnabled: boolean) =>
+  useSession.setState({ tenancy: { ...tenancy, pluginsEnabled } })
+
 const renderAt = (path: string) =>
   render(
     <MemoryRouter initialEntries={[path]}>
@@ -302,6 +316,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
   vi.stubGlobal('WebSocket', NoopSocket)
   useSession.setState({ user: me, status: 'ready' })
+  setPluginsOn(true)
   useWorkspace.setState({ groups: [], bots: [], machines: [], activeGroupId: null })
   usePluginStore.setState({ lists: {} })
   sessionStorage.clear()
@@ -515,13 +530,23 @@ describe('插件 · 管理', () => {
     await waitFor(() => expect(screen.getByText('插件 · 2')).toBeTruthy())
   })
 
-  it('群设置 has no 插件 tab while the group sees no plugins', async () => {
+  it('群设置 has no 插件 tab while the master switch is off', async () => {
+    setPluginsOn(false)
     mockApi(chatRoutes([]))
     renderAt('/g/g1')
     fireEvent.click(await screen.findByRole('button', { name: '打开群设置' }))
     const dialog = await screen.findByRole('dialog')
     await within(dialog).findByRole('button', { name: 'Skill' })
     expect(within(dialog).queryByRole('button', { name: '插件' })).toBeNull()
+  })
+
+  it('群设置 shows the 插件 tab with its upload while the switch is on and no plugin exists yet', async () => {
+    mockApi(chatRoutes([]))
+    renderAt('/g/g1')
+    fireEvent.click(await screen.findByRole('button', { name: '打开群设置' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(await within(dialog).findByRole('button', { name: '插件' }))
+    expect(await within(dialog).findByText('本群插件')).toBeTruthy()
   })
 
   it('配置中心 · 插件: lists the layer with its manifest, uploads a zip as a new version and deletes', async () => {
@@ -578,9 +603,12 @@ describe('插件 · 管理', () => {
     )
   })
 
-  it('系统参数 has the plugin master switch', async () => {
+  it('系统参数 has the plugin master switch, applied to group settings without a reload', async () => {
+    setPluginsOn(false)
+    usePluginStore.setState({ lists: { g1: [] } })
     const params = { pluginsEnabled: false, demoMode: false } as SystemParams
     const calls = mockApi({
+      'GET /me': { ...me, ...tenancy, pluginsEnabled: true },
       'GET /bots': [],
       'GET /machines': [],
       'GET /groups': [],
@@ -593,5 +621,7 @@ describe('插件 · 管理', () => {
     await waitFor(() =>
       expect(calls).toContainEqual({ method: 'PUT', path: '/admin/params', body: { pluginsEnabled: true } }),
     )
+    await waitFor(() => expect(useSession.getState().tenancy?.pluginsEnabled).toBe(true))
+    expect(usePluginStore.getState().lists).toEqual({})
   })
 })

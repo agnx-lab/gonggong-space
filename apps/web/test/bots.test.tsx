@@ -199,6 +199,7 @@ describe('workspace store', () => {
         singleTeamMode: false,
         canCreateTeam: false,
         demoMode: false,
+        pluginsEnabled: false,
       },
     })
     useWorkspace.setState({ notifCount: 3 })

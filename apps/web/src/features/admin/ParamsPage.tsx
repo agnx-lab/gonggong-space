@@ -1,5 +1,6 @@
-import { SYSTEM_PARAM_VIEW, type SystemParams } from '@gonggong/protocol'
+import { type MeDto, SYSTEM_PARAM_VIEW, type SystemParams } from '@gonggong/protocol'
 import { useEffect, useState } from 'react'
+import { useSession } from '../../app/session'
 import { t } from '../../i18n'
 import { api, errorText } from '../../lib/api'
 import { cx } from '../../lib/cx'
@@ -15,6 +16,7 @@ import {
   Switch,
   toast,
 } from '../../ui'
+import { usePluginStore } from '../plugins/store'
 import { AdminPage } from './AdminPage'
 
 type Key = (typeof SYSTEM_PARAM_VIEW)[number]['key']
@@ -92,6 +94,9 @@ export function ParamsPage() {
       const next = await api.put<SystemParams>('/admin/params', patch)
       const keys = Object.keys(patch) as Toggle[]
       setSaved((s) => (s ? { ...s, ...Object.fromEntries(keys.map((k) => [k, next[k]])) } : next))
+      // The switches reported on /me (plugins, demo, single team) take effect here without a reload.
+      useSession.getState().setUser(await api.get<MeDto>('/me'))
+      if ('pluginsEnabled' in patch) usePluginStore.setState({ lists: {} })
       toast({ type: 'success', message })
     } catch (err) {
       toastError(err)
