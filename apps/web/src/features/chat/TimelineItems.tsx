@@ -56,6 +56,7 @@ import {
 import { reedit, useRecalled } from './recalled'
 import './recall.css'
 import { t } from '../../i18n'
+import { usePins } from './PinnedMessages'
 
 const TONE: Record<RunStatus, TagTone> = {
   queued: 'gray',
@@ -98,7 +99,15 @@ export function fmtTime(iso: string) {
 const fullTime = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 
-function Time({ iso, edited }: { iso: string; edited?: string | null }) {
+function Time({
+  iso,
+  edited,
+  pin,
+}: {
+  iso: string
+  edited?: string | null
+  pin?: Pick<MessageDto, 'id' | 'groupId'>
+}) {
   return (
     <>
       <time className="tl-time" dateTime={iso} title={fullTime(new Date(iso))}>
@@ -109,8 +118,18 @@ function Time({ iso, edited }: { iso: string; edited?: string | null }) {
           {t('已编辑')}
         </span>
       ) : null}
+      {pin ? <PinMark message={pin} /> : null}
     </>
   )
+}
+
+function PinMark({ message }: { message: Pick<MessageDto, 'id' | 'groupId'> }) {
+  const pinned = usePins(message.groupId).some((p) => p.messageId === message.id)
+  return pinned ? (
+    <span className="tl-pinned" role="img" title={t('已置顶')} aria-label={t('已置顶')}>
+      <Icon name="pin" size={11} />
+    </span>
+  ) : null
 }
 
 /** Day separator label: 今天 / 昨天 / M月D日. */
@@ -350,7 +369,7 @@ export const UserMessage = memo(function UserMessage({
           author={mine ? { name: m.authorName, avatar: avatar ?? undefined } : person(m, avatar ?? undefined)}
           self={mine}
           continued={compact}
-          time={<Time iso={m.createdAt} edited={m.editedAt} />}
+          time={<Time iso={m.createdAt} edited={m.editedAt} pin={m} />}
           meta={
             m.scheduledBy ? (
               <Tag tone="gray" icon="clock">
@@ -474,7 +493,7 @@ function ReplyMessage({
         className={cx(isRich(m) && 'tl-msg--wide')}
         author={botAuthor(m.authorName, m.authorId, m.groupId)}
         continued={continued}
-        time={<Time iso={m.createdAt} />}
+        time={<Time iso={m.createdAt} pin={m} />}
         meta={meta}
         actionBar={bar}
         footer={
@@ -638,7 +657,7 @@ export const RunCard = memo(function RunCard({
         <div className="run-card" data-testid="run-card" data-status={run.status}>
           <Message
             author={botAuthor(botName, run.botId, run.groupId)}
-            time={<Time iso={reply?.createdAt ?? run.queuedAt} />}
+            time={<Time iso={reply?.createdAt ?? run.queuedAt} pin={reply ?? undefined} />}
             meta={meta}
             bare
             actions={false}

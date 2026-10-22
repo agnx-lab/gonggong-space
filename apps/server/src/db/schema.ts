@@ -243,6 +243,24 @@ export const botShares = pgTable(
   (t) => [primaryKey({ columns: [t.botId, t.userId] }), index('bot_shares_user').on(t.userId)],
 )
 
+/** 消息置顶: a group's pinned messages (MAX_PINS each); a recalled message's pin goes with it. */
+export const groupPinnedMessages = pgTable(
+  'group_pinned_messages',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    pinnedBy: uuid('pinned_by')
+      .notNull()
+      .references(() => users.id),
+    pinnedAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.messageId] })],
+)
+
 /**
  * A manual git write in a group (plan Git增强): the bot owner's run at once; anyone else's wait here for the owner's
  * approval, then the server sends it to the daemon. Kept as the record of who asked, who decided and what git said.

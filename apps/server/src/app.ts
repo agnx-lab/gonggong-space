@@ -48,6 +48,7 @@ import { mcpRoutes } from './modules/mcp/routes.js'
 import { migrateMcpSecrets } from './modules/mcp/secrets.js'
 import { messageRoutes } from './modules/messages/routes.js'
 import { notificationRoutes } from './modules/notifications/routes.js'
+import { pinRoutes } from './modules/pins/routes.js'
 import { pluginRoutes } from './modules/plugins/routes.js'
 import { startPreviewEngine } from './modules/previews/engine.js'
 import { previewServerFactory, routeUpgrades, startPortListeners } from './modules/previews/gateway.js'
@@ -140,6 +141,7 @@ export async function buildApp(ctx: Ctx, opts: { https?: TlsOptions | null; logS
   app.addHook('onClose', stopScheduleEngine)
   await app.register(scheduleRoutes(ctx))
   await app.register(knowledgeRoutes(ctx))
+  await app.register(pinRoutes(ctx))
   app.addHook('onClose', startSyncEngine(ctx))
   await app.register(syncRoutes(ctx))
   const stopWorkspaceEngine = startWorkspaceEngine(ctx)

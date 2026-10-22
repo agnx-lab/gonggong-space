@@ -1,4 +1,7 @@
 export const en = {
+  已撤回的消息不能置顶: "A recalled message can't be pinned",
+  系统事件不能置顶: "System events can't be pinned",
+  '本群最多置顶 {n} 条消息，请先取消一条': 'A group pins at most {n} messages; unpin one first',
   '进度 {n}%': 'Progress {n}%',
   // Daemon and request guards
   'missing machine token': 'missing machine token',

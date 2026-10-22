@@ -278,6 +278,8 @@ export const protocolEn = {
   '{bot} 请 {user} 填写自己的密钥：{names}': '{bot} asks {user} to fill in their own secrets: {names}',
   '{bot} 请管理员填写密钥：{names}': '{bot} asks an admin to fill in the secrets: {names}',
   '{bot} 的进度：{title}': "{bot}'s progress: {title}",
+  '{user} 置顶了一条消息：{text}': '{user} pinned a message: {text}',
+  '{user} 取消置顶了一条消息：{text}': '{user} unpinned a message: {text}',
   '{who} 新建了知识库条目「{title}」': '{who} added the knowledge entry "{title}"',
   '{who} 更新了知识库条目「{title}」': '{who} updated the knowledge entry "{title}"',
   '{who} 删除了知识库条目「{title}」': '{who} deleted the knowledge entry "{title}"',

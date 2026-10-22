@@ -449,3 +449,57 @@
     width: 100%;
   }
 }
+
+/* 消息置顶 */
+.chat-pins__link {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chat-pins__link:hover {
+  text-decoration: underline;
+}
+.chat-pins {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  margin: var(--space-4) 0 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+  list-style: none;
+  border: 0.5px solid var(--separator);
+  border-radius: 10px;
+  background: var(--content-bg);
+  box-shadow: var(--shadow-menu);
+  pointer-events: auto;
+}
+.chat-pins__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  min-width: 0;
+  padding: 2px var(--space-6);
+  color: var(--label);
+}
+.chat-pins__item > .chat-pins__link {
+  flex: 1;
+}
+.chat-pins__by {
+  flex: none;
+  color: var(--label-secondary);
+  font-size: var(--text-footnote-size);
+}
+.tl-pinned {
+  display: inline-flex;
+  margin-left: var(--space-4);
+  color: var(--system-orange);
+}

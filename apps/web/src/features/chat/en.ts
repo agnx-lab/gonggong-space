@@ -147,6 +147,11 @@ export default {
   '会话恢复失败，已开新会话并补送最近 50 条群消息':
     "Couldn't resume the session; started a new one with the last 50 group messages",
   已按要求开启新会话: 'Started a new session as requested',
+  '[{n} 个附件]': '[{n} {n:attachment|attachments}]',
+  '全部 {n} 条置顶': 'All {n} pinned messages',
+  '全部 {n} 条': 'All {n}',
+  '{name} 置顶': 'Pinned by {name}',
+  已置顶: 'Pinned',
   定时任务在独立的新会话中运行: 'Scheduled tasks run in a fresh session of their own',
   本轮因配置变更开启新会话: 'New session for this turn after a config change',
   '原供应商已删除，已开启新会话': 'The previous provider was deleted; started a new session',

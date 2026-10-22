@@ -15,7 +15,7 @@ import { InspectorPortal, useInspector } from '../../app/inspector'
 import { GROUP_MODE_LABEL } from '../../app/Sidebar'
 import { useSession } from '../../app/session'
 import { useWorkbench } from '../../app/workbench'
-import { useWorkspace } from '../../app/workspace'
+import { loadPins, useWorkspace } from '../../app/workspace'
 import { cx } from '../../lib/cx'
 import { named } from '../../lib/lazy'
 import { realtime } from '../../lib/realtime'
@@ -62,6 +62,7 @@ import { MentionNames } from './Markdown'
 import { branchableRuns } from './MessageActions'
 import { MessageComposer } from './MessageComposer'
 import { PendingDock } from './PendingDock'
+import { PinnedMessages } from './PinnedMessages'
 import { ProgressCard } from './ProgressCard'
 import { ProviderBanner } from './ProviderBanner'
 import { repoName } from './repo'
@@ -341,6 +342,20 @@ export function ChatView({
     [offscreen, botsById],
   )
 
+  const locateMessage = (id: string) =>
+    setParams(
+      (p) => {
+        p.set('msg', id)
+        return p
+      },
+      { replace: true },
+    )
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloaded per group and after a reconnect
+  useEffect(() => {
+    const load = () => void loadPins(group.id).catch(() => {})
+    load()
+    return realtime.onReconnect(load)
+  }, [group.id])
   const locate = (r: RunDto) => {
     linkPages.current = 0
     linkRun.current = r.id
@@ -640,6 +655,7 @@ export function ChatView({
                 />
               ) : null}
               <GroupNotice group={group} readOnly={readOnly} />
+              <PinnedMessages groupId={group.id} onLocate={locateMessage} />
               {readOnly ? null : <WorkspaceBanner group={group} />}
             </div>
             <MessageList className="chat-scroll__list">

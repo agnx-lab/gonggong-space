@@ -6,6 +6,7 @@ import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
 import { mirrorRecall } from '../feishu/mirror.js'
 import { requireMember } from '../groups/service.js'
+import { dropPin } from '../pins/service.js'
 import { publishRun } from '../runs/dto.js'
 import { runStep } from '../runs/step.js'
 import { notifyChainDone } from '../runs/stop.js'
@@ -67,6 +68,7 @@ export async function recallMessage(ctx: Ctx, user: { id: string; name: string }
     await notifyChainDone(ctx, run)
   }
   await mirrorRecall(ctx, m.id, m.groupId)
+  await dropPin(ctx, m.groupId, m.id)
   ctx.bus.publish(await memberIds(ctx, m.groupId), {
     t: 'message.recalled',
     groupId: m.groupId,

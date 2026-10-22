@@ -18,6 +18,7 @@ import { keepRecalled, type RecalledDraft } from './recalled'
 import { applyLocal } from './useTimeline'
 import './recall.css'
 import { t } from '../../i18n'
+import { pinsApi, usePins } from './PinnedMessages'
 
 const LONG_PRESS_MS = 500
 
@@ -226,8 +227,13 @@ function useMessageMenu(target: ActionTarget) {
   const editable = recallable && !!target.onEdit && !!mine?.body && !mine.body.trimStart().startsWith('/')
   const branchable = !!target.branchable && !!target.message
   const savable = !!target.copyText?.trim() && !!target.message && target.message.kind !== 'event'
+  const pinnable = !!target.message && target.message.kind !== 'event' && !target.message.recalled
+  const pinned = usePins(target.message?.groupId ?? '').some((p) => p.messageId === target.message?.id)
   const more: MenuItem[] = [
     { value: 'link', label: t('复制链接'), icon: 'link' },
+    ...(pinnable
+      ? [{ value: pinned ? 'unpin' : 'pin', label: pinned ? t('取消置顶') : t('置顶'), icon: 'pin' as const }]
+      : []),
     ...(savable ? [{ value: 'knowledge', label: t('存入知识库'), icon: 'archive' as const }] : []),
     ...(branchable ? [{ value: 'branch', label: t('分支到新聊天'), icon: 'git-branch' as const }] : []),
     ...(editable ? [{ value: 'edit', label: t('编辑'), icon: 'textformat' as const }] : []),
@@ -251,6 +257,9 @@ function useMessageMenu(target: ActionTarget) {
     } else if (value === 'link') void copyWithToast(target.link, t('链接已复制'))
     else if (value === 'branch' && target.message)
       void branch(target.message, (groupId) => navigate(`/g/${groupId}`))
+    else if (value === 'pin' && target.message) void pinsApi.pin(target.message.groupId, target.message.id)
+    else if (value === 'unpin' && target.message)
+      void pinsApi.unpin(target.message.groupId, target.message.id)
     else if (value === 'knowledge') setSaving(true)
     else if (value === 'edit') target.onEdit?.()
     else if (value === 'recall' && mine) void recall(mine, target.startedRuns?.() ?? [])

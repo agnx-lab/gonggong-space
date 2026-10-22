@@ -863,6 +863,24 @@ export const McpSecretCard = z.object({
   filled: z.boolean(),
 })
 export type McpSecretCard = z.infer<typeof McpSecretCard>
+/** 消息置顶: any member pins or unpins; at most this many per group; a recalled message is unpinned. */
+export const MAX_PINS = 5
+export const PinnedMessageDto = z.object({
+  messageId: z.string(),
+  seq: z.number().int(),
+  authorName: z.string(),
+  /** The message text, cut to a line for the banner ('' when it carries only attachments). */
+  text: z.string(),
+  attachments: z.number().int(),
+  pinnedBy: z.object({ id: z.string(), name: z.string() }),
+  pinnedAt: z.string(),
+})
+export type PinnedMessageDto = z.infer<typeof PinnedMessageDto>
+/** GET /api/groups/:id/pins (newest pin first); POST …/pins {messageId}; DELETE …/pins/:messageId. */
+export const GroupPinsDto = z.object({ pins: z.array(PinnedMessageDto) })
+export type GroupPinsDto = z.infer<typeof GroupPinsDto>
+export const PinMessageReq = z.object({ messageId: z.string().uuid() })
+
 /** A stage of a progress card. */
 export const ProgressStageStatus = z.enum(['pending', 'running', 'done', 'failed', 'skipped'])
 export type ProgressStageStatus = z.infer<typeof ProgressStageStatus>
@@ -1903,6 +1921,8 @@ export type RepoCandidatesDto = z.infer<typeof RepoCandidatesDto>
 
 export const WebEvent = z.discriminatedUnion('t', [
   z.object({ t: z.literal('group.botState'), groupId: z.string(), state: GroupBotStateDto }),
+  /** The group's pinned messages changed; replaces the list. */
+  GroupPinsDto.extend({ t: z.literal('group.pins'), groupId: z.string() }),
   /** A manual git operation of the group was requested, decided or finished. */
   z.object({ t: z.literal('group.gitOperation'), groupId: z.string(), operation: GitOperationDto }),
   /** The group's previews or services changed; replaces both lists (`canManage` is per receiving user). */
