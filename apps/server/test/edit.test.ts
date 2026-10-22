@@ -106,7 +106,7 @@ describe('edit (编辑)', () => {
     expect((await w.edit(m.id, 'x')).body).toMatchObject({ error: 'conflict' })
     const [old] = await t.db
       .insert(messages)
-      .values({ groupId: w.g.id, kind: 'user', authorUserId: w.wang.id, body: '昨天的话' })
+      .values({ groupId: w.g.id, kind: 'user', authorUserId: w.wang.id, body: '昨天的话', createdAt: clock })
       .returning()
     clock = new Date(old!.createdAt.getTime() + 25 * HOUR)
     expect((await w.edit(old!.id, 'x')).body).toMatchObject({ error: 'edit_expired' })
