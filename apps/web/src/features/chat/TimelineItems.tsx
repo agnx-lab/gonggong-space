@@ -1,5 +1,5 @@
 import { type MessageDto, parseMentions, type RunDto, type RunStatus } from '@gonggong/protocol'
-import { memo, type ReactNode, useMemo, useState } from 'react'
+import { Fragment, memo, type ReactNode, useMemo, useState } from 'react'
 import { useWorkbench } from '../../app/workbench'
 import { useWorkspace } from '../../app/workspace'
 import { cx } from '../../lib/cx'
@@ -56,6 +56,7 @@ import {
 import { reedit, useRecalled } from './recalled'
 import './recall.css'
 import { t } from '../../i18n'
+import { Linkified } from '../../lib/links'
 import { usePins } from './PinnedMessages'
 
 const TONE: Record<RunStatus, TagTone> = {
@@ -323,7 +324,10 @@ function Text({ body, names, me }: { body: string; names: string[]; me?: string 
           // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional and never reorder
           <Mention key={i} name={s.text.slice(1)} me={s.text.slice(1) === me} />
         ) : (
-          s.text
+          // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional and never reorder
+          <Fragment key={i}>
+            <Linkified text={s.text} />
+          </Fragment>
         ),
       )}
     </p>

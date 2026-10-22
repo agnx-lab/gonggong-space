@@ -4,6 +4,7 @@ import { setPins, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
 import { attempt } from '../../lib/errors'
+import { Linkified } from '../../lib/links'
 import { Button, Icon, PinnedBanner } from '../../ui'
 
 const NONE: PinnedMessageDto[] = []
@@ -27,6 +28,27 @@ export const pinsApi = {
 
 const line = (p: PinnedMessageDto) => `${p.authorName}：${p.text || t('[{n} 个附件]', { n: p.attachments })}`
 
+/** A pin's line: jumps to its message, except on a link in it, which opens itself (a button can't hold a link). */
+function PinLine({ pin, onLocate }: { pin: PinnedMessageDto; onLocate: () => void }) {
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a <button> can't hold the link inside the line
+    <span
+      role="button"
+      tabIndex={0}
+      className="chat-pins__link"
+      onClick={onLocate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onLocate()
+        }
+      }}
+    >
+      <Linkified text={line(pin)} />
+    </span>
+  )
+}
+
 /** 消息置顶 atop the chat: the newest pin, the rest one click away; a pin jumps to its message. */
 export function PinnedMessages({
   groupId,
@@ -44,11 +66,7 @@ export function PinnedMessages({
       <PinnedBanner
         icon="pin"
         title={t('置顶')}
-        text={
-          <button type="button" className="chat-pins__link" onClick={() => onLocate(first.messageId)}>
-            {line(first)}
-          </button>
-        }
+        text={<PinLine pin={first} onLocate={() => onLocate(first.messageId)} />}
         action={
           pins.length > 1 ? (
             <Button
@@ -70,16 +88,13 @@ export function PinnedMessages({
           {pins.map((p) => (
             <li key={p.messageId} className="chat-pins__item" data-testid="pinned-item">
               <Icon name="pin" size={12} />
-              <button
-                type="button"
-                className="chat-pins__link"
-                onClick={() => {
+              <PinLine
+                pin={p}
+                onLocate={() => {
                   setOpen(false)
                   onLocate(p.messageId)
                 }}
-              >
-                {line(p)}
-              </button>
+              />
               <span className="chat-pins__by">{t('{name} 置顶', { name: p.pinnedBy.name })}</span>
               <Button
                 size="small"

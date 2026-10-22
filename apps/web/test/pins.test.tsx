@@ -81,6 +81,18 @@ describe('消息置顶', () => {
     expect(onLocate).toHaveBeenCalledWith('m1')
   })
 
+  it('opens a link in a pin by itself; the rest of the line still jumps to the message', () => {
+    useWorkspace.setState({ pins: { g1: [pin({ text: '文档 https://ex.com/doc 请看' })] } })
+    const onLocate = vi.fn()
+    render(<PinnedMessages groupId="g1" onLocate={onLocate} />)
+    const link = screen.getByRole('link', { name: 'https://ex.com/doc' })
+    expect(link.getAttribute('target')).toBe('_blank')
+    fireEvent.click(link)
+    expect(onLocate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /文档/ }))
+    expect(onLocate).toHaveBeenCalledWith('m1')
+  })
+
   it('follows group.pins events and hides when nothing is pinned', () => {
     render(<PinnedMessages groupId="g1" onLocate={() => {}} />)
     expect(screen.queryByTestId('pinned-messages')).toBeNull()

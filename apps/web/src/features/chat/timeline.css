@@ -503,3 +503,6 @@
   margin-left: var(--space-4);
   color: var(--system-orange);
 }
+.chat-pins__link a {
+  color: var(--accent);
+}

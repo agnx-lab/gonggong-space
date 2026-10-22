@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { useWorkbench } from '../../app/workbench'
 import { t } from '../../i18n'
 import { api } from '../../lib/api'
+import { CJK } from '../../lib/links'
 import { CodeBlock, Dialog, splitMentions, toast } from '../../ui'
 import { openTab } from '../workbench/open'
 
@@ -25,9 +26,6 @@ interface MdNode {
   children?: MdNode[]
   data?: { hName: string; hProperties: Record<string, unknown> }
 }
-
-/** CJK text and full-width punctuation: GFM only ends a bare URL at whitespace, so `（http://x）。然后` would swallow them. */
-const CJK = /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/
 
 /** Cuts literal autolinks (link text = end of its url) at the first CJK character, which goes back to plain text. */
 function trimAutolinks(node: MdNode) {
