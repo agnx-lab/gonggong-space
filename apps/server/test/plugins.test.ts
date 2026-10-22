@@ -319,7 +319,10 @@ describe('built-in plugins', () => {
   it('installs the repo built-ins on the platform layer, each a valid plugin', async () => {
     await syncBuiltinPlugins(t.ctx, BUILTIN_PLUGINS)
     const rows = await t.db.select().from(plugins)
-    expect(rows.map((r) => [r.scope, r.name, r.updatedBy])).toEqual([['platform', 'web-prototype', null]])
+    expect(rows.map((r) => [r.scope, r.name, r.updatedBy]).sort()).toEqual([
+      ['platform', 'slides', null],
+      ['platform', 'web-prototype', null],
+    ])
   })
 
   it('syncs at startup: new version only when the folder changed; no upload or delete over it', async () => {
