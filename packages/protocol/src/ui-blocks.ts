@@ -20,14 +20,14 @@ export const ChartBlock = z.object({
 })
 export type ChartBlock = z.infer<typeof ChartBlock>
 
-/** ```metrics — JSON array of stat tiles. `delta`: change shown signed (e.g. -3.2); `tone` colors it. */
+/** ```metrics — JSON array of stat tiles. `delta`: a number shown signed (e.g. -3.2) or a short text as is; `tone` colors it. */
 export const MetricsBlock = z
   .array(
     z.object({
       label,
       value: z.union([z.string().max(40), num]),
       unit: z.string().max(20).optional(),
-      delta: num.optional(),
+      delta: z.union([num, z.string().max(40)]).optional(),
       tone: z.enum(['good', 'bad', 'neutral']).optional(),
       trend: z.array(num).max(100).optional(),
     }),

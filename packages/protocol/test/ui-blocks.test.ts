@@ -11,6 +11,12 @@ describe('ui blocks', () => {
     })
     expect(parseUiBlock('chart', '{"type":"radar","x":[],"series":[]}')).toBeNull()
     expect(parseUiBlock('metrics', 'not json')).toBeNull()
+    expect(
+      parseUiBlock('metrics', '[{"label":"模板","value":"44","delta":"原来 4 个","tone":"good"}]'),
+    ).toEqual({
+      lang: 'metrics',
+      data: [{ label: '模板', value: '44', delta: '原来 4 个', tone: 'good' }],
+    })
     expect(parseUiBlock('actions', '{"options":[{"label":"扩容"}]}')).toEqual({
       lang: 'actions',
       data: { id: 'actions', options: [{ label: '扩容' }] },

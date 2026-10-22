@@ -16,7 +16,7 @@ export function Metrics({ data }: { data: MetricsBlock }) {
           <span className="rich-metric__foot">
             {m.delta === undefined ? null : (
               <span className="rich-metric__delta" data-tone={m.tone ?? 'neutral'}>
-                {m.delta > 0 ? `+${m.delta}` : m.delta}
+                {typeof m.delta === 'number' && m.delta > 0 ? `+${m.delta}` : m.delta}
               </span>
             )}
             {m.trend && m.trend.length > 1 ? <Sparkline values={m.trend} width={72} height={22} /> : null}
