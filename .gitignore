@@ -15,3 +15,4 @@ test-results/
 website/.vitepress/cache/
 videos/*/snapshots/
 videos/*/renders/
+videos/*/.hyperframes/
