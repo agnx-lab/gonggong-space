@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type RunStart, type WebEvent } from '@gonggong/protocol'
+import { PROTOCOL_VERSION, type RunStart, UI_BLOCKS_GUIDE, type WebEvent } from '@gonggong/protocol'
 import { and, asc, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { groupBots, messages, notifications, runEvents, runs, systemParams } from '../src/db/schema.js'
@@ -158,7 +158,7 @@ describe('run engine', () => {
         id: w.bot.id,
         name: '小王的 Claude',
         agentKind: 'claude',
-        systemPrompt: '只改 server/',
+        systemPrompt: `${UI_BLOCKS_GUIDE}\n\n只改 server/`,
         tier: 'workspace',
       },
       workspace: { repo: null, cdPath: null },

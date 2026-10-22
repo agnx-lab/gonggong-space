@@ -519,6 +519,39 @@ describe('共工 → 飞书', () => {
     expect(t.feishu.cardUpdates).toEqual([])
   })
 
+  it('the final reply shows rich UI blocks as one-line summaries with a link to the message', async () => {
+    const { ownerHttp, group, bot } = await setup()
+    const sent = await ownerHttp.post<MessageDto>(`/api/groups/${group.id}/messages`, {
+      body: '@codex 跑',
+      clientId: 'client-1',
+    })
+    await feishuIdle(t.ctx)
+    const [run] = await t.db.select().from(runs).where(eq(runs.triggerMessageId, sent.body.id))
+    const msg = t.feishu.sent.find((s) => s.msgType === 'interactive')!
+    const cardId = (msg.content.data as { card_id: string }).card_id
+    const chart =
+      '```chart\n{"type":"line","title":"日活","x":["一","二"],"series":[{"name":"DAU","data":[1,2]}]}\n```'
+    const actions = '```actions\n{"prompt":"发布吗？","options":[{"label":"发布"},{"label":"取消"}]}\n```'
+    const [reply] = await t.db
+      .insert(messages)
+      .values({
+        groupId: group.id,
+        kind: 'bot',
+        authorBotId: bot.id,
+        body: `趋势如下：\n\n${chart}\n\n${actions}\n\n\`\`\`ts\nconst a = 1\n\`\`\``,
+        runId: run!.id,
+      })
+      .returning()
+    await setRun(run!.id, { status: 'completed', step: '' })
+    const json = JSON.stringify(t.feishu.cards.get(cardId)!.card)
+    expect(json).toContain('📊 日活（DAU）')
+    expect(json).toContain('发布吗？：发布 / 取消')
+    expect(json).not.toContain('```chart')
+    expect(json).not.toContain('```actions')
+    expect(json).toContain('const a = 1')
+    expect(json).toContain(`${BASE}/g/${group.id}?msg=${reply!.id}`)
+  })
+
   it('the message a bot works on shows Typing until the run ends; a completed run leaves DONE', async () => {
     const { ownerHttp, group } = await setup()
     const sent = await ownerHttp.post<MessageDto>(`/api/groups/${group.id}/messages`, {

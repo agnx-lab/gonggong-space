@@ -32,6 +32,7 @@ import {
   progressCard,
   questionCard,
   REPLY_ELEMENT,
+  replyMarkdown,
   runCard,
   runStreamCard,
   streamText,
@@ -573,7 +574,7 @@ async function syncRunCard(
       bot,
       status: run.status as RunStatus,
       step: run.step,
-      reply: await replyOf(ctx, run.id),
+      reply: await replyOf(ctx, run, base),
       url,
       items,
     })
@@ -627,14 +628,14 @@ async function syncRunCard(
   scheduleFlush(ctx, run.id, stream)
 }
 
-async function replyOf(ctx: Ctx, runId: string) {
+async function replyOf(ctx: Ctx, run: Row, base: string | null) {
   const [reply] = await ctx.db
-    .select({ body: messages.body })
+    .select({ id: messages.id, body: messages.body })
     .from(messages)
-    .where(and(eq(messages.runId, runId), eq(messages.kind, 'bot')))
+    .where(and(eq(messages.runId, run.id), eq(messages.kind, 'bot')))
     .orderBy(asc(messages.seq))
     .limit(1)
-  return reply?.body ?? null
+  return reply ? replyMarkdown(reply.body, base && `${base}/g/${run.groupId}?msg=${reply.id}`) : null
 }
 
 /** Fallback run card: an ordinary card message patched on change, throttled to CARD_THROTTLE_MS. */
@@ -665,7 +666,7 @@ async function patchedRunCard(
     bot,
     status: run.status as RunStatus,
     step: run.step,
-    reply: terminal ? await replyOf(ctx, run.id) : null,
+    reply: terminal ? await replyOf(ctx, run, await publicUrl(ctx)) : null,
     url,
     items,
   })

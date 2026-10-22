@@ -27,6 +27,7 @@ import {
 import { zhText } from '../../i18n/index.js'
 import { fail } from '../../lib/errors.js'
 import { isUuid } from '../../lib/ids.js'
+import { summarizeBlocks } from '../../lib/text.js'
 import { forgetMembers, type MessageMeta, memberIds, postEvent } from '../messages/service.js'
 import { LIVE } from '../runs/dto.js'
 import { stopRuns } from '../runs/stop.js'
@@ -79,7 +80,9 @@ export function activeBots(ctx: Ctx, groupId: string) {
 }
 
 const preview = (kind: string, author: string | null, body: string) => {
-  const line = body.replace(/\n[\s\S]*$/, '').slice(0, 80)
+  const line = summarizeBlocks(body)
+    .replace(/\n[\s\S]*$/, '')
+    .slice(0, 80)
   return kind === 'event' ? line : `${author ?? ''}：${line}`
 }
 

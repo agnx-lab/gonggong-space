@@ -1,4 +1,5 @@
 import type {
+  ActionAnswer,
   Attachment,
   I18nParams,
   I18nText,
@@ -56,6 +57,8 @@ export type MessageMeta = {
   progress?: ProgressCard
   /** Generic card (plan 插件体系), e.g. a creation request. */
   card?: MessageCard
+  /** A bot reply's answered ```actions blocks, by block id (plan 富交互消息). */
+  actions?: Record<string, ActionAnswer>
 }
 
 /** A recalled message keeps only its envelope (its body, attachments and quote are already erased). */
@@ -87,6 +90,7 @@ export const messageDto = (m: MessageRow, authorName: string, reactions: Reactio
     ...((m.meta as MessageMeta).secretCard && { secretCard: (m.meta as MessageMeta).secretCard }),
     ...((m.meta as MessageMeta).progress && { progress: (m.meta as MessageMeta).progress }),
     ...((m.meta as MessageMeta).card && { card: (m.meta as MessageMeta).card }),
+    ...((m.meta as MessageMeta).actions && { actions: (m.meta as MessageMeta).actions }),
   }
 }
 

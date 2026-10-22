@@ -144,6 +144,14 @@ describe('create group', () => {
 })
 
 describe('reading groups', () => {
+  it('shows a rich UI block of the last message as its summary', async () => {
+    const p = await people()
+    const g = await t.seed.group({ createdBy: p.wang.id, name: 'A' })
+    const body = '```metrics\n[{"label":"DAU","value":12,"unit":"万"}]\n```\n后续'
+    await p.asWang.post(`/api/groups/${g.id}/messages`, { body, clientId: 'client-0001' })
+    expect((await p.asWang.get<GroupDto[]>('/api/groups')).body[0]?.last).toBe('王磊：DAU 12万')
+  })
+
   it('lists only my groups with unread, lastSeq and last line', async () => {
     const p = await people()
     const mine = await t.seed.group({ createdBy: p.wang.id, memberIds: [p.li.id], name: 'A' })

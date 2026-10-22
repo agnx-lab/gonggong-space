@@ -4,11 +4,12 @@ import { alias } from 'drizzle-orm/pg-core'
 import type { Ctx } from '../../context.js'
 import { bots, groupPinnedMessages, messages, users } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
+import { summarizeBlocks } from '../../lib/text.js'
 import { type MessageMeta, memberIds, postEvent } from '../messages/service.js'
 
 const SNIPPET = 120
 const pinner = alias(users, 'pinner')
-const snippet = (body: string) => body.replace(/\s+/g, ' ').trim().slice(0, SNIPPET)
+const snippet = (body: string) => summarizeBlocks(body).replace(/\s+/g, ' ').trim().slice(0, SNIPPET)
 
 /** The group's pins, newest first. */
 export async function groupPins(ctx: Ctx, groupId: string): Promise<GroupPinsDto> {
