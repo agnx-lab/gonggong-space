@@ -1,4 +1,4 @@
-import { type MessageDto, parseMentions, type RunDto, type RunStatus } from '@gonggong/protocol'
+import { findUiBlocks, type MessageDto, parseMentions, type RunDto, type RunStatus } from '@gonggong/protocol'
 import { Fragment, memo, type ReactNode, useMemo, useState } from 'react'
 import { useWorkbench } from '../../app/workbench'
 import { useWorkspace } from '../../app/workspace'
@@ -518,16 +518,26 @@ function ReplyMessage({
             fallback={m.body}
           />
         ) : (
-          <Clamp>
-            <RichMessage.Provider value={m}>
-              <Markdown text={m.body} botId={m.authorId ?? undefined} />
-            </RichMessage.Provider>
-          </Clamp>
+          <ReplyBody m={m} />
         )}
         <ReactionBar message={m} />
       </Message>
     </div>
   )
+}
+
+/**
+ * A bot reply's Markdown. One holding UI blocks (charts, buttons…) takes the full bubble width and is never folded
+ * under 展开全文, so its components stay usable.
+ */
+function ReplyBody({ m }: { m: MessageDto }) {
+  const rich = useMemo(() => findUiBlocks(m.body).length > 0, [m.body])
+  const body = (
+    <RichMessage.Provider value={m}>
+      <Markdown text={m.body} botId={m.authorId ?? undefined} />
+    </RichMessage.Provider>
+  )
+  return rich ? <div className="rich-reply">{body}</div> : <Clamp>{body}</Clamp>
 }
 
 /** A bot message outside a loaded run card (relay notes, or a reply whose run is not in the page). */

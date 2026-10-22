@@ -229,3 +229,9 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* A reply with UI blocks: the bubble takes its full width so charts get room. */
+.rich-reply {
+  width: min(560px, calc(100vw - 120px));
+  max-width: 100%;
+}
