@@ -44,6 +44,9 @@ it('keeps the English dictionary and conditionally shown UI out of the first loa
     '/UsagePage.tsx',
     '/CreationSheet.tsx',
     '/PluginLayer.tsx',
+    '/node_modules/echarts/',
+    '/node_modules/zrender/',
+    '/node_modules/mermaid/',
   ]
   expect(lazy.filter((name) => modules.some((id) => id.includes(name)))).toEqual([])
   // The i18n module awaits the dictionary: a chunk the dictionary imported back would never finish loading.

@@ -69,12 +69,23 @@ const withdraw = (s: TimelineState, e: Withdrawn): TimelineState => ({
 
 type Edited = Extract<WebEvent, { t: 'message.edited' }>
 
-/** New text and 已编辑 for the message and quotes of it; reactions stay (theirs carry the editor's `mine`). */
+/**
+ * New text, 已编辑 and live cards (secret, progress, answered actions) for the message, new text for quotes of it;
+ * reactions stay (theirs carry the editor's `mine`).
+ */
 const edit = (s: TimelineState, { message: e }: Edited): TimelineState => ({
   ...s,
   messages: s.messages.map((m) =>
     m.id === e.id
-      ? { ...m, body: e.body, editedAt: e.editedAt, mcpSecret: e.mcpSecret, secretCard: e.secretCard }
+      ? {
+          ...m,
+          body: e.body,
+          editedAt: e.editedAt,
+          mcpSecret: e.mcpSecret,
+          secretCard: e.secretCard,
+          progress: e.progress,
+          actions: e.actions,
+        }
       : m.quote?.kind === 'message' && m.quote.id === e.id
         ? { ...m, quote: { ...m.quote, text: e.body } }
         : m,

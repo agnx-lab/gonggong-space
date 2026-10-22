@@ -177,4 +177,38 @@ describe('edit (编辑)', () => {
     await waitFor(() => expect(screen.getAllByText('新方案').length).toBe(2))
     expect(screen.getByText('已编辑')).toBeTruthy()
   })
+
+  it("applies a reply's answered actions and its progress card live", async () => {
+    const body = '```actions\n{"id":"pick","options":[{"label":"A"},{"label":"B"}]}\n```'
+    const bot = msg({ seq: 1, kind: 'bot', authorId: 'b1', authorName: '小助手', body })
+    const card = {
+      id: 'm2',
+      botId: 'b1',
+      title: '部署',
+      stages: [{ name: '构建', status: 'running' as const }],
+      percent: null,
+      detail: '构建中',
+      link: null,
+      status: 'running' as const,
+      updatedAt: new Date().toISOString(),
+    }
+    const progress = msg({
+      seq: 2,
+      kind: 'bot',
+      authorId: 'b1',
+      authorName: '小助手',
+      body: '',
+      progress: card,
+    })
+    renderChat([bot, progress])
+    await screen.findByText('构建中')
+    const at = new Date().toISOString()
+    push({
+      t: 'message.edited',
+      message: { ...bot, actions: { pick: { userId: 'u2', name: '李建国', labels: ['B'], at } } },
+    })
+    expect(await screen.findByText('李建国 已选择 B')).toBeTruthy()
+    push({ t: 'message.edited', message: { ...progress, progress: { ...card, detail: '部署中' } } })
+    expect(await screen.findByText('部署中')).toBeTruthy()
+  })
 })

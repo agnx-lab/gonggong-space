@@ -7,16 +7,19 @@ import { t } from '../../i18n'
 import { api } from '../../lib/api'
 import { CJK } from '../../lib/links'
 import { CodeBlock, Dialog, splitMentions, toast } from '../../ui'
+import { RichBlock } from '../rich/RichBlock'
 import { openTab } from '../workbench/open'
 
 const copyFailed = () => toast({ type: 'error', message: t('复制失败') })
 
-/** Fenced code: the single `<code>` child of `<pre>`, its language from `language-*`. */
+/** Fenced code: the single `<code>` child of `<pre>`, its language from `language-*`, closed per remarkFences. */
 function fenced(children: ReactNode) {
-  const code = isValidElement<{ className?: string; children?: ReactNode }>(children) ? children.props : null
+  const code = isValidElement<{ className?: string; children?: ReactNode; 'data-closed'?: unknown }>(children)
+    ? children.props
+    : null
   const text = String(code?.children ?? '').replace(/\n$/, '')
   const language = /language-([\w+-]+)/.exec(code?.className ?? '')?.[1]
-  return { text, language }
+  return { text, language, closed: code?.['data-closed'] !== undefined }
 }
 
 interface MdNode {
@@ -24,7 +27,35 @@ interface MdNode {
   url?: string
   value?: string
   children?: MdNode[]
-  data?: { hName: string; hProperties: Record<string, unknown> }
+  data?: { hName?: string; hProperties?: Record<string, unknown> }
+  position?: { start: { offset?: number }; end: { offset?: number } }
+}
+
+const FENCE_OPEN = /^(`{3,}|~{3,})/
+
+/** A fence's source ends with its closing fence (same character, at least as long); an open one runs to the end. */
+function closedFence(source: string) {
+  const lines = source.split('\n')
+  const open = FENCE_OPEN.exec(lines[0] ?? '')?.[1]
+  const last = lines.length > 1 ? (lines.at(-1) ?? '').replace(/^[\s>]*/, '').trimEnd() : ''
+  return !!open && last.length >= open.length && [...last].every((c) => c === open[0])
+}
+
+/**
+ * Marks fenced code whose closing fence has arrived (`data-closed`): a reply still streaming ends in an open fence,
+ * and UI blocks mount only once closed, never on half their JSON.
+ */
+const remarkFences = () => (tree: MdNode, file: { value: unknown }) => {
+  const source = String(file.value)
+  const visit = (node: MdNode) => {
+    if (node.type === 'code') {
+      const { start, end } = node.position ?? { start: {}, end: {} }
+      if (closedFence(source.slice(start.offset, end.offset)))
+        node.data = { ...node.data, hProperties: { ...node.data?.hProperties, dataClosed: true } }
+    }
+    node.children?.forEach(visit)
+  }
+  visit(tree)
 }
 
 /** Cuts literal autolinks (link text = end of its url) at the first CJK character, which goes back to plain text. */
@@ -46,7 +77,7 @@ function trimAutolinks(node: MdNode) {
   }
 }
 
-const remarkPlugins = [remarkGfm, () => trimAutolinks]
+const remarkPlugins = [remarkGfm, () => trimAutolinks, remarkFences]
 
 /** A file name with an extension (`a.ts`, `Markdown.test.tsx`) or a dotfile (`.env`); `v1.2` is not one. */
 const FILE_NAME = /(?:^|\/)\.?[\w@-][\w@.-]*\.[A-Za-z]\w{0,7}$|(?:^|\/)\.[\w-]+$/
@@ -205,8 +236,12 @@ function remarkMentions({ members, bots, me }: Names) {
 
 const baseComponents: Components = {
   pre: ({ children }) => {
-    const { text, language } = fenced(children)
-    return <CodeBlock code={text} language={language} onCopyError={copyFailed} />
+    const { text, language, closed } = fenced(children)
+    return closed && language ? (
+      <RichBlock language={language} text={text} onCopyError={copyFailed} />
+    ) : (
+      <CodeBlock code={text} language={language} onCopyError={copyFailed} />
+    )
   },
   table: ({ node: _node, ...props }) => (
     <div className="md-table">
@@ -216,7 +251,10 @@ const baseComponents: Components = {
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
 }
 
-/** Bot reply rendering: GFM (tables, task lists) + Pane code blocks with copy; `botId` makes file names in code clickable. */
+/**
+ * Bot reply rendering: GFM (tables, task lists) + Pane code blocks with copy, UI blocks (charts, buttons…) as
+ * components; `botId` makes file names in code clickable. Wrap in RichMessage to let blocks act on the reply.
+ */
 export const Markdown = memo(function Markdown({ text, botId }: { text: string; botId?: string }) {
   const names = useContext(MentionNames)
   const plugins = useMemo(

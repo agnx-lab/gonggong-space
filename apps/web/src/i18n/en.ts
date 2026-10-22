@@ -19,6 +19,7 @@ import plugins from '../features/plugins/en'
 import previews from '../features/previews/en'
 import reactions from '../features/reactions/en'
 import repos from '../features/repos/en'
+import rich from '../features/rich/en'
 import runs from '../features/runs/en'
 import schedules from '../features/schedules/en'
 import search from '../features/search/en'
@@ -56,6 +57,7 @@ export const en = {
   ...plugins,
   ...previews,
   ...reactions,
+  ...rich,
   ...repos,
   ...runs,
   ...schedules,
