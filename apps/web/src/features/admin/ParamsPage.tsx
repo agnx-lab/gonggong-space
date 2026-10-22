@@ -1,5 +1,6 @@
 import { type MeDto, SYSTEM_PARAM_VIEW, type SystemParams } from '@gonggong/protocol'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useSession } from '../../app/session'
 import { t } from '../../i18n'
 import { api, errorText } from '../../lib/api'
@@ -56,6 +57,7 @@ const VIEW = new Map(SYSTEM_PARAM_VIEW.map((v) => [v.key, v]))
 
 /** 管理后台 · 系统参数 (spec §10): system-wide defaults; group admins override the group-level ones. */
 export function ParamsPage() {
+  const navigate = useNavigate()
   const [saved, setSaved] = useState<SystemParams | null>(null)
   const [form, setForm] = useState<Values | null>(null)
   const [error, setError] = useState('')
@@ -189,6 +191,12 @@ export function ParamsPage() {
                 checked={saved.pluginsEnabled}
                 onChange={(v) => void apply({ pluginsEnabled: v }, v ? t('已开启插件') : t('已关闭插件'))}
               />
+            </GroupRow>
+            <GroupRow
+              label={t('平台插件')}
+              description={t('内置插件随服务端自动安装；也可以上传自己的插件，对所有团队可见。')}
+            >
+              <Button onClick={() => navigate('/admin/config?type=plugin')}>{t('管理插件')}</Button>
             </GroupRow>
           </GroupBox>
           <h2 className="admin-params__title">{t('演示')}</h2>

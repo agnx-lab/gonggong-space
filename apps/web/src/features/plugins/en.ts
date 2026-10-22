@@ -89,6 +89,10 @@ export default {
   '开启后，群管理员可在群设置里启用插件，群成员通过输入框的「创作」使用。关闭后不显示任何插件入口，也不向机器下发插件；已上传的插件保留。':
     'When on, group admins can enable plugins in group settings and members use them via Create in the composer. When off, no plugin entry is shown and nothing is sent to machines; uploaded plugins are kept.',
   已开启插件: 'Plugins turned on',
+  平台插件: 'Platform plugins',
+  '内置插件随服务端自动安装；也可以上传自己的插件，对所有团队可见。':
+    'Built-in plugins are installed with the server; you can also upload your own, visible to every team.',
+  管理插件: 'Manage plugins',
   已关闭插件: 'Plugins turned off',
   倾向: 'Lean',
   取消倾向: 'Unlean',

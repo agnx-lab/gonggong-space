@@ -641,4 +641,20 @@ describe('插件 · 管理', () => {
     await waitFor(() => expect(useSession.getState().tenancy?.pluginsEnabled).toBe(true))
     expect(usePluginStore.getState().lists).toEqual({})
   })
+
+  it('系统参数 links 管理插件 to the 插件 tab of 配置中心, built-ins included', async () => {
+    mockApi({
+      'GET /bots': [],
+      'GET /machines': [],
+      'GET /groups': [],
+      'GET /notifications/unread': { n: 0 },
+      'GET /admin/params': { pluginsEnabled: true, demoMode: false } as SystemParams,
+      'GET /admin/mcp': [],
+      'GET /admin/plugins': [layerPlugin({ builtin: true, updatedBy: null })],
+    })
+    renderAt('/admin/params')
+    fireEvent.click(await screen.findByRole('button', { name: '管理插件' }))
+    expect(await screen.findByText('网页原型')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '插件' }).getAttribute('aria-selected')).toBe('true')
+  })
 })

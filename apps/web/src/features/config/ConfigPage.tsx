@@ -6,6 +6,7 @@ import {
   type SecretDto,
 } from '@gonggong/protocol'
 import { type CSSProperties, useCallback, useEffect, useId, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { useWorkspace } from '../../app/workspace'
 import { api, errorText } from '../../lib/api'
 import { useGet } from '../../lib/useGet'
@@ -289,7 +290,10 @@ export function McpSaved({ force }: { force: boolean | null }) {
 /** 管理后台 · 配置中心: the platform MCP layer (spec §7.1–7.4); teams and groups edit theirs in their settings. */
 export function ConfigPage() {
   const layer = useMcpLayer('/admin/mcp')
-  const [ctype, setCtype] = useState<CType>('mcp')
+  const [search] = useSearchParams()
+  const [ctype, setCtype] = useState<CType>(
+    CTYPES.find((c) => c.value === search.get('type'))?.value ?? 'mcp',
+  )
   const bots = useWorkspace((s) => s.bots)
   const { items, enabledNames } = layer
 
