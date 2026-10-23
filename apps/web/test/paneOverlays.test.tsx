@@ -236,6 +236,41 @@ describe('Popover', () => {
     expect(screen.getByRole('dialog', { name: '挑选' })).toBeTruthy()
     vi.restoreAllMocks()
   })
+
+  it('on touch, opening does not focus a text field (no keyboard pops up)', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(pointer: coarse)', media: q }))
+    render(
+      <Popover aria-label="上下文" trigger={<Button>上下文</Button>}>
+        <input aria-label="保留的重点" />
+        <Button>压缩</Button>
+      </Popover>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '上下文' }))
+    expect(document.activeElement).toBe(screen.getByRole('dialog', { name: '上下文' }))
+    vi.unstubAllGlobals()
+  })
+
+  it('stays open when only the height changes (the on-screen keyboard), closes on a width change', async () => {
+    render(
+      <Popover portal aria-label="上下文" trigger={<Button>上下文</Button>}>
+        <input aria-label="保留的重点" />
+      </Popover>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '上下文' }))
+    const { innerWidth, innerHeight } = window
+    act(() => {
+      window.innerHeight = innerHeight - 300
+      window.dispatchEvent(new Event('resize'))
+    })
+    expect(screen.getByRole('button', { name: '上下文' }).getAttribute('aria-expanded')).toBe('true')
+    act(() => {
+      window.innerWidth = innerWidth - 100
+      window.dispatchEvent(new Event('resize'))
+    })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    window.innerWidth = innerWidth
+    window.innerHeight = innerHeight
+  })
 })
 
 describe('Tooltip', () => {

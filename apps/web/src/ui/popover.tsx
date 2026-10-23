@@ -72,8 +72,9 @@ export function Float({
 /**
  * Places a portalled `.ui-float--fixed` panel in viewport coordinates next to `anchor`: below unless there is
  * more room above. `list` caps it to that room (the list scrolls) and widens it to the anchor. A fixed panel
- * would drift from its anchor, so a scroll that moved the anchor, or a resize, calls `onDrift`. Scroll events land
- * a frame late, so the one from scrolling the trigger into view (before it was clicked) must not dismiss.
+ * would drift from its anchor, so a scroll that moved the anchor, or a width change, calls `onDrift`. Scroll events
+ * land a frame late, so the one from scrolling the trigger into view (before it was clicked) must not dismiss.
+ * A height-only resize is the phone's on-screen keyboard opening for a field in the panel: re-place instead.
  */
 export function useFixedPosition(
   enabled: boolean,
@@ -86,13 +87,12 @@ export function useFixedPosition(
 ) {
   const drift = useRef(onDrift)
   drift.current = onDrift
-  const placed = useRef({ top: 0, left: 0 })
-  // Every render: filtering a list changes its height, and a list placed above must move with it.
-  useLayoutEffect(() => {
+  const placed = useRef({ top: 0, left: 0, width: 0 })
+  const place = () => {
     const el = panel.current
     if (!enabled || !el || !anchor.current) return
     const r = anchor.current.getBoundingClientRect()
-    placed.current = { top: r.top, left: r.left }
+    placed.current = { top: r.top, left: r.left, width: window.innerWidth }
     // Clearing the cap clamps a scrolled list to the top; restore it after re-capping.
     const scrolled = el.scrollTop
     if (list) {
@@ -109,7 +109,11 @@ export function useFixedPosition(
     }
     el.style.top = `${below ? r.bottom + gap : Math.max(gap, r.top - gap - height)}px`
     el.style.left = `${Math.max(gap, Math.min(placement.endsWith('end') ? r.right - w : r.left, window.innerWidth - gap - w))}px`
-  })
+  }
+  const replace = useRef(place)
+  replace.current = place
+  // Every render: filtering a list changes its height, and a list placed above must move with it.
+  useLayoutEffect(place)
   useEffect(() => {
     if (!enabled) return
     const scrolled = (e: Event) => {
@@ -117,7 +121,7 @@ export function useFixedPosition(
       const moved = !r || r.top !== placed.current.top || r.left !== placed.current.left
       if (moved && !panel.current?.contains(e.target as Node)) drift.current()
     }
-    const resized = () => drift.current()
+    const resized = () => (window.innerWidth === placed.current.width ? replace.current() : drift.current())
     document.addEventListener('scroll', scrolled, true)
     window.addEventListener('resize', resized)
     return () => {
@@ -146,6 +150,9 @@ export interface PopoverProps {
 }
 
 const GAP = 8
+
+const coarsePointer = () =>
+  typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches
 
 const FOCUSABLE =
   'a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex="0"]'
@@ -184,12 +191,13 @@ export function Popover({
 
   useFixedPosition(portal === true && shown, root, panel, placement, GAP, () => close(false))
 
-  // Only a user-opened panel takes focus; a demo shown on mount leaves it where it is.
+  // Only a user-opened panel takes focus; a demo shown on mount leaves it where it is. On touch the panel itself
+  // takes it: a focused field would pop up the keyboard the user did not ask for.
   useEffect(() => {
     if (shown === opened.current) return
     opened.current = shown
     const el = panel.current
-    if (shown && el) (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus()
+    if (shown && el) ((!coarsePointer() && el.querySelector<HTMLElement>(FOCUSABLE)) || el).focus()
   }, [shown])
 
   const float = (
