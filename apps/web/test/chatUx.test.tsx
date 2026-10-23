@@ -359,6 +359,18 @@ describe('scroll position', () => {
     expect(screen.queryByRole('button', { name: /条新消息/ })).toBeNull()
   })
 
+  it('offers a jump to the bottom while scrolled up with nothing new', async () => {
+    mockApi({ messages: [msg({ seq: 2, body: '你好' })], runs: [] })
+    renderAt()
+    await screen.findByText('你好')
+    const el = timelineEl()
+    expect(screen.queryByRole('button', { name: '回到底部' })).toBeNull()
+    scrollUp(el)
+    fireEvent.click(screen.getByRole('button', { name: '回到底部' }))
+    expect(el.scrollTop).toBe(2000)
+    expect(screen.queryByRole('button', { name: '回到底部' })).toBeNull()
+  })
+
   it('opens a deep-linked message from an older page, highlights it and drops the param', async () => {
     mockApi((path) =>
       path.includes('before=') ? { messages: page(1, 50), runs: [] } : { messages: page(51, 50), runs: [] },

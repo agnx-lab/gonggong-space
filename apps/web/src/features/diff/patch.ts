@@ -50,24 +50,24 @@ export function findFile(files: DiffFile[], path: string) {
   return files.find((f) => p === f.path || p.endsWith(`/${f.path}`))
 }
 
-export interface DiffDir {
+export interface DiffDir<F = DiffFile> {
   kind: 'dir'
   path: string
   name: string
-  children: DiffNode[]
+  children: DiffNode<F>[]
 }
-export type DiffNode = DiffDir | { kind: 'file'; name: string; file: DiffFile }
+export type DiffNode<F = DiffFile> = DiffDir<F> | { kind: 'file'; name: string; file: F }
 
 /** Files grouped by folder, folders first; a folder holding only one folder folds into `a/b` like IDE trees. */
-export function diffTree(files: DiffFile[], prefix = ''): DiffNode[] {
-  const root: DiffDir = { kind: 'dir', path: '', name: '', children: [] }
+export function diffTree<F extends { path: string }>(files: F[], prefix = ''): DiffNode<F>[] {
+  const root: DiffDir<F> = { kind: 'dir', path: '', name: '', children: [] }
   for (const file of files) {
     const parts = file.path.slice(prefix.length).split('/')
     const name = parts.pop() ?? file.path
     let dir = root
     for (const part of parts) {
       const path = dir.path ? `${dir.path}/${part}` : part
-      let next = dir.children.find((c): c is DiffDir => c.kind === 'dir' && c.path === path)
+      let next = dir.children.find((c): c is DiffDir<F> => c.kind === 'dir' && c.path === path)
       if (!next) {
         next = { kind: 'dir', path, name: part, children: [] }
         dir.children.push(next)
@@ -79,14 +79,14 @@ export function diffTree(files: DiffFile[], prefix = ''): DiffNode[] {
   return tidy(root).children
 }
 
-function tidy(dir: DiffDir): DiffDir {
+function tidy<F>(dir: DiffDir<F>): DiffDir<F> {
   const children = dir.children
     .map((c) => (c.kind === 'dir' ? fold(tidy(c)) : c))
     .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'dir' ? -1 : 1))
   return { ...dir, children }
 }
 
-function fold(dir: DiffDir): DiffDir {
+function fold<F>(dir: DiffDir<F>): DiffDir<F> {
   const [only, ...rest] = dir.children
   return only?.kind === 'dir' && !rest.length ? { ...only, name: `${dir.name}/${only.name}` } : dir
 }

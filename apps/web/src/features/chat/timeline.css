@@ -118,6 +118,30 @@
   cursor: default;
 }
 
+/* Overlaps the messages (negative margin) rather than taking a row under them. */
+.chat-scroll__bottom {
+  position: sticky;
+  bottom: var(--space-12);
+  flex: none;
+  align-self: flex-end;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin: -36px var(--space-16) 0 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-glass);
+  color: var(--label-secondary);
+  cursor: default;
+}
+.chat-scroll__bottom:hover {
+  color: var(--label);
+}
+
 /* Rows */
 .tl-item {
   border-radius: var(--radius-menu);

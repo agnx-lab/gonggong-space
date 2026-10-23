@@ -33,6 +33,8 @@ export type WorkbenchTab =
     }
   /** A bot workspace's commit history; `ref` null = HEAD, `commit` the one opened, `file` its file shown (null = first). */
   | { kind: 'git-log'; botId: string; ref: string | null; commit: string | null; file?: string | null }
+  /** A bot workspace's source control: branch, sync, commit, operation log; `file` the change shown, `focus` an operation. */
+  | { kind: 'git'; botId: string; file?: string | null; focus?: string | null }
   /** A third-party page pinned in the group's tab bar (群标签栏). */
   | { kind: 'link'; url: string; title: string }
   | { kind: 'knowledge'; knowledgeId: string; title: string }
@@ -61,6 +63,7 @@ interface WorkbenchState {
   patch: (key: string, fields: Partial<WorkbenchTab>) => void
   closeTab: (key: string) => void
   closeOthers: (key: string) => void
+  closeAll: () => void
   reorder: (from: number, to: number) => void
   setOpen: (open: boolean) => void
   setMode: (mode: WorkbenchMode) => void
@@ -90,6 +93,8 @@ export function tabKey(t: WorkbenchTab): string {
         : `file:${t.source.botId}:${t.source.path}${t.source.rev ? `@${t.source.rev}` : ''}`
     case 'git-log':
       return `git-log:${t.botId}`
+    case 'git':
+      return `git:${t.botId}`
     case 'link':
       return `link:${t.url}`
     case 'knowledge':
@@ -172,7 +177,7 @@ export const useWorkbench = create<WorkbenchState>()((set, get) => {
         ...b,
         tabs: b.tabs.map((t) => (tabKey(t) === key ? ({ ...t, ...fields } as WorkbenchTab) : t)),
       })),
-    closeTab: (key) =>
+    closeTab: (key) => {
       update((b) => {
         const at = b.tabs.findIndex((t) => tabKey(t) === key)
         const tabs = b.tabs.filter((t) => tabKey(t) !== key)
@@ -180,7 +185,12 @@ export const useWorkbench = create<WorkbenchState>()((set, get) => {
         const neighbour = tabs[Math.min(at, tabs.length - 1)]
         const active = b.active === key ? (neighbour ? tabKey(neighbour) : null) : b.active
         return { tabs, active, used }
-      }),
+      })
+      const { groupId, benches } = get()
+      // Closing the last tab hides the workbench; an empty one is only shown when asked for (to add a tab).
+      if (groupId && !benches[groupId]?.tabs.length) set({ open: false })
+    },
+    closeAll: () => update(empty, { open: false }),
     closeOthers: (key) =>
       update((b) => ({
         tabs: b.tabs.filter((t) => tabKey(t) === key),

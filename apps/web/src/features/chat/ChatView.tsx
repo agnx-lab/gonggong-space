@@ -12,7 +12,6 @@ import {
 } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { InspectorPortal, useInspector } from '../../app/inspector'
-import { GROUP_MODE_LABEL } from '../../app/Sidebar'
 import { useSession } from '../../app/session'
 import { useWorkbench } from '../../app/workbench'
 import { loadPins, useWorkspace } from '../../app/workspace'
@@ -180,6 +179,8 @@ export function ChatView({
   /** What the view had shown at the last render, to count arrivals while scrolled up. */
   const seen = useRef({ first: '', seq: 0, runs: 0 })
   const [unseen, setUnseen] = useState(0)
+  /** Scrolled away from the end: a button leads back down. */
+  const [away, setAway] = useState(false)
   const dropFiles = useRef<((files: File[]) => void) | null>(null)
   const drag = useFileDrag()
   const navigate = useNavigate()
@@ -263,6 +264,7 @@ export function ChatView({
     const el = box.current
     if (!el) return
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
+    setAway(!stick.current)
     if (stick.current) setUnseen(0)
     // After a failure only the retry row loads again, so scrolling doesn't hammer a failing server.
     if (el.scrollTop < LOAD_OLDER_PX && tl.hasMore && tl.older === 'idle') loadOlder()
@@ -272,6 +274,7 @@ export function ChatView({
     const el = box.current
     if (el) el.scrollTop = el.scrollHeight
     stick.current = true
+    setAway(false)
     setUnseen(0)
   }
 
@@ -519,7 +522,6 @@ export function ChatView({
                     avatarLabel: t('打开群信息'),
                     onAvatarClick: () => inspect('group-info', 'main'),
                   })}
-          tags={dm ? undefined : [{ label: GROUP_MODE_LABEL[group.mode], tone: 'gray' }]}
           badges={
             group.feishu || pluginBadge ? (
               <>
@@ -591,10 +593,9 @@ export function ChatView({
               : []),
             {
               icon: 'dashboard' as const,
-              label: benchTabs ? t('工作台') : t('工作台 · 还没有打开的标签页'),
+              label: t('工作台'),
               text: benchTabs || undefined,
-              active: benchOpen && benchTabs > 0,
-              disabled: !benchTabs,
+              active: benchOpen,
               onClick: () => useWorkbench.getState().setOpen(!benchOpen),
             },
             ...(readOnly
@@ -751,6 +752,16 @@ export function ChatView({
               <button type="button" className="chat-scroll__pill" onClick={toBottom}>
                 <Icon name="chevron-down" size={13} />
                 {t('{n} 条新消息', { n: unseen })}
+              </button>
+            ) : away ? (
+              <button
+                type="button"
+                className="chat-scroll__bottom"
+                aria-label={t('回到底部')}
+                title={t('回到底部')}
+                onClick={toBottom}
+              >
+                <Icon name="chevron-down" size={16} weight={2} />
               </button>
             ) : null}
           </div>

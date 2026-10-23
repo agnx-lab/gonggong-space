@@ -7,8 +7,8 @@ import { copyWithToast } from '../../lib/clipboard'
 import { realtime } from '../../lib/realtime'
 import { Icon, type IconName } from '../../ui'
 import { refreshGitQuietly } from '../git/api'
-import { BranchPicker, WorkspaceMenu } from '../git/GitControls'
-import { GitOperationsPanel, PendingBadge } from '../git/GitOperations'
+import { BranchLabel, WorkspaceMenu } from '../git/GitControls'
+import { PendingBadge } from '../git/GitOperations'
 import { openTab } from '../workbench/open'
 import { ContextMeter } from './ContextMeter'
 
@@ -131,7 +131,15 @@ function Item({
           {hint ?? (
             <>
               {git ? (
-                <BranchPicker groupId={groupId} botId={s.botId} name={name} git={git} />
+                <button
+                  type="button"
+                  className="git-bar__branch git-bar__branch-btn"
+                  aria-label={t('打开 {name} 的 Git', { name })}
+                  title={t('Git 面板')}
+                  onClick={() => openTab({ kind: 'git', botId: s.botId })}
+                >
+                  <BranchLabel git={git} />
+                </button>
               ) : (
                 <span className="git-bar__branch">—</span>
               )}
@@ -150,7 +158,6 @@ function Item({
       {s.context ? <ContextMeter groupId={groupId} bot={name} context={s.context} /> : null}
       <span className="git-bar__actions">
         <WorkspaceMenu
-          group={group}
           botId={s.botId}
           name={name}
           git={showGit && !hint ? git : null}
@@ -236,7 +243,6 @@ export function GitBar({ group }: { group: GroupDto }) {
           />
         )
       })}
-      {showGit ? <GitOperationsPanel groupId={group.id} /> : null}
     </div>
   )
 }

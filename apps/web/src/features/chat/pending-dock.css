@@ -1,57 +1,68 @@
 .pd-dock {
   flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: var(--space-8);
   margin: var(--space-8) var(--space-16) 0;
-  padding: 2px;
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-8);
   border: 1px solid var(--separator);
   border-radius: 10px;
   background: var(--group-bg);
 }
-.pd-dock__head {
-  display: flex;
+.pd-dock__label {
+  flex: none;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-8);
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: var(--orange, inherit);
-  font: inherit;
-  cursor: pointer;
-}
-.pd-dock__head:hover {
-  background: var(--control-fill);
-}
-.pd-dock__chevron {
-  margin-left: auto;
-  transition: transform 0.15s;
-}
-.pd-dock__head[aria-expanded="false"] .pd-dock__chevron {
-  transform: rotate(180deg);
+  color: var(--tint-orange-text);
+  font-size: var(--text-callout-size);
+  font-weight: 600;
 }
 .pd-dock__list {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
-  max-height: min(40vh, 280px);
+  gap: var(--space-4);
   margin: 0;
-  padding: var(--space-4);
-  overflow-y: auto;
+  padding: 0;
+  overflow-x: auto;
   list-style: none;
+  scrollbar-width: none;
 }
-.pd-item__head {
-  display: flex;
+.pd-dock__list > li {
+  flex: none;
+  max-width: 100%;
+}
+.pd-item {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-4);
-  margin-bottom: var(--space-4);
+  max-width: 320px;
+  height: 26px;
+  padding: 0 var(--space-8) 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-capsule);
+  background: var(--control-track);
+  color: var(--label);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  cursor: default;
+}
+.pd-item:hover {
+  color: var(--accent-text);
 }
 .pd-item__name {
-  flex: 1;
+  flex: none;
+  font-weight: 500;
+}
+.pd-item__kind {
+  flex: none;
+  color: var(--tint-orange-text);
+}
+.pd-item__text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  color: var(--label-secondary);
 }

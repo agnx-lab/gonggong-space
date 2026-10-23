@@ -1,28 +1,22 @@
 import type { GitOperationDto, GitOperationStatus } from '@gonggong/protocol'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { create } from 'zustand'
 import { useSession } from '../../app/session'
+import { useWorkbench } from '../../app/workbench'
 import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
 import { ago } from '../../lib/time'
-import { Alert, Button, Dialog, EmptyState, Presence, Tag, type TagTone } from '../../ui'
+import { Alert, Button, EmptyState, Tag, type TagTone } from '../../ui'
+import { openTab } from '../workbench/open'
 import { decideGitOperation } from './api'
 import { ACTION_LABEL } from './notify'
 import './git.css'
 
 const NO_OPS: GitOperationDto[] = []
 
-/** Which bot's operation log is open, and the operation to point at (a notification link). */
-const usePanel = create<{ groupId: string | null; botId: string | null; focus: string | null }>()(() => ({
-  groupId: null,
-  botId: null,
-  focus: null,
-}))
-
-export const openGitPanel = (groupId: string, botId: string, focus: string | null = null) =>
-  usePanel.setState({ groupId, botId, focus })
-const closePanel = () => usePanel.setState({ groupId: null, botId: null, focus: null })
+/** The bot's Git tab, pointing at `focus` in its operation log (a notification link). */
+export const openGitPanel = (botId: string, focus: string | null = null) =>
+  openTab({ kind: 'git', botId, focus })
 
 const STATUS: Record<GitOperationStatus, { label: string; tone: TagTone }> = {
   pending_approval: { label: t('待审批'), tone: 'orange' },
@@ -41,7 +35,7 @@ export function PendingBadge({ groupId, botId }: { groupId: string; botId: strin
   const n = ops.filter((o) => o.botId === botId && o.status === 'pending_approval').length
   if (!n) return null
   return (
-    <button type="button" className="git-bar__pending" onClick={() => openGitPanel(groupId, botId)}>
+    <button type="button" className="git-bar__pending" onClick={() => openGitPanel(botId)}>
       {t('待审批 {n}', { n })}
     </button>
   )
@@ -103,48 +97,46 @@ function Row({ op, owner, focused }: { op: GitOperationDto; owner: boolean; focu
   )
 }
 
-/** A bot's git operations in the group: the owner approves or rejects requests, others follow them. */
-export function GitOperationsPanel({ groupId }: { groupId: string }) {
-  const panel = usePanel()
+/** A bot's git operations in the group, pending first: the owner approves or rejects requests, others follow them. */
+export function GitOperationList({
+  groupId,
+  botId,
+  focus,
+}: {
+  groupId: string
+  botId: string
+  focus: string | null
+}) {
   const ops = useGitOps(groupId)
-  const bot = useWorkspace((s) => s.bots.find((b) => b.id === panel.botId))
+  const owner = useWorkspace((s) => s.bots.find((b) => b.id === botId)?.ownerId)
   const me = useSession((s) => s.user?.id)
-  const open = panel.groupId === groupId && !!panel.botId
-  const name = bot?.name ?? 'Bot'
-  const list = ops.filter((o) => o.botId === panel.botId)
+  const list = ops.filter((o) => o.botId === botId)
   // Pending first, then newest first as the server sends them.
   const sorted = [
     ...list.filter((o) => o.status === 'pending_approval'),
     ...list.filter((o) => o.status !== 'pending_approval'),
   ]
+  if (!sorted.length) return <EmptyState compact icon="git-branch" title={t('还没有 Git 操作')} />
   return (
-    <Presence>
-      {open ? (
-        <Dialog open title={t('{name} 的 Git 操作记录', { name })} width={520} onClose={closePanel}>
-          {sorted.length ? (
-            <ul className="git-ops">
-              {sorted.map((o) => (
-                <Row key={o.id} op={o} owner={!!me && bot?.ownerId === me} focused={o.id === panel.focus} />
-              ))}
-            </ul>
-          ) : (
-            <EmptyState compact icon="git-branch" title={t('还没有 Git 操作')} />
-          )}
-        </Dialog>
-      ) : null}
-    </Presence>
+    <ul className="git-ops">
+      {sorted.map((o) => (
+        <Row key={o.id} op={o} owner={!!me && owner === me} focused={o.id === focus} />
+      ))}
+    </ul>
   )
 }
 
-/** `?git=<operationId>` (a git request notification) opens that bot's operation log once loaded, then leaves the URL. */
+/** `?git=<operationId>` (a git request notification) opens that bot's Git tab once loaded, then leaves the URL. */
 export function LinkedGitOperation({ groupId }: { groupId: string }) {
   const [params, setParams] = useSearchParams()
   const linked = params.get('git')
   const op = useWorkspace((s) => (linked ? s.gitOps[groupId]?.find((o) => o.id === linked) : undefined))
   const loaded = useWorkspace((s) => !!s.gitOps[groupId])
+  // Tabs belong to the workbench's group: wait until it has switched to this one.
+  const bench = useWorkbench((s) => s.groupId)
   useEffect(() => {
-    if (!linked || !loaded) return
-    if (op) openGitPanel(groupId, op.botId, op.id)
+    if (!linked || !loaded || bench !== groupId) return
+    if (op) openGitPanel(op.botId, op.id)
     setParams(
       (p) => {
         p.delete('git')
@@ -152,6 +144,6 @@ export function LinkedGitOperation({ groupId }: { groupId: string }) {
       },
       { replace: true },
     )
-  }, [linked, loaded, op, groupId, setParams])
+  }, [linked, loaded, op, groupId, bench, setParams])
   return null
 }

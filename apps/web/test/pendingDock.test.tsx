@@ -137,41 +137,32 @@ describe('PendingDock', () => {
     expect(container.textContent).toBe('')
   })
 
-  it('shows a single pending approval right above the composer, decidable in place', async () => {
-    const calls = mockApi({ 'POST /runs/r1/approvals/a1': approval({ status: 'approved' }) })
+  it('indexes a waiting approval above the composer without its form; the entry locates its card', () => {
     const onLocate = vi.fn()
     const r = run({ approvals: [approval()] })
     render(<PendingDock runs={[r]} onLocate={onLocate} />)
     const dock = screen.getByTestId('pending-dock')
-    expect(dock.textContent).toContain('小王的 Claude')
-    expect(dock.textContent).toContain('go build ./...')
-    fireEvent.click(screen.getByRole('button', { name: '定位' }))
+    expect(dock.textContent).toContain('待处理 1 项')
+    expect(screen.getByTestId('pending-item').textContent).toBe('小王的 Claude待审批Bash')
+    expect(screen.queryByRole('button', { name: '批准' })).toBeNull()
+    fireEvent.click(screen.getByTestId('pending-item'))
     expect(onLocate).toHaveBeenCalledWith(r)
-    fireEvent.click(screen.getByRole('button', { name: '批准' }))
-    await waitFor(() =>
-      expect(calls).toContainEqual({
-        method: 'POST',
-        path: '/runs/r1/approvals/a1',
-        body: { optionId: 'allow' },
-      }),
-    )
   })
 
-  it('folds several waiting items into 待处理 N 项, oldest first, and expands them', () => {
+  it('lists several waiting items oldest first, a question by its first title', () => {
     const later = new Date(NOW.getTime() + 5_000).toISOString()
     const runs = [
       run({ id: 'r2', botId: 'b2', status: 'awaiting_answer', questions: [set({ createdAt: later })] }),
       run({ approvals: [approval()] }),
     ]
     render(<PendingDock runs={runs} onLocate={() => {}} />)
-    const head = screen.getByRole('button', { name: /待处理 2 项/ })
-    expect(head.getAttribute('aria-expanded')).toBe('false')
-    expect(screen.queryByText('go build ./...')).toBeNull()
-    fireEvent.click(head)
+    expect(screen.getByTestId('pending-dock').textContent).toContain('待处理 2 项')
     const items = screen.getAllByTestId('pending-item')
-    expect(items).toHaveLength(2)
-    expect(items[0]?.textContent).toContain('go build ./...')
-    expect(items[1]?.textContent).toContain('允许改 fixture 吗？')
+    expect(items.map((i) => i.textContent)).toEqual([
+      '小王的 Claude待审批Bash',
+      '测试 Bot待回答允许改 fixture 吗？',
+    ])
+    expect(screen.queryByRole('button', { name: '是' })).toBeNull()
   })
 
   it('pins only what I may decide; others wait read-only on their own cards', () => {
@@ -193,7 +184,6 @@ describe('PendingDock', () => {
     ]
     login('u2')
     const { unmount } = render(<PendingDock runs={runs} onLocate={() => {}} />)
-    fireEvent.click(screen.getByRole('button', { name: /待处理 2 项/ }))
     expect(screen.getAllByTestId('pending-item').map((i) => i.textContent?.includes('测试 Bot'))).toEqual([
       true,
       true,
@@ -202,37 +192,6 @@ describe('PendingDock', () => {
     login('u3')
     const { container } = render(<PendingDock runs={runs} onLocate={() => {}} />)
     expect(container.textContent).toBe('')
-  })
-
-  describe('on a phone', () => {
-    let listeners: Record<string, () => void>
-    let viewport: {
-      height: number
-      addEventListener: (k: string, f: () => void) => void
-      removeEventListener: () => void
-    }
-    beforeEach(() => {
-      listeners = {}
-      viewport = {
-        height: 800,
-        addEventListener: (k, f) => (listeners[k] = f),
-        removeEventListener: () => {},
-      }
-      vi.stubGlobal('visualViewport', viewport)
-      vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('max-width'), media: q }))
-    })
-    afterEach(() => vi.unstubAllGlobals())
-
-    it('starts folded even for one item, and folds again when the keyboard opens', () => {
-      render(<PendingDock runs={[run({ approvals: [approval()] })]} onLocate={() => {}} />)
-      const head = screen.getByRole('button', { name: /待处理 1 项/ })
-      expect(head.getAttribute('aria-expanded')).toBe('false')
-      fireEvent.click(head)
-      expect(screen.getByText('go build ./...')).toBeTruthy()
-      viewport.height = 450
-      act(() => listeners.resize?.())
-      expect(head.getAttribute('aria-expanded')).toBe('false')
-    })
   })
 })
 
@@ -296,11 +255,24 @@ describe('PendingDock timeline visibility', () => {
     act(() =>
       observer.cb([{ target: approvalTarget, isIntersecting: false } as IntersectionObserverEntry], observer),
     )
-    expect(screen.getByRole('button', { name: /待处理 2 项/ })).toBeTruthy()
+    expect(screen.getByTestId('pending-dock').textContent).toContain('待处理 2 项')
     act(() =>
       observer.cb([{ target: questionTarget, isIntersecting: true } as IntersectionObserverEntry], observer),
     )
     expect(screen.getAllByTestId('pending-item')).toHaveLength(1)
+  })
+
+  it('scrolls to the original card from its entry', () => {
+    const { observer } = setup([run({ approvals: [approval()] })])
+    const target = observer.targets.find((item) => item.closest('.approval'))
+    if (!(target instanceof HTMLElement)) throw new Error('no approval card')
+    const scroll = vi.fn()
+    target.scrollIntoView = scroll
+    act(() =>
+      observer.cb([{ target, isIntersecting: false } as unknown as IntersectionObserverEntry], observer),
+    )
+    fireEvent.click(screen.getByTestId('pending-item'))
+    expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
   })
 
   it('observes an original card that arrives after the dock', () => {

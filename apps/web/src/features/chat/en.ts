@@ -17,7 +17,7 @@ export default {
   工作台: 'Workbench',
   工作区里没找到: 'Not found in the workspace',
   选择要打开的文件: 'Choose a file to open',
-  '工作台 · 还没有打开的标签页': 'Workbench · no tabs open yet',
+  回到底部: 'Back to bottom',
   群设置: 'Group settings',
   添加附件: 'Add attachments',
   松开以添加附件: 'Drop to attach',

@@ -3,26 +3,17 @@ import { type RefObject, useEffect, useMemo, useState } from 'react'
 import { useSession } from '../../app/session'
 import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
-import { Button, Icon } from '../../ui'
+import { Icon } from '../../ui'
 import { BotAvatar } from '../bots/avatars'
-import { ApprovalCard } from '../runs/ApprovalBlock'
-import { QuestionCard } from '../runs/QuestionBlock'
 import './pending-dock.css'
 
 type Item =
   | { key: string; run: RunDto; at: string; approval: ApprovalDto }
   | { key: string; run: RunDto; at: string; set: QuestionSetDto }
 
-/** Phones: the dock starts folded and folds again when the keyboard opens, so it never covers the composer. */
-const PHONE = '(max-width: 640px)'
-/** The visual viewport shrinking this much means the on-screen keyboard came up. */
-const KEYBOARD_PX = 150
-
-const isPhone = () => typeof window.matchMedia === 'function' && window.matchMedia(PHONE).matches
-
 /**
- * Pinned above the composer: pending approvals and questions *I* may decide, in place, once their card is out of
- * view. Others' stay read-only on their own cards. Several fold into 待处理 N 项.
+ * Above the composer: an index of the approvals and questions *I* may decide whose card is out of view. Each entry
+ * scrolls to its card in the timeline, where it is answered; the forms themselves stay there.
  */
 export function PendingDock({
   runs,
@@ -35,8 +26,6 @@ export function PendingDock({
 }) {
   const me = useSession((s) => s.user?.id)
   const bots = useWorkspace((s) => s.bots)
-  const [phone] = useState(isPhone)
-  const [open, setOpen] = useState(false)
   const [visible, setVisible] = useState<Record<string, boolean> | null>(() => (root ? null : {}))
   const candidates = useMemo(() => {
     const owner = (run: RunDto) => bots.find((b) => b.id === run.botId)?.ownerId
@@ -84,55 +73,44 @@ export function PendingDock({
     return () => io.disconnect()
   }, [root, keys])
   const items = candidates.filter((item) => !root || visible?.[item.key] === false)
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!phone || !vv) return
-    let full = vv.height
-    const onResize = () => {
-      if (vv.height < full - KEYBOARD_PX) setOpen(false)
-      full = Math.max(full, vv.height)
-    }
-    vv.addEventListener('resize', onResize)
-    return () => vv.removeEventListener('resize', onResize)
-  }, [phone])
   if (!items.length) return null
-  const folded = phone || items.length > 1
+  const locate = (item: Item) => {
+    const card = [...(root?.current?.querySelectorAll<HTMLElement>('[data-pending-id]') ?? [])].find(
+      (node) => node.dataset.pendingId === item.key,
+    )
+    if (card) card.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    else onLocate(item.run)
+  }
   return (
     <div className="pd-dock" data-testid="pending-dock">
-      {folded ? (
-        <button type="button" className="pd-dock__head" aria-expanded={open} onClick={() => setOpen(!open)}>
-          <Icon name="bell" size={14} />
-          <span>{t('待处理 {n} 项', { n: items.length })}</span>
-          <Icon name="chevron-up" size={12} className="pd-dock__chevron" />
-        </button>
-      ) : null}
-      {!folded || open ? (
-        <ul className="pd-dock__list">
-          {items.map((it) => (
-            <PendingItem key={it.key} item={it} onLocate={onLocate} />
-          ))}
-        </ul>
-      ) : null}
+      <span className="pd-dock__label">
+        <Icon name="bell" size={13} />
+        {t('待处理 {n} 项', { n: items.length })}
+      </span>
+      <ul className="pd-dock__list">
+        {items.map((it) => (
+          <PendingItem key={it.key} item={it} onLocate={() => locate(it)} />
+        ))}
+      </ul>
     </div>
   )
 }
 
-function PendingItem({ item, onLocate }: { item: Item; onLocate: (run: RunDto) => void }) {
+function PendingItem({ item, onLocate }: { item: Item; onLocate: () => void }) {
   const name = useWorkspace((s) => s.bots.find((b) => b.id === item.run.botId)?.name ?? 'Bot')
+  const approval = 'approval' in item
+  const text = approval ? item.approval.title : (item.set.questions[0]?.title ?? '')
   return (
-    <li className="pd-item" data-testid="pending-item">
-      <div className="pd-item__head">
-        <BotAvatar id={item.run.botId} name={name} size={18} />
+    <li>
+      <button type="button" className="pd-item" data-testid="pending-item" onClick={onLocate}>
+        <BotAvatar id={item.run.botId} name={name} size={16} />
         <span className="pd-item__name">{name}</span>
-        <Button size="small" variant="plain" icon="arrow-up" onClick={() => onLocate(item.run)}>
-          {t('定位')}
-        </Button>
-      </div>
-      {'approval' in item ? (
-        <ApprovalCard run={item.run} approval={item.approval} />
-      ) : (
-        <QuestionCard run={item.run} set={item.set} />
-      )}
+        <span className="pd-item__kind" data-kind={approval ? 'approval' : 'question'}>
+          {approval ? t('待审批') : t('待回答')}
+        </span>
+        <span className="pd-item__text">{text}</span>
+        <Icon name="arrow-up" size={12} />
+      </button>
     </li>
   )
 }

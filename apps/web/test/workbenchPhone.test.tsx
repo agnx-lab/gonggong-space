@@ -156,12 +156,12 @@ describe('workbench on phones', () => {
     expect(chatTitle()).not.toBeNull()
   })
 
-  it('shows the header 工作台 button, disabled without tabs, toggling the page', async () => {
+  it('shows the header 工作台 button toggling the page, empty until a tab is added', async () => {
     renderAt('/g/g1')
     await screen.findByRole('heading', { name: '退款' })
-    const btn = within(header()).getByRole('button', { name: /工作台/ })
-    expect((btn as HTMLButtonElement).disabled).toBe(true)
-    expect(btn.getAttribute('title')).toContain('还没有打开的标签页')
+    fireEvent.click(within(header()).getByRole('button', { name: '工作台' }))
+    expect(within(bench() as HTMLElement).getByText('还没有打开的标签页')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '返回聊天' }))
     await openTwo()
     fireEvent.click(screen.getByRole('button', { name: '返回聊天' }))
     fireEvent.click(within(header()).getByRole('button', { name: '工作台' }))

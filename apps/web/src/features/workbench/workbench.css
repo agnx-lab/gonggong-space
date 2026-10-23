@@ -272,8 +272,9 @@
   border-radius: 7px;
 }
 .bench-switch__row[aria-current] {
-  background: var(--accent-fill);
+  background: var(--selection-fill);
   color: var(--accent-text);
+  font-weight: 600;
 }
 .bench-switch__pick {
   flex: 1;
@@ -321,4 +322,89 @@
   flex: none;
   display: flex;
   justify-content: flex-end;
+}
+
+/* Git tab: branch bar, then the changes and operation log beside the picked file's diff */
+.wb-git {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.wb-git__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-12);
+  border-bottom: 1px solid var(--separator);
+}
+.wb-git__main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.wb-git__side {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.wb-git[data-layout="wide"] .wb-git__side {
+  flex: 0 1 360px;
+}
+.wb-git__diff {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-8) var(--space-12);
+  border-left: 1px solid var(--separator);
+}
+.wb-git__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12) var(--space-12);
+}
+.wb-git__section + .wb-git__section {
+  border-top: 1px solid var(--separator);
+}
+.wb-git__heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  margin: 0;
+  font-size: var(--text-callout-size);
+  font-weight: 600;
+}
+.wb-git__count {
+  color: var(--label-secondary);
+  font-weight: 400;
+}
+.wb-git__commit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.wb-git__tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wb-git__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding-left: calc(var(--depth, 0) * var(--space-16));
+}
+.wb-git__row .git-change {
+  flex: 1;
+  min-width: 0;
+}
+.wb-git .git-ops {
+  max-height: none;
+  overflow: visible;
+}
+.wb-git__row .git-commit__path {
+  flex: 1;
 }

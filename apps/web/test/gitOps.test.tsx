@@ -15,6 +15,7 @@ import { useWorkbench } from '../src/app/workbench'
 import { useWorkspace } from '../src/app/workspace'
 import { GitBar } from '../src/features/chat/GitBar'
 import { LinkedGitOperation } from '../src/features/git/GitOperations'
+import { GitTab } from '../src/features/workbench/tabs/GitTab'
 import { useToasts } from '../src/ui'
 import { apiError, type Call, mockApi } from './mockApi'
 
@@ -132,6 +133,7 @@ beforeEach(() => {
   setMe('u1')
   useWorkspace.setState({
     bots: [{ id: 'b1', name: '小王的 Claude', ownerId: 'u1', ownerName: '小王' } as BotDto],
+    groups: [group()],
     botStates: {},
     gitOps: {},
   })
@@ -145,18 +147,34 @@ const routes = (extra: Record<string, unknown> = {}) => ({
   'GET /groups/g1/git/operations': { operations: [] },
   [`GET ${BASE}/refs`]: REFS,
   [`GET ${BASE}/compare?from=HEAD`]: CHANGES,
+  [`GET ${BASE}/diff?from=HEAD&path=src%2Fa.ts`]: { patch: '', truncated: false },
   [`POST ${BASE}/refresh`]: undefined,
   ...extra,
 })
 const toasts = () => useToasts.getState().items.map((t) => t.message)
 const actionsCalled = (calls: Call[]) => calls.filter((c) => c.path === `${BASE}/actions`).map((c) => c.body)
 const refreshes = (calls: Call[]) => calls.filter((c) => c.path === `${BASE}/refresh`).map((c) => c.body)
-const actions = async () => {
-  fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
-  return within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
+const benchTabs = () => useWorkbench.getState().benches.g1?.tabs ?? []
+
+/** The bar plus the bot's Git tab once opened, as the chat page and its workbench show them. */
+function Page({ g = group() }: { g?: GroupDto }) {
+  const tab = useWorkbench((s) => s.benches.g1?.tabs.find((t) => t.kind === 'git'))
+  return (
+    <>
+      <GitBar group={g} />
+      {tab?.kind === 'git' ? <GitTab tab={tab} tabKey={`git:${tab.botId}`} active /> : null}
+    </>
+  )
+}
+
+/** Opens the Git tab from the bar's branch button. */
+const openGit = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' }))
+  return within(await screen.findByTestId('git-tab'))
 }
 const branches = async () => {
-  fireEvent.click(await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' }))
+  const tab = await openGit()
+  fireEvent.click(await tab.findByRole('button', { name: '切换 小王的 Claude 的分支' }))
   return within(await screen.findByRole('dialog', { name: '小王的 Claude 的分支' }))
 }
 const checkoutOp = op({
@@ -164,6 +182,30 @@ const checkoutOp = op({
   status: 'succeeded',
   pushesBase: false,
   requestedBy: { id: 'u1', name: '小王' },
+})
+
+describe('git status bar', () => {
+  it('opens the Git tab from the branch or the workspace menu; git actions live there only', async () => {
+    mockApi(routes())
+    render(<Page />)
+    const trigger = await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' })
+    expect(trigger.textContent).toBe('feat/refund-v2')
+    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
+    const menu = within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
+    expect(menu.queryByRole('button', { name: /拉取|推送|提交/ })).toBeNull()
+    fireEvent.click(menu.getByRole('button', { name: '打开 小王的 Claude 的 Git' }))
+    expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1' }])
+    expect(await screen.findByTestId('git-tab')).toBeTruthy()
+  })
+
+  it('stays hidden outside partition groups with a repo', async () => {
+    mockApi(routes())
+    render(<Page g={group({ mode: 'force' })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
+    const menu = within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
+    expect(menu.queryByRole('button', { name: /Git/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: '打开 小王的 Claude 的 Git' })).toBeNull()
+  })
 })
 
 describe('branch switcher', () => {
@@ -176,11 +218,9 @@ describe('branch switcher', () => {
         [`POST ${BASE}/actions`]: checkoutOp,
       }),
     )
-    render(<GitBar group={group()} />)
-    const trigger = await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' })
-    expect(trigger.textContent).toBe('feat/refund-v2')
+    render(<Page />)
     const pop = await branches()
-    await waitFor(() => expect(refreshes(calls)).toEqual([{ fetch: false }]))
+    await waitFor(() => expect(refreshes(calls)).toContainEqual({ fetch: false }))
     const local = within(await pop.findByRole('group', { name: '本地' }))
     const remote = within(pop.getByRole('group', { name: '远程' }))
     expect(local.getAllByRole('button').map((b) => b.dataset.ref)).toEqual(['main', 'feat/refund-v2'])
@@ -194,8 +234,6 @@ describe('branch switcher', () => {
     const current = local.getByRole('button', { name: /^feat\/refund-v2/ })
     expect(current.getAttribute('aria-current')).toBe('true')
     expect(within(current).getByRole('img', { name: '领先 3 个提交' })).toBeTruthy()
-    // The repo URL lives in 执行位置, not here.
-    expect(pop.queryByText('git@git.corp:pay/refund.git')).toBeNull()
     vi.useRealTimers()
 
     fireEvent.change(pop.getByRole('searchbox', { name: '搜索分支' }), { target: { value: 'pay' } })
@@ -217,7 +255,7 @@ describe('branch switcher', () => {
         [`POST ${BASE}/actions`]: () => new Promise<Response>((r) => (finish = r)),
       }),
     )
-    render(<GitBar group={group()} />)
+    render(<Page />)
     const pop = await branches()
     fireEvent.click(await pop.findByRole('button', { name: /origin\/feat\/pay/ }))
     const trigger = await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' })
@@ -229,7 +267,7 @@ describe('branch switcher', () => {
 
   it('confirms first when the work tree has uncommitted changes', async () => {
     const calls = mockApi(routes({ [`POST ${BASE}/actions`]: checkoutOp }))
-    render(<GitBar group={group()} />)
+    render(<Page />)
     fireEvent.click(await (await branches()).findByRole('button', { name: /origin\/feat\/pay/ }))
     const confirm = within(await screen.findByRole('dialog', { name: '切换分支' }))
     expect(confirm.getByText(/feat\/pay/)).toBeTruthy()
@@ -249,7 +287,7 @@ describe('branch switcher', () => {
         [`POST ${BASE}/actions`]: op({ action: 'checkout', status: 'pending_approval' }),
       }),
     )
-    render(<GitBar group={group()} />)
+    render(<Page />)
     fireEvent.click(await (await branches()).findByRole('button', { name: /origin\/feat\/pay/ }))
     const confirm = within(await screen.findByRole('dialog', { name: '申请切换分支' }))
     expect(confirm.getByText('需要 Bot 主人 小王 批准后才会切换')).toBeTruthy()
@@ -261,55 +299,44 @@ describe('branch switcher', () => {
   })
 })
 
-describe('git menu', () => {
-  it('refreshes the status on open and shows how far the branch is from its upstream', async () => {
+describe('Git tab sync bar', () => {
+  it('refreshes the status when shown and tells how far the branch is from its upstream', async () => {
     const calls = mockApi(
       routes({ 'GET /groups/g1/bot-states': [state({ git: status({ behind: 2, ahead: 3 }) })] }),
     )
-    render(<GitBar group={group()} />)
-    const menu = await actions()
+    render(<Page />)
+    const tab = await openGit()
     await waitFor(() => expect(refreshes(calls)).toEqual([{ fetch: false }]))
-    expect(menu.getByRole('button', { name: /^拉取/ }).textContent).toBe('拉取↓2')
-    expect(menu.getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…↑3')
-    expect((menu.getByRole('button', { name: '提交…' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(tab.getByRole('button', { name: /^拉取/ }).textContent).toBe('拉取↓2')
+    expect(tab.getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…↑3')
   })
 
-  it('greys out commit on a clean tree; push says nothing is new but stays available', async () => {
+  it('says a push has nothing new or publishes a branch without an upstream', async () => {
     mockApi(
       routes({
         'GET /groups/g1/bot-states': [state({ git: status({ dirty: false, dirtyCount: 0, ahead: 0 }) })],
       }),
     )
-    render(<GitBar group={group()} />)
-    const menu = await actions()
-    expect((menu.getByRole('button', { name: '提交…' }) as HTMLButtonElement).disabled).toBe(true)
-    const push = menu.getByRole('button', { name: /^推送…/ }) as HTMLButtonElement
-    expect(push.textContent).toBe('推送…无新提交')
-    expect(push.disabled).toBe(false)
-    expect(menu.getByRole('button', { name: /^拉取/ }).textContent).toBe('拉取')
-  })
+    const { unmount } = render(<Page />)
+    const tab = await openGit()
+    expect(tab.getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…无新提交')
+    expect(tab.getByRole('button', { name: /^拉取/ }).textContent).toBe('拉取')
+    unmount()
+    useWorkbench.setState({ benches: {} })
 
-  it('offers publishing a branch without an upstream', async () => {
-    mockApi(
-      routes({
-        'GET /groups/g1/bot-states': [state({ git: status({ ahead: null, behind: null }) })],
-      }),
-    )
-    render(<GitBar group={group()} />)
-    expect((await actions()).getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…未发布')
+    mockApi(routes({ 'GET /groups/g1/bot-states': [state({ git: status({ ahead: null, behind: null }) })] }))
+    render(<Page />)
+    expect((await openGit()).getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…未发布')
   })
 
   it("words a non-owner's actions as requests", async () => {
     setMe('u2')
     mockApi(routes())
-    render(<GitBar group={group()} />)
-    const menu = await actions()
-    expect(menu.getByRole('button', { name: /^申请拉取/ })).toBeTruthy()
-    expect(menu.getByRole('button', { name: '申请提交…' })).toBeTruthy()
-    expect(menu.getByRole('button', { name: /^申请推送…/ })).toBeTruthy()
-    fireEvent.click(menu.getByRole('button', { name: '申请提交…' }))
-    const dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    expect(dialog.getByRole('button', { name: '提交申请' })).toBeTruthy()
+    render(<Page />)
+    const tab = await openGit()
+    expect(tab.getByRole('button', { name: /^申请拉取/ })).toBeTruthy()
+    expect(tab.getByRole('button', { name: /^申请推送…/ })).toBeTruthy()
+    expect(tab.getByRole('button', { name: '提交申请' })).toBeTruthy()
   })
 
   it('fetches the remotes on demand, showing progress and the failure reason', async () => {
@@ -320,40 +347,64 @@ describe('git menu', () => {
           b.fetch ? new Promise<Response>((r) => (finish = r)) : undefined,
       }),
     )
-    render(<GitBar group={group()} />)
-    const menu = await actions()
+    render(<Page />)
+    const tab = await openGit()
     await waitFor(() => expect(refreshes(calls)).toHaveLength(1))
-    fireEvent.click(menu.getByRole('button', { name: '获取远程更新' }))
+    fireEvent.click(tab.getByRole('button', { name: '获取远程更新' }))
     expect(refreshes(calls).at(-1)).toEqual({ fetch: true })
-    const busy = await menu.findByRole('button', { name: '正在获取远程更新…' })
+    const busy = await tab.findByRole('button', { name: '正在获取远程更新…' })
     expect((busy as HTMLButtonElement).disabled).toBe(true)
     finish(apiError(502, 'git_failed', 'fatal: could not read from remote repository'))
     await waitFor(() => expect(toasts()).toContain('fatal: could not read from remote repository'))
-    expect(menu.getByRole('button', { name: '获取远程更新' })).toBeTruthy()
+    expect(tab.getByRole('button', { name: '获取远程更新' })).toBeTruthy()
   })
-})
 
-describe('git actions', () => {
-  it('pulls', async () => {
+  it('pulls, and tells a non-owner the request waits for approval', async () => {
     const calls = mockApi(
       routes({
         [`POST ${BASE}/actions`]: (b: { action: string }) =>
           op({ action: b.action as 'pull', status: 'succeeded' }),
       }),
     )
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: /^拉取/ }))
+    const { unmount } = render(<Page />)
+    fireEvent.click((await openGit()).getByRole('button', { name: /^拉取/ }))
     await waitFor(() => expect(actionsCalled(calls)).toEqual([{ action: 'pull' }]))
+    unmount()
+
+    setMe('u2')
+    mockApi(routes({ [`POST ${BASE}/actions`]: op({ action: 'pull', status: 'pending_approval' }) }))
+    render(<Page />)
+    fireEvent.click((await openGit()).getByRole('button', { name: /^申请拉取/ }))
+    await waitFor(() => expect(toasts()).toContain('已提交申请，等待 Bot 主人 小王 审批'))
   })
 
-  it('lists the files to commit, all picked, and commits the picked ones with the message', async () => {
+  it('shows the server message when the bot is busy', async () => {
+    mockApi(
+      routes({ [`POST ${BASE}/actions`]: apiError(409, 'conflict', '小王的 Claude 正在运行，请稍后再试') }),
+    )
+    render(<Page />)
+    fireEvent.click((await openGit()).getByRole('button', { name: /^拉取/ }))
+    await waitFor(() => expect(toasts()).toContain('小王的 Claude 正在运行，请稍后再试'))
+  })
+
+  it('opens the commit history in the workbench', async () => {
+    mockApi(routes())
+    render(<Page />)
+    fireEvent.click((await openGit()).getByRole('button', { name: '提交历史' }))
+    expect(benchTabs().at(-1)).toEqual({ kind: 'git-log', botId: 'b1', ref: null, commit: null })
+  })
+})
+
+describe('Git tab commit', () => {
+  it('lists the changes as a folder tree, all picked, and commits the picked ones with the message', async () => {
     const calls = mockApi(routes({ [`POST ${BASE}/actions`]: op({ action: 'commit', status: 'succeeded' }) }))
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    const dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    expect(await dialog.findByText('已选 3 / 3 个文件')).toBeTruthy()
-    const files = within(dialog.getByRole('list', { name: '要提交的文件' }))
+    render(<Page />)
+    const tab = await openGit()
+    expect(await tab.findByText('已选 3 / 3 个文件')).toBeTruthy()
+    const files = within(tab.getByRole('list', { name: '要提交的文件' }))
+    expect(files.getByRole('button', { name: 'src' }).getAttribute('aria-expanded')).toBe('true')
     expect(files.getAllByRole('checkbox').map((c) => (c as HTMLInputElement).checked)).toEqual([
+      true,
       true,
       true,
       true,
@@ -361,37 +412,40 @@ describe('git actions', () => {
     expect(
       within(files.getByRole('button', { name: '查看 b.ts 的改动' })).getByTitle('重命名').textContent,
     ).toBe('R')
-    expect(files.getByText('old.ts → b.ts')).toBeTruthy()
+    expect(files.getByTitle('old.ts → b.ts')).toBeTruthy()
 
     fireEvent.click(files.getByRole('checkbox', { name: 'src/new.ts' }))
-    expect(dialog.getByText('已选 2 / 3 个文件')).toBeTruthy()
-    const submit = dialog.getByRole('button', { name: '提交' }) as HTMLButtonElement
+    expect(tab.getByText('已选 2 / 3 个文件')).toBeTruthy()
+    expect((files.getByRole('checkbox', { name: 'src' }) as HTMLInputElement).indeterminate).toBe(true)
+    const submit = tab.getByRole('button', { name: '提交' }) as HTMLButtonElement
     expect(submit.disabled).toBe(true)
-    fireEvent.change(dialog.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
+    fireEvent.change(tab.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
     fireEvent.click(submit)
     await waitFor(() =>
       expect(actionsCalled(calls)).toEqual([
         { action: 'commit', message: '修复退款', paths: ['src/a.ts', 'old.ts', 'b.ts'] },
       ]),
     )
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '提交改动' })).toBeNull())
+    await waitFor(() =>
+      expect((tab.getByRole('textbox', { name: '提交说明' }) as HTMLTextAreaElement).value).toBe(''),
+    )
   })
 
-  it('selects all or none, refuses an empty pick, and commits with ⌘/Ctrl+Enter', async () => {
+  it('picks a whole folder, selects all or none, and commits with ⌘/Ctrl+Enter', async () => {
     const calls = mockApi(routes({ [`POST ${BASE}/actions`]: op({ action: 'commit', status: 'succeeded' }) }))
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    const dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    await dialog.findByText('已选 3 / 3 个文件')
-    const message = dialog.getByRole('textbox', { name: '提交说明' })
+    render(<Page />)
+    const tab = await openGit()
+    await tab.findByText('已选 3 / 3 个文件')
+    fireEvent.click(tab.getByRole('checkbox', { name: 'src' }))
+    expect(tab.getByText('已选 1 / 3 个文件')).toBeTruthy()
+    const message = tab.getByRole('textbox', { name: '提交说明' })
     fireEvent.change(message, { target: { value: '修复退款' } })
-    fireEvent.click(dialog.getByRole('button', { name: '取消全选' }))
-    expect(dialog.getByText('已选 0 / 3 个文件')).toBeTruthy()
-    expect((dialog.getByRole('button', { name: '提交' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(tab.getByRole('button', { name: '全选' }))
+    fireEvent.click(tab.getByRole('button', { name: '取消全选' }))
+    expect(tab.getByText('已选 0 / 3 个文件')).toBeTruthy()
     fireEvent.keyDown(message, { key: 'Enter', metaKey: true })
     expect(actionsCalled(calls)).toEqual([])
-    fireEvent.click(dialog.getByRole('button', { name: '全选' }))
-    expect(dialog.getByText('已选 3 / 3 个文件')).toBeTruthy()
+    fireEvent.click(tab.getByRole('button', { name: '全选' }))
     fireEvent.keyDown(message, { key: 'Enter', ctrlKey: true })
     await waitFor(() =>
       expect(actionsCalled(calls)).toEqual([
@@ -400,50 +454,37 @@ describe('git actions', () => {
     )
   })
 
-  it("opens a file's uncommitted diff and keeps the draft for when the dialog reopens", async () => {
-    mockApi(routes())
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    let dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    await dialog.findByText('已选 3 / 3 个文件')
-    fireEvent.change(dialog.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
-    fireEvent.click(dialog.getByRole('checkbox', { name: 'src/new.ts' }))
-    fireEvent.click(dialog.getByRole('button', { name: '查看 src/a.ts 的改动' }))
-    expect(useWorkbench.getState().benches.g1?.tabs).toEqual([
-      { kind: 'diff', botId: 'b1', scope: 'uncommitted', file: 'src/a.ts', repo: null },
-    ])
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '提交改动' })).toBeNull())
-
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    expect(await dialog.findByText('已选 2 / 3 个文件')).toBeTruthy()
-    expect((dialog.getByRole('textbox', { name: '提交说明' }) as HTMLTextAreaElement).value).toBe('修复退款')
-    // Cancelling drops the draft.
-    fireEvent.click(dialog.getByRole('button', { name: '取消' }))
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '提交改动' })).toBeNull())
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    expect(await dialog.findByText('已选 3 / 3 个文件')).toBeTruthy()
-    expect((dialog.getByRole('textbox', { name: '提交说明' }) as HTMLTextAreaElement).value).toBe('')
+  it("shows the picked file's diff beside the changes", async () => {
+    const calls = mockApi(
+      routes({ [`GET ${BASE}/diff?from=HEAD&path=b.ts`]: { patch: '', truncated: false } }),
+    )
+    render(<Page />)
+    const tab = await openGit()
+    await tab.findByText('已选 3 / 3 个文件')
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === `${BASE}/diff?from=HEAD&path=src%2Fa.ts`)).toBe(true),
+    )
+    fireEvent.click(tab.getByRole('button', { name: '查看 b.ts 的改动' }))
+    expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1', file: 'b.ts' }])
+    await waitFor(() => expect(calls.some((c) => c.path === `${BASE}/diff?from=HEAD&path=b.ts`)).toBe(true))
   })
 
   it('says when there is nothing to commit or the changes cannot be read', async () => {
     mockApi(routes({ [`GET ${BASE}/compare?from=HEAD`]: { changes: [] } }))
-    const { unmount } = render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    let dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    expect(await dialog.findByText('没有未提交的改动')).toBeTruthy()
-    expect((dialog.getByRole('button', { name: '提交' }) as HTMLButtonElement).disabled).toBe(true)
+    const { unmount } = render(<Page />)
+    let tab = await openGit()
+    expect(await tab.findByText('没有未提交的改动')).toBeTruthy()
+    expect((tab.getByRole('button', { name: '提交' }) as HTMLButtonElement).disabled).toBe(true)
     unmount()
+    useWorkbench.setState({ benches: {} })
 
     mockApi(routes({ [`GET ${BASE}/compare?from=HEAD`]: apiError(502, 'git_failed', '工作区不可用') }))
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    expect(await dialog.findByText('读取改动失败：工作区不可用')).toBeTruthy()
+    render(<Page />)
+    tab = await openGit()
+    expect(await tab.findByText('读取改动失败：工作区不可用')).toBeTruthy()
   })
 
-  it('keeps the commit dialog open when git fails, with its reason', async () => {
+  it('keeps the message when git fails, with its reason', async () => {
     mockApi(
       routes({
         [`POST ${BASE}/actions`]: () =>
@@ -456,20 +497,22 @@ describe('git actions', () => {
           }),
       }),
     )
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: '提交…' }))
-    const dialog = within(await screen.findByRole('dialog', { name: '提交改动' }))
-    await dialog.findByText('已选 3 / 3 个文件')
-    fireEvent.change(dialog.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
-    fireEvent.click(dialog.getByRole('button', { name: '提交' }))
+    render(<Page />)
+    const tab = await openGit()
+    await tab.findByText('已选 3 / 3 个文件')
+    fireEvent.change(tab.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
+    fireEvent.click(tab.getByRole('button', { name: '提交' }))
     await waitFor(() => expect(toasts()).toContain('没有可提交的改动'))
-    expect(screen.getByRole('dialog', { name: '提交改动' })).toBeTruthy()
+    expect((tab.getByRole('textbox', { name: '提交说明' }) as HTMLTextAreaElement).value).toBe('修复退款')
   })
+})
 
+describe('Git tab push', () => {
   it('pushes to the current branch saying what goes where, and asks for a second confirmation for the protected base', async () => {
     const calls = mockApi(routes({ [`POST ${BASE}/actions`]: op({ status: 'succeeded' }) }))
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: /^推送…/ }))
+    render(<Page />)
+    const tab = await openGit()
+    fireEvent.click(tab.getByRole('button', { name: /^推送…/ }))
     let dialog = within(await screen.findByRole('dialog', { name: '推送' }))
     expect((dialog.getByRole('textbox', { name: '分支' }) as HTMLInputElement).value).toBe('feat/refund-v2')
     expect(await dialog.findByRole('button', { name: '远程' })).toBeTruthy()
@@ -482,7 +525,7 @@ describe('git actions', () => {
     )
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '推送' })).toBeNull())
 
-    fireEvent.click((await actions()).getByRole('button', { name: /^推送…/ }))
+    fireEvent.click(tab.getByRole('button', { name: /^推送…/ }))
     dialog = within(await screen.findByRole('dialog', { name: '推送' }))
     fireEvent.change(dialog.getByRole('textbox', { name: '分支' }), { target: { value: 'main' } })
     expect(dialog.getByText(/main 是受保护的基准分支/)).toBeTruthy()
@@ -512,8 +555,8 @@ describe('git actions', () => {
         },
       }),
     )
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: /^推送…/ }))
+    render(<Page />)
+    fireEvent.click((await openGit()).getByRole('button', { name: /^推送…/ }))
     const dialog = within(await screen.findByRole('dialog', { name: '推送' }))
     expect(await dialog.findByText('首次推送，会在远程创建 feat/x 并设为上游')).toBeTruthy()
   })
@@ -528,52 +571,17 @@ describe('git actions', () => {
         }),
       }),
     )
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: /^推送…/ }))
+    render(<Page />)
+    fireEvent.click((await openGit()).getByRole('button', { name: /^推送…/ }))
     const dialog = within(await screen.findByRole('dialog', { name: '推送' }))
     fireEvent.click(dialog.getByRole('button', { name: '推送' }))
     expect(await dialog.findByText('远程有新的提交，请先拉取再推送')).toBeTruthy()
     expect(screen.getByRole('dialog', { name: '推送' })).toBeTruthy()
   })
-
-  it("tells a non-owner the request waits for the owner's approval", async () => {
-    setMe('u2')
-    mockApi(routes({ [`POST ${BASE}/actions`]: op({ action: 'pull', status: 'pending_approval' }) }))
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: /^申请拉取/ }))
-    await waitFor(() => expect(toasts()).toContain('已提交申请，等待 Bot 主人 小王 审批'))
-  })
-
-  it('shows the server message when the bot is busy', async () => {
-    mockApi(
-      routes({ [`POST ${BASE}/actions`]: apiError(409, 'conflict', '小王的 Claude 正在运行，请稍后再试') }),
-    )
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: /^拉取/ }))
-    await waitFor(() => expect(toasts()).toContain('小王的 Claude 正在运行，请稍后再试'))
-  })
-
-  it('opens the commit history in the workbench', async () => {
-    mockApi(routes())
-    render(<GitBar group={group()} />)
-    fireEvent.click((await actions()).getByRole('button', { name: '提交历史' }))
-    expect(useWorkbench.getState().benches.g1?.tabs).toEqual([
-      { kind: 'git-log', botId: 'b1', ref: null, commit: null },
-    ])
-  })
-
-  it('stays hidden outside partition groups with a repo', async () => {
-    mockApi(routes())
-    render(<GitBar group={group({ mode: 'force' })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
-    const menu = within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
-    expect(menu.queryByRole('button', { name: /拉取/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: '切换 小王的 Claude 的分支' })).toBeNull()
-  })
 })
 
 describe('git operation approvals', () => {
-  it('badges pending requests; the owner approves or rejects them', async () => {
+  it('badges pending requests; the owner approves or rejects them in the Git tab', async () => {
     const calls = mockApi(
       routes({
         'GET /groups/g1/git/operations': {
@@ -594,25 +602,31 @@ describe('git operation approvals', () => {
         'POST /git-operations/op2/decide': op({ id: 'op2', status: 'rejected' }),
       }),
     )
-    render(<GitBar group={group()} />)
+    render(<Page />)
     fireEvent.click(await screen.findByRole('button', { name: '待审批 2' }))
-    const panel = within(await screen.findByRole('dialog', { name: '小王的 Claude 的 Git 操作记录' }))
-    const first = within(panel.getByTestId('git-op-op1'))
+    const tab = within(await screen.findByTestId('git-tab'))
+    const first = within(tab.getByTestId('git-op-op1'))
     expect(first.getByText('老李')).toBeTruthy()
     expect(first.getByText('推送')).toBeTruthy()
     expect(first.getByText('origin/main')).toBeTruthy()
     expect(first.getByText('批准即确认推送基准分支')).toBeTruthy()
-    const second = within(panel.getByTestId('git-op-op2'))
+    const second = within(tab.getByTestId('git-op-op2'))
     expect(second.getByText('修复')).toBeTruthy()
     expect(second.getByText('2 个文件')).toBeTruthy()
 
     fireEvent.click(first.getByRole('button', { name: '批准' }))
     await waitFor(() =>
-      expect(calls.at(-1)).toMatchObject({ path: '/git-operations/op1/decide', body: { approve: true } }),
+      expect(calls.filter((c) => c.method === 'POST').at(-1)).toMatchObject({
+        path: '/git-operations/op1/decide',
+        body: { approve: true },
+      }),
     )
     fireEvent.click(second.getByRole('button', { name: '拒绝' }))
     await waitFor(() =>
-      expect(calls.at(-1)).toMatchObject({ path: '/git-operations/op2/decide', body: { approve: false } }),
+      expect(calls.filter((c) => c.method === 'POST').at(-1)).toMatchObject({
+        path: '/git-operations/op2/decide',
+        body: { approve: false },
+      }),
     )
     await waitFor(() => expect(screen.queryByRole('button', { name: /^待审批/ })).toBeNull())
   })
@@ -620,17 +634,17 @@ describe('git operation approvals', () => {
   it('shows others the status read-only', async () => {
     setMe('u3')
     mockApi(routes({ 'GET /groups/g1/git/operations': { operations: [op()] } }))
-    render(<GitBar group={group()} />)
+    render(<Page />)
     fireEvent.click(await screen.findByRole('button', { name: '待审批 1' }))
-    const panel = within(await screen.findByRole('dialog', { name: '小王的 Claude 的 Git 操作记录' }))
-    expect(panel.getByText('待审批')).toBeTruthy()
-    expect(panel.queryByRole('button', { name: '批准' })).toBeNull()
+    const tab = within(await screen.findByTestId('git-tab'))
+    expect(within(tab.getByTestId('git-op-op1')).getByText('待审批')).toBeTruthy()
+    expect(tab.queryByRole('button', { name: '批准' })).toBeNull()
   })
 
   it('follows group.gitOperation events and toasts the requester when it ends', async () => {
     setMe('u2')
     mockApi(routes())
-    render(<GitBar group={group()} />)
+    render(<Page />)
     await screen.findByTestId('git-b1')
     act(() =>
       useWorkspace
@@ -651,15 +665,16 @@ describe('git operation approvals', () => {
     expect(item?.message).toBe('rejected: non-fast-forward')
   })
 
-  it('opens the linked operation from ?git=', async () => {
+  it('opens the linked operation from ?git= in the Git tab', async () => {
     mockApi(routes({ 'GET /groups/g1/git/operations': { operations: [op({ status: 'succeeded' })] } }))
     render(
       <MemoryRouter initialEntries={['/g/g1?git=op1']}>
-        <GitBar group={group()} />
+        <Page />
         <LinkedGitOperation groupId="g1" />
       </MemoryRouter>,
     )
-    const panel = within(await screen.findByRole('dialog', { name: '小王的 Claude 的 Git 操作记录' }))
-    expect(panel.getByTestId('git-op-op1').dataset.focused).toBe('true')
+    const tab = within(await screen.findByTestId('git-tab'))
+    expect(tab.getByTestId('git-op-op1').dataset.focused).toBe('true')
+    expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1', focus: 'op1' }])
   })
 })

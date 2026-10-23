@@ -10,7 +10,8 @@ import {
   type WorkbenchMode,
 } from '../../app/workbench'
 import { t } from '../../i18n'
-import { Icon, Popover, Tooltip } from '../../ui'
+import { EmptyState, Icon, Popover, Tooltip } from '../../ui'
+import { NewTabMenu } from './NewTabMenu'
 import { TabBar } from './TabBar'
 import { TabContent, TabLabel } from './TabContent'
 import './workbench.css'
@@ -54,6 +55,24 @@ function useShortcuts(mode: WorkbenchMode) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+}
+
+/** An empty workbench, opened to add a tab. */
+function Empty() {
+  return (
+    <EmptyState
+      compact
+      icon="dashboard"
+      title={t('还没有打开的标签页')}
+      description={t('打开网页，或查看 Bot 的文件与 Git')}
+      action={
+        <NewTabMenu className="ui-btn ui-btn--small">
+          <Icon name="plus" size={12} weight={1.8} />
+          {t('新建标签页')}
+        </NewTabMenu>
+      }
+    />
+  )
 }
 
 /** Under 768px: a full-screen page with one tab mounted at a time (memory); tabs are listed in a dropdown. */
@@ -120,13 +139,18 @@ function PhoneWorkbench() {
             })
           }
         </Popover>
+        <NewTabMenu className="bench__btn">
+          <Icon name="plus" size={14} weight={1.8} />
+        </NewTabMenu>
       </div>
       <div className="bench__body">
         {tab ? (
           <div key={tabKey(tab)} role="tabpanel" className="bench__pane">
             <TabContent tab={tab} active />
           </div>
-        ) : null}
+        ) : (
+          <Empty />
+        )}
       </div>
     </section>
   )
@@ -191,6 +215,7 @@ function DesktopWorkbench() {
         </div>
       </div>
       <div className="bench__body">
+        {bench.tabs.length ? null : <Empty />}
         {bench.tabs.map((tab) => {
           const key = tabKey(tab)
           // A sleeping web tab renders nothing, so its iframe unmounts; activating it wakes (reloads) it.

@@ -162,9 +162,7 @@ export function ChatPage() {
   const viewed = useGroupOutsideList(groupId, groupsState === 'ready' && !group)
   const benchGroup = botId || machineId ? null : (group?.id ?? null)
   useEffect(() => useWorkbench.getState().setGroup(benchGroup), [benchGroup])
-  const benchShown = useWorkbench(
-    (s) => !!benchGroup && s.groupId === benchGroup && s.open && !!s.benches[benchGroup]?.tabs.length,
-  )
+  const benchShown = useWorkbench((s) => !!benchGroup && s.groupId === benchGroup && s.open)
   useEffect(() => {
     if (group) rememberGroup(group.id)
   }, [group])

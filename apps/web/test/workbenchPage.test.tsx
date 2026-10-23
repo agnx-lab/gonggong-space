@@ -92,13 +92,15 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('chat header 工作台 button', () => {
-  it('is disabled while the group has no tabs', async () => {
+  it('opens an empty workbench to add a tab while the group has none', async () => {
     renderAt('/g/g1')
     await screen.findByRole('heading', { name: '退款' })
     expect(useWorkbench.getState().groupId).toBe('g1')
-    const btn = within(header()).getByRole('button', { name: /工作台/ })
-    expect((btn as HTMLButtonElement).disabled).toBe(true)
-    expect(btn.getAttribute('title')).toContain('还没有打开的标签页')
+    const btn = within(header()).getByRole('button', { name: '工作台' })
+    expect((btn as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(btn)
+    const bench = await screen.findByRole('region', { name: '工作台' })
+    expect(within(bench).getByText('还没有打开的标签页')).toBeTruthy()
   })
 
   it('shows the tab count and toggles the workbench column', async () => {

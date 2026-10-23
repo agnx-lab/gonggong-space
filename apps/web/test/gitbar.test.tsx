@@ -5,6 +5,7 @@ import { useSession } from '../src/app/session'
 import { useWorkbench } from '../src/app/workbench'
 import { loadBotStates, useWorkspace } from '../src/app/workspace'
 import { GitBar } from '../src/features/chat/GitBar'
+import { BranchPicker } from '../src/features/git/GitControls'
 import { mockApi } from './mockApi'
 import { startRealtime } from './socket'
 
@@ -317,7 +318,7 @@ describe('git status bar', () => {
       'POST /groups/g1/bots/b1/git/refresh': undefined,
     })
     render(<GitBar group={group({ botIds: ['b1', 'b2'] })} />)
-    await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' })
+    await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' })
     const refreshes = () => calls.filter((c) => c.path.endsWith('/git/refresh'))
     expect(refreshes()).toEqual([])
     fireEvent.focus(window)
@@ -341,7 +342,7 @@ describe('git status bar', () => {
     expect(calls.filter((c) => c.path.endsWith('/git/refresh'))).toEqual([])
   })
 
-  it('folds sub-repos into the branch picker: a tree of repos, each unfolding its branches to switch or pull', async () => {
+  it('sums sub-repos up in the bar; the branch picker is a tree of repos, each unfolding its branches to switch or pull', async () => {
     const sub = (path: string, o: Partial<RepoStatus> = {}): RepoStatus => ({
       path,
       kind: 'submodule',
@@ -407,13 +408,22 @@ describe('git status bar', () => {
       ],
     })
     useWorkbench.setState({ groupId: 'g1', benches: {} })
-    render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
-    const picker = await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' })
-    expect(picker.textContent).toBe('main · 2 个子仓库有改动')
-    expect(screen.getByRole('button', { name: '切换 老李的 Codex 的分支' }).textContent).toBe(
+    const { unmount } = render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
+    expect((await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' })).textContent).toBe(
+      'main · 2 个子仓库有改动',
+    )
+    expect(screen.getByRole('button', { name: '打开 老李的 Codex 的 Git' }).textContent).toBe(
       'main · 1 个子仓库',
     )
     expect(screen.getByTestId('git-b3').textContent).toBe('阿杰的 Claude1 个子仓库')
+    const b1 = useWorkspace.getState().botStates.g1?.b1?.git
+    unmount()
+
+    // The Git tab's branch picker: a tree of the repos.
+    if (!b1) throw new Error('no git status')
+    render(<BranchPicker groupId="g1" botId="b1" name="小王的 Claude" git={b1} />)
+    const picker = screen.getByRole('button', { name: '切换 小王的 Claude 的分支' })
+    expect(picker.textContent).toBe('main · 2 个子仓库有改动')
 
     fireEvent.click(picker)
     const pop = await screen.findByRole('dialog', { name: '小王的 Claude 的分支' })

@@ -103,4 +103,18 @@ export default {
   显示方式: 'Show as',
   差异: 'Diff',
   '文件#view': 'File',
+  关闭全部标签页: 'Close all tabs',
+  新建标签页: 'New tab',
+  打开网页: 'Open web page',
+  '打开网页…': 'Open web page…',
+  网址: 'URL',
+  '标题（可选）': 'Title (optional)',
+  还没有打开的标签页: 'No tabs open yet',
+  '打开网页，或查看 Bot 的文件与 Git': "Open a web page, or a Bot's files and Git",
+  'Git · {name}': 'Git · {name}',
+  更改: 'Changes',
+  '{name} 的工作区还没有 Git 仓库': "{name}'s workspace has no Git repository yet",
+  选择一个文件查看改动: 'Pick a file to see its changes',
+  '根目录不是 Git 仓库，各子仓库的改动在分支菜单中查看':
+    'The root is not a Git repository; see each sub-repo’s changes from the branch menu',
 } satisfies Record<string, string>

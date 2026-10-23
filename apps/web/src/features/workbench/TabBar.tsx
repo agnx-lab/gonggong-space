@@ -3,6 +3,7 @@ import { isFrameKey, tabKey, useWorkbench, type WorkbenchTab } from '../../app/w
 import { t } from '../../i18n'
 import { cx } from '../../lib/cx'
 import { ContextMenu, Icon, MenuButton, Spinner } from '../../ui'
+import { NewTabMenu } from './NewTabMenu'
 import { TabLabel } from './TabContent'
 import type { TabMeta } from './types'
 
@@ -33,7 +34,7 @@ export function TabBar({
   /** Web tabs whose frame is mounted; the others are asleep. */
   live: Set<string>
 }) {
-  const { activate, closeTab, closeOthers, reorder } = useWorkbench.getState()
+  const { activate, closeTab, closeOthers, closeAll, reorder } = useWorkbench.getState()
   const list = useRef<HTMLDivElement>(null)
   const dragging = useRef<number | null>(null)
 
@@ -47,6 +48,7 @@ export function TabBar({
   const onMenu = (value: string, key: string, index: number) => {
     if (value === 'close') closeTab(key)
     else if (value === 'others') closeOthers(key)
+    else if (value === 'all') closeAll()
     else for (const t of tabs.slice(index + 1)) closeTab(tabKey(t))
   }
 
@@ -72,6 +74,7 @@ export function TabBar({
                     { label: t('关闭#close'), value: 'close' },
                     { label: t('关闭其他标签页'), value: 'others', disabled: tabs.length < 2 },
                     { label: t('关闭右侧标签页'), value: 'right', disabled: index === tabs.length - 1 },
+                    { label: t('关闭全部标签页'), value: 'all' },
                   ]}
                   onSelect={(v) => onMenu(v, key, index)}
                 >
@@ -135,6 +138,9 @@ export function TabBar({
           )
         })}
       </div>
+      <NewTabMenu className="bench__btn">
+        <Icon name="plus" size={12} weight={1.8} />
+      </NewTabMenu>
       <MenuButton
         aria-label={t('全部标签页')}
         title={t('全部标签页')}

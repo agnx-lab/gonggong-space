@@ -132,13 +132,15 @@ test('multi-repo workspace: GitBar sub repos and diff grouped per repo', async (
     const bar = page.getByTestId('git-bar')
     const multiItem = bar.getByTestId(`git-${multi.id}`)
     const subItem = bar.getByTestId(`git-${subBot.id}`)
-    const multiPicker = multiItem.getByRole('button', { name: `切换 ${multiName} 的分支` })
-    const subPicker = subItem.getByRole('button', { name: `切换 ${subName} 的分支` })
+    const multiGit = multiItem.getByRole('button', { name: `打开 ${multiName} 的 Git` })
+    const subGit = subItem.getByRole('button', { name: `打开 ${subName} 的 Git` })
+    const gitTab = page.getByTestId('git-tab').filter({ visible: true })
 
     await test.step('the branch picker lists the nested repos, not node_modules', async () => {
       // No root repo: no branch of its own, just the sub repo summary.
-      await expect(multiPicker).toHaveText('2 个子仓库有改动', { timeout: 60_000 })
-      await multiPicker.click()
+      await expect(multiGit).toHaveText('2 个子仓库有改动', { timeout: 60_000 })
+      await multiGit.click()
+      await gitTab.getByRole('button', { name: `切换 ${multiName} 的分支` }).click()
       const pop = page.getByRole('dialog', { name: `${multiName} 的分支` })
       await expect(pop.locator('.git-tree__path')).toHaveText(['app', 'libs/core'])
       await expect(pop).not.toContainText('node_modules')
@@ -184,8 +186,9 @@ test('multi-repo workspace: GitBar sub repos and diff grouped per repo', async (
     })
 
     await test.step('a root on main still shows its submodule’s branch against the submodule’s main', async () => {
-      await expect(subPicker).toHaveText(/^main · /, { timeout: 60_000 })
-      await subPicker.click()
+      await expect(subGit).toHaveText(/^main · /, { timeout: 60_000 })
+      await subGit.click()
+      await gitTab.getByRole('button', { name: `切换 ${subName} 的分支` }).click()
       const pop = page.getByRole('dialog', { name: `${subName} 的分支` })
       await expect(pop.locator('.git-tree__path')).toHaveText(['主仓库', 'sub'])
       await pop.getByRole('button', { name: '查看 sub 的改动' }).click()

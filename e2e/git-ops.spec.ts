@@ -75,8 +75,10 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
     await page.goto(`/g/${group.id}`)
     await expect(item).toContainText('main', { timeout: 60_000 })
 
-    await test.step('the owner switches to a remote branch from the bar', async () => {
-      await item.getByRole('button', { name: `切换 ${botName} 的分支` }).click()
+    const git = page.getByTestId('git-tab')
+    await test.step('the owner switches to a remote branch from the Git tab', async () => {
+      await item.getByRole('button', { name: `打开 ${botName} 的 Git` }).click()
+      await git.getByRole('button', { name: `切换 ${botName} 的分支` }).click()
       // A clean work tree switches without asking.
       await page.getByRole('button', { name: /origin\/feat\/x/ }).click()
       await expect(item).toContainText('feat/x', { timeout: 30_000 })
@@ -92,28 +94,26 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
       const dir = dirname(m.find('README.md')!)
       writeFileSync(join(dir, 'hello.txt'), 'hi\n')
       writeFileSync(join(dir, 'later.txt'), 'not yet\n')
-      // Opening the menu re-reads the status, so files written outside a turn show up.
-      await item.getByRole('button', { name: `${botName} 的工作区` }).click()
-      await page.getByRole('button', { name: '提交…' }).click()
-      const commit = page.getByRole('dialog', { name: '提交改动' })
-      await expect(commit).toContainText('已选 2 / 2 个文件', { timeout: 30_000 })
-      await commit.locator('label', { hasText: 'later.txt' }).click()
-      await expect(commit).toContainText('已选 1 / 2 个文件')
-      await commit.getByLabel('提交说明').fill('add hello')
-      await commit.getByRole('button', { name: '提交', exact: true }).click()
-      await expect(commit).toBeHidden({ timeout: 30_000 })
+      // Fetching re-reads the status, so files written outside a turn show up.
+      await git.getByRole('button', { name: '获取远程更新' }).click()
+      await expect(git).toContainText('已选 2 / 2 个文件', { timeout: 30_000 })
+      await git.locator('label', { hasText: 'later.txt' }).click()
+      await expect(git).toContainText('已选 1 / 2 个文件')
+      await git.getByLabel('提交说明').fill('add hello')
+      await git.getByRole('button', { name: '提交', exact: true }).click()
+      // What was left out stays, picked for the next commit.
+      await expect(git).toContainText('已选 1 / 1 个文件', { timeout: 30_000 })
       const left = await api.call<GitCompareDto>('get', `${base}/git/compare?from=HEAD`)
       expect(left.changes.map((c) => c.path)).toEqual(['later.txt'])
       await expect(page.getByText(/提交了 .* 的改动：add hello/).first()).toBeAttached({ timeout: 30_000 })
 
-      await item.getByRole('button', { name: `${botName} 的工作区` }).click()
-      await page.getByRole('button', { name: '提交历史' }).click()
+      await git.getByRole('button', { name: '提交历史' }).click()
       await page.locator('.git-log__row', { hasText: 'add hello' }).click()
       await expect(page.locator('.diff__line').filter({ hasText: 'hi' }).first()).toBeVisible({
         timeout: 30_000,
       })
-      await item.getByRole('button', { name: `${botName} 的工作区` }).click()
-      await page.getByRole('button', { name: '推送…' }).click()
+      await item.getByRole('button', { name: `打开 ${botName} 的 Git` }).click()
+      await git.getByRole('button', { name: /^推送…/ }).click()
       const push = page.getByRole('dialog', { name: '推送' })
       await push.getByRole('button', { name: '推送' }).click()
       await expect(push).toBeHidden({ timeout: 30_000 })

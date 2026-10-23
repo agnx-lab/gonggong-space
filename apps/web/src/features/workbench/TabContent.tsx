@@ -4,6 +4,7 @@ import { DiffTab, useDiffTabMeta } from './tabs/DiffTab'
 import { FilesTab, useFilesTabMeta } from './tabs/FilesTab'
 import { FileTab, useFileTabMeta } from './tabs/FileTab'
 import { GitLogTab, useGitLogTabMeta } from './tabs/GitLogTab'
+import { GitTab, useGitTabMeta } from './tabs/GitTab'
 import { KnowledgeTab, useKnowledgeTabMeta } from './tabs/KnowledgeTab'
 import { LinkTab, useLinkTabMeta } from './tabs/LinkTab'
 import { LiveTab, useLiveTabMeta } from './tabs/LiveTab'
@@ -32,6 +33,8 @@ export const TabContent = memo(function TabContent({ tab, active }: { tab: Workb
       return <FileTab tab={tab} tabKey={key} active={active} />
     case 'git-log':
       return <GitLogTab tab={tab} tabKey={key} active={active} />
+    case 'git':
+      return <GitTab tab={tab} tabKey={key} active={active} />
     case 'link':
       return <LinkTab tab={tab} tabKey={key} active={active} />
     case 'knowledge':
@@ -60,6 +63,8 @@ export function TabLabel({ tab, children }: { tab: WorkbenchTab; children: Rende
       return <FileMeta tab={tab}>{children}</FileMeta>
     case 'git-log':
       return <GitLogMeta tab={tab}>{children}</GitLogMeta>
+    case 'git':
+      return <GitMeta tab={tab}>{children}</GitMeta>
     case 'link':
       return <LinkMeta tab={tab}>{children}</LinkMeta>
     case 'knowledge':
@@ -76,5 +81,6 @@ const DiffMeta = ({ tab, children }: MetaProps<'diff'>) => children(useDiffTabMe
 const FilesMeta = ({ tab, children }: MetaProps<'files'>) => children(useFilesTabMeta(tab))
 const FileMeta = ({ tab, children }: MetaProps<'file'>) => children(useFileTabMeta(tab))
 const GitLogMeta = ({ tab, children }: MetaProps<'git-log'>) => children(useGitLogTabMeta(tab))
+const GitMeta = ({ tab, children }: MetaProps<'git'>) => children(useGitTabMeta(tab))
 const LinkMeta = ({ tab, children }: MetaProps<'link'>) => children(useLinkTabMeta(tab))
 const KnowledgeMeta = ({ tab, children }: MetaProps<'knowledge'>) => children(useKnowledgeTabMeta(tab))

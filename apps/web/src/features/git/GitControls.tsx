@@ -1,16 +1,13 @@
-import type { GitChange, GitCompareDto, GitStatus, GroupDto, RepoStatus } from '@gonggong/protocol'
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from 'react'
+import type { GitStatus, RepoStatus } from '@gonggong/protocol'
+import { type ReactNode, useState } from 'react'
 import { useSession } from '../../app/session'
 import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
-import { api, errorText } from '../../lib/api'
-import { toastError } from '../../lib/errors'
 import {
   Alert,
   Button,
   Checkbox,
   Dialog,
-  EmptyState,
   Icon,
   type IconName,
   Popover,
@@ -20,17 +17,7 @@ import {
   TextField,
 } from '../../ui'
 import { openTab } from '../workbench/open'
-import {
-  gitActionTaken,
-  gitBase,
-  gitUrls,
-  refreshGit,
-  refreshGitQuietly,
-  runGitAction,
-  useGitRefs,
-} from './api'
-import { ChangeMark } from './changes'
-import { openGitPanel } from './GitOperations'
+import { gitActionTaken, refreshGitQuietly, runGitAction, useGitRefs } from './api'
 import { RefList } from './RefList'
 import './git.css'
 
@@ -42,7 +29,7 @@ interface BotGit {
 }
 
 /** Anyone but the bot's owner only requests git actions, which the owner then approves. */
-function useOwner(botId: string) {
+export function useOwner(botId: string) {
   const me = useSession((s) => s.user?.id)
   const bot = useWorkspace((s) => s.bots.find((b) => b.id === botId))
   return { owner: !!me && bot?.ownerId === me, ownerName: bot?.ownerName ?? '' }
@@ -55,8 +42,25 @@ interface Checkout {
   dirty: boolean
 }
 
+/** The branch, with sub-repos how many there are or how many have changes. */
+export function BranchLabel({ git }: { git: GitStatus }) {
+  const subs = git.repos
+  const changed = subs.filter((r) => r.dirty || !!r.ahead).length
+  const label = changed ? t('{n} 个子仓库有改动', { n: changed }) : t('{n} 个子仓库', { n: subs.length })
+  return (
+    <>
+      {git.branch ?? (subs.length ? null : '—')}
+      {subs.length ? (
+        <span className="git-bar__subs" data-changed={changed > 0}>
+          {git.branch ? ` · ${label}` : label}
+        </span>
+      ) : null}
+    </>
+  )
+}
+
 /**
- * The bar's branch name: opens the branches, or with sub-repos a tree of every repo, each unfolding its branches. A
+ * The Git tab's branch name: opens the branches, or with sub-repos a tree of every repo, each unfolding its branches. A
  * clean tree switches at once, uncommitted work asks first.
  */
 export function BranchPicker({ groupId, botId, name, git }: BotGit) {
@@ -74,8 +78,6 @@ export function BranchPicker({ groupId, botId, name, git }: BotGit) {
     else void checkout(c)
   }
   const subs = git.repos
-  const changed = subs.filter((r) => r.dirty || !!r.ahead).length
-  const subsLabel = changed ? t('{n} 个子仓库有改动', { n: changed }) : t('{n} 个子仓库', { n: subs.length })
   return (
     <>
       <Popover
@@ -98,12 +100,7 @@ export function BranchPicker({ groupId, botId, name, git }: BotGit) {
               </>
             ) : (
               <>
-                {git.branch ?? (subs.length ? null : '—')}
-                {subs.length ? (
-                  <span className="git-bar__subs" data-changed={changed > 0}>
-                    {git.branch ? ` · ${subsLabel}` : subsLabel}
-                  </span>
-                ) : null}
+                <BranchLabel git={git} />
                 <Icon name="chevron-down" size={10} />
               </>
             )}
@@ -174,7 +171,7 @@ export function BranchPicker({ groupId, botId, name, git }: BotGit) {
   )
 }
 
-function Counts({ ahead, behind }: { ahead: number | null; behind: number | null }) {
+export function Counts({ ahead, behind }: { ahead: number | null; behind: number | null }) {
   return (
     <>
       {behind ? (
@@ -319,152 +316,10 @@ function BranchList({
   )
 }
 
-/** What a commit dialog left behind to look at a file's diff: restored when it reopens. */
-const drafts = new Map<string, { message: string; skipped: string[] }>()
-
-function CommitDialog({
-  groupId,
-  botId,
-  owner,
-  onClose,
-}: Omit<BotGit, 'name' | 'git'> & { owner: boolean; onClose: () => void }) {
-  const key = `${groupId}/${botId}`
-  const [draft] = useState(() => drafts.get(key))
-  const [message, setMessage] = useState(draft?.message ?? '')
-  // Unpicked rather than picked: files that turn up later start picked.
-  const [skipped, setSkipped] = useState(() => new Set(draft?.skipped))
-  const [list, setList] = useState<{ changes: GitChange[] | null; error: string | null }>({
-    changes: null,
-    error: null,
-  })
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    let live = true
-    refreshGitQuietly(groupId, botId)
-    api.get<GitCompareDto>(gitUrls.compare(gitBase(groupId, botId), 'HEAD', null)).then(
-      (r) => live && setList({ changes: r.changes, error: null }),
-      (e: unknown) => live && setList({ changes: null, error: errorText(e) }),
-    )
-    return () => {
-      live = false
-    }
-  }, [groupId, botId])
-  const changes = list.changes ?? []
-  const picked = changes.filter((c) => !skipped.has(c.path))
-  const all = picked.length === changes.length
-  const ready = !busy && !!message.trim() && picked.length > 0
-  const close = () => {
-    drafts.delete(key)
-    onClose()
-  }
-  const submit = async () => {
-    if (!ready) return
-    setBusy(true)
-    // A rename commits both sides: the old path's removal and the new one.
-    const paths = picked.flatMap((c) => (c.oldPath ? [c.oldPath, c.path] : [c.path]))
-    const op = await runGitAction(groupId, botId, { action: 'commit', message: message.trim(), paths })
-    if (gitActionTaken(op)) close()
-    else setBusy(false)
-  }
-  const view = (c: GitChange) => {
-    drafts.set(key, { message, skipped: [...skipped] })
-    onClose()
-    openTab({ kind: 'diff', botId, scope: 'uncommitted', file: c.path, repo: null })
-  }
-  const toggle = (path: string, on: boolean) =>
-    setSkipped((s) => {
-      const next = new Set(s)
-      if (on) next.delete(path)
-      else next.add(path)
-      return next
-    })
-  const keyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return
-    e.preventDefault()
-    void submit()
-  }
-  return (
-    <Dialog
-      open
-      title={t('提交改动')}
-      message={
-        changes.length
-          ? t('已选 {n} / {total} 个文件', { n: picked.length, total: changes.length })
-          : undefined
-      }
-      width={520}
-      closeOnBackdrop={false}
-      onClose={close}
-      footer={
-        changes.length ? (
-          <Button
-            size="small"
-            variant="plain"
-            onClick={() => setSkipped(all ? new Set(changes.map((c) => c.path)) : new Set())}
-          >
-            {all ? t('取消全选') : t('全选')}
-          </Button>
-        ) : undefined
-      }
-      actions={[
-        { label: t('取消'), onClick: close },
-        {
-          label: owner ? t('提交') : t('提交申请'),
-          variant: 'primary',
-          disabled: !ready,
-          onClick: () => void submit(),
-        },
-      ]}
-    >
-      <div className="git-form">
-        {list.error ? (
-          <Alert variant="error" description={t('读取改动失败：{error}', { error: list.error })} />
-        ) : !list.changes ? (
-          <div className="git-refs__note">
-            <Spinner size={14} />
-          </div>
-        ) : changes.length ? (
-          <ul className="git-commit__files" aria-label={t('要提交的文件')}>
-            {changes.map((c) => (
-              <li key={c.path} className="git-commit__file">
-                <Checkbox
-                  checked={!skipped.has(c.path)}
-                  onChange={(on) => toggle(c.path, on)}
-                  label={<span className="git-sr">{c.path}</span>}
-                />
-                <button
-                  type="button"
-                  className="git-change"
-                  title={c.path}
-                  aria-label={t('查看 {path} 的改动', { path: c.path })}
-                  onClick={() => view(c)}
-                >
-                  <ChangeMark change={c.change} />
-                  <span className="git-commit__path">{c.oldPath ? `${c.oldPath} → ${c.path}` : c.path}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState compact icon="checkmark-circle" title={t('没有未提交的改动')} />
-        )}
-        <TextField
-          multiline
-          label={t('提交说明')}
-          value={message}
-          autoGrow
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={keyDown}
-        />
-      </div>
-    </Dialog>
-  )
-}
-
 /** git's words for a push the remote refused because it moved on. */
 const REJECTED = /rejected|non-fast-forward|fetch first/i
 
-function PushDialog({
+export function PushDialog({
   groupId,
   botId,
   git,
@@ -575,14 +430,11 @@ function MenuItem({
   )
 }
 
-type Open = 'commit' | 'push' | null
-
 /**
- * The bar's one menu per bot: where it works (`head`), its changes and files, and with `git` fetch, pull, commit, push,
- * history and the operation log, with how far the branch is from its upstream; non-owners' actions read as requests.
+ * The bar's one menu per bot: where it works (`head`), its changes and files, and with `git` its Git tab, where
+ * everything git (branches, sync, commit, history, operation log) happens.
  */
 export function WorkspaceMenu({
-  group,
   botId,
   name,
   git,
@@ -591,7 +443,6 @@ export function WorkspaceMenu({
   onDiff,
   onFiles,
 }: Omit<BotGit, 'groupId' | 'git'> & {
-  group: GroupDto
   git: GitStatus | null
   head: ReactNode
   /** The changes entry, disabled without `onDiff`. */
@@ -599,118 +450,54 @@ export function WorkspaceMenu({
   onDiff?: () => void
   onFiles?: () => void
 }) {
-  const { owner } = useOwner(botId)
-  const [open, setOpen] = useState<Open>(null)
-  const [fetching, setFetching] = useState(false)
-  const groupId = group.id
-  const fetchRemote = async () => {
-    setFetching(true)
-    try {
-      await refreshGit(groupId, botId, true)
-    } catch (e) {
-      toastError(e)
-    }
-    setFetching(false)
-  }
   const label = t('{name} 的工作区', { name })
   return (
-    <>
-      <Popover
-        portal
-        placement="bottom-end"
-        width={320}
-        aria-label={label}
-        onOpenChange={(o) => o && git && refreshGitQuietly(groupId, botId)}
-        trigger={
-          <button type="button" className="git-bar__act" aria-label={label} title={t('工作区')}>
-            <Icon name="more" size={13} />
-          </button>
+    <Popover
+      portal
+      placement="bottom-end"
+      width={320}
+      aria-label={label}
+      trigger={
+        <button type="button" className="git-bar__act" aria-label={label} title={t('工作区')}>
+          <Icon name="more" size={13} />
+        </button>
+      }
+    >
+      {(close) => {
+        const then = (run: () => void) => () => {
+          close()
+          run()
         }
-      >
-        {(close) => {
-          const then = (run: () => void) => () => {
-            close()
-            run()
-          }
-          return (
-            <div className="git-subs">
-              <div className="git-menu__head">{head}</div>
-              {showDiff ? (
-                <MenuItem
-                  icon="doc-text"
-                  label={t('查看改动')}
-                  aria={t('查看 {name} 的改动', { name })}
-                  disabled={!onDiff}
-                  onClick={then(() => onDiff?.())}
-                />
-              ) : null}
+        return (
+          <div className="git-subs">
+            <div className="git-menu__head">{head}</div>
+            {showDiff ? (
               <MenuItem
-                icon="folder"
-                label={t('浏览文件')}
-                aria={t('浏览 {name} 的文件', { name })}
-                disabled={!onFiles}
-                onClick={then(() => onFiles?.())}
+                icon="doc-text"
+                label={t('查看改动')}
+                aria={t('查看 {name} 的改动', { name })}
+                disabled={!onDiff}
+                onClick={then(() => onDiff?.())}
               />
-              {git ? (
-                <>
-                  <div className="git-menu__sep" />
-                  <MenuItem
-                    icon="arrow-clockwise"
-                    label={fetching ? t('正在获取远程更新…') : t('获取远程更新')}
-                    disabled={fetching}
-                    spin={fetching}
-                    onClick={() => void fetchRemote()}
-                  />
-                  <MenuItem
-                    icon="arrow-down"
-                    label={owner ? t('拉取') : t('申请拉取')}
-                    note={git.behind ? `↓${git.behind}` : null}
-                    onClick={then(() => void runGitAction(groupId, botId, { action: 'pull' }))}
-                  />
-                  <MenuItem
-                    icon="checkmark-circle"
-                    label={owner ? t('提交…') : t('申请提交…')}
-                    disabled={!git.dirty}
-                    onClick={then(() => setOpen('commit'))}
-                  />
-                  <MenuItem
-                    icon="arrow-up"
-                    label={owner ? t('推送…') : t('申请推送…')}
-                    note={
-                      git.ahead == null ? t('未发布#branch') : git.ahead ? `↑${git.ahead}` : t('无新提交')
-                    }
-                    onClick={then(() => setOpen('push'))}
-                  />
-                  <MenuItem
-                    icon="clock"
-                    label={t('提交历史')}
-                    onClick={then(() => openTab({ kind: 'git-log', botId, ref: null, commit: null }))}
-                  />
-                  <MenuItem
-                    icon="list"
-                    label={t('操作记录')}
-                    onClick={then(() => openGitPanel(groupId, botId))}
-                  />
-                </>
-              ) : null}
-            </div>
-          )
-        }}
-      </Popover>
-      <Presence>
-        {git && open === 'commit' ? (
-          <CommitDialog groupId={groupId} botId={botId} owner={owner} onClose={() => setOpen(null)} />
-        ) : git && open === 'push' ? (
-          <PushDialog
-            groupId={groupId}
-            botId={botId}
-            git={git}
-            owner={owner}
-            base={group.protectBase ? (group.repo?.branch ?? null) : null}
-            onClose={() => setOpen(null)}
-          />
-        ) : null}
-      </Presence>
-    </>
+            ) : null}
+            <MenuItem
+              icon="folder"
+              label={t('浏览文件')}
+              aria={t('浏览 {name} 的文件', { name })}
+              disabled={!onFiles}
+              onClick={then(() => onFiles?.())}
+            />
+            {git ? (
+              <MenuItem
+                icon="git-branch"
+                label={t('Git 面板')}
+                aria={t('打开 {name} 的 Git', { name })}
+                onClick={then(() => openTab({ kind: 'git', botId }))}
+              />
+            ) : null}
+          </div>
+        )
+      }}
+    </Popover>
   )
 }
