@@ -363,6 +363,24 @@ export const SecretRequestArgs = z.object({
     .describe('要填写的密钥名称，须已在本群可见的定义里（secret_list 列出）'),
   forceNewSession,
 })
+export const PluginCatalogArgs = z.object({
+  plugin: z.string().max(40).describe('插件 name；省略时列出本群启用的插件').optional(),
+})
+export const CreationProposeArgs = z.object({
+  plugin: z.string().max(40).describe('插件 name（plugin_catalog 列出）'),
+  template: z.string().max(40).describe('模板 id；插件没有模板时省略').optional(),
+  designSystem: z
+    .string()
+    .max(40)
+    .describe('设计系统 id；模板不用设计系统时省略，需要但省略时用第一个')
+    .optional(),
+  inputs: z
+    .record(z.string(), z.union([z.string().max(2000), z.boolean()]))
+    .describe('输入项 id → 值，只填该模板的输入项；拿不准的必填项留空，卡片会提示成员补充')
+    .optional(),
+  directions: z.boolean().describe('是否先出 2–3 个视觉方向让大家选，默认否').optional(),
+  note: z.string().max(200).describe('给群成员的一句话说明，如为什么选这个模板').optional(),
+})
 
 const MCP_WRITE =
   '以发起本轮的人的身份执行：群层需其为本群管理员，团队层需其为团队管理员，平台层需其为系统管理员。改动下一轮新会话生效。'
@@ -604,6 +622,21 @@ export const GONGGONG_TOOLS = {
       '在群里发一张「填写密钥」卡片：personal / 可覆盖的密钥请发起本轮的人填写自己的值，shared 密钥请该层管理员填写；值不经过你，也不进聊天记录和日志。' +
       '工具立即返回，不等待填写；填写后下一轮注入。不要在对话里索要密钥。',
     input: SecretRequestArgs,
+  },
+  plugin_catalog: {
+    title: GONGGONG_TOOL_TITLES.plugin_catalog,
+    description:
+      '本群启用的创作插件（幻灯片、产品原型等）。不传 plugin：列出插件、模板数、设计系统数和本 Bot 能否使用；' +
+      '传 plugin：列出它的模板（id、标题、分组、要填的输入项、是否用设计系统）、设计系统（id、标题、分类、色板）和输入项定义。' +
+      '群成员在对话里提出创作需求时先用它挑模板，再用 creation_propose 发确认卡。',
+    input: PluginCatalogArgs,
+  },
+  creation_propose: {
+    title: GONGGONG_TOOL_TITLES.creation_propose,
+    description:
+      '在群里发一张「创作确认卡」：写明插件、模板、设计系统和参数，群成员点「开始」后会以该成员的名义发出正式的创作请求并 @ 你，' +
+      '也可以先「改参数」或「不用了」。工具立即返回；在收到正式的创作请求之前不要开始出稿。',
+    input: CreationProposeArgs,
   },
 } as const
 

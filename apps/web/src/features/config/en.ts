@@ -33,6 +33,8 @@ export default {
   '删除 MCP': 'Delete MCP server',
   密钥列表: 'List secrets',
   请求填写密钥: 'Request secrets',
+  插件目录: 'Plugin catalog',
+  发起创作确认: 'Propose a creation',
   已填写: 'Filled in',
   '已停用，请改用密钥': 'Retired, use secrets instead',
   'Skill 版本历史': 'Skill version history',

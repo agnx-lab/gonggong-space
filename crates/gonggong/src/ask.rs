@@ -969,6 +969,8 @@ mod tests {
                 "mcp_delete",
                 "secret_list",
                 "secret_request",
+                "plugin_catalog",
+                "creation_propose",
                 "service_start",
                 "service_list",
                 "service_logs",

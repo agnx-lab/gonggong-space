@@ -32,10 +32,10 @@ A creation request is a chat message that @-mentions you. It names:
 - the **template** id (possibly with its Chinese title);
 - the **design system directory**, e.g. `design-systems/warm-editorial`;
 - whether to explore visual directions first — `先出 2–3 个视觉方向：是` / `否`;
-- parameters as `label：value` lines: `主题` (title, required), `内容要点` (points), `目标受众` (audience), `语气` (tone: `专业` / `亲切` / `活泼`);
+- parameters as `label：value` lines: `主题` (title, required), `内容要点` (points), `页面清单` (screens: the screens or pages to draw, one per line), `目标受众` (audience), `语气` (tone: `专业` / `亲切` / `活泼`) — each template asks only some of them;
 - optionally attachments (logos, screenshots, photos, copy, data) — use them, they beat anything you would fetch or invent.
 
-A plain request without this structure is fine too: pick the closest template from the index below, use `design-systems/neutral-modern`, and do not explore directions.
+A plain request in the chat (no creation message) is confirmed first: pick the closest template from the index below and a design system (`neutral-modern` when nothing fits better; gonggong's `plugin_catalog` with `plugin: web-prototype` lists them all with each template's parameters), fill in what the conversation already says, and post a 创作确认卡 with `creation_propose`, leaving unknown required parameters blank. Build nothing until the creation message arrives. Without those tools, build directly with the closest template, `design-systems/neutral-modern` and no directions.
 
 ## Template index
 

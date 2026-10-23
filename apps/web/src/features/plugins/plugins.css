@@ -64,8 +64,8 @@
 /* 创作 panel */
 .plg-sheet {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr) 236px;
-  height: min(540px, calc(100dvh - 200px));
+  grid-template-columns: 200px minmax(0, 1fr) 280px;
+  height: min(820px, calc(100dvh - 200px));
   border: 1px solid var(--separator);
   border-radius: var(--radius-menu);
   overflow: hidden;
@@ -203,11 +203,11 @@
 }
 .plg-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--space-8);
 }
 .plg-grid--tpl {
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
 }
 .plg-card {
   position: relative;
@@ -381,7 +381,21 @@
   .plg-sheet {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
-    height: calc(100dvh - 200px);
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  /* Full screen on a phone. */
+  .ui-overlay:has(.plg-sheet) {
+    padding: 0;
+  }
+  .ui-dialog:has(.plg-sheet) {
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
+  .plg-grid--tpl {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
   .plg-steps {
     flex-direction: row;
@@ -438,6 +452,10 @@
 }
 .plg-req__muted {
   color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+}
+.plg-req__warn {
+  color: var(--tint-orange-text);
   font-size: var(--text-subheadline-size);
 }
 .plg-req__all {

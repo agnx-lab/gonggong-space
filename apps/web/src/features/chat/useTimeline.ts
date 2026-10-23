@@ -84,6 +84,7 @@ const edit = (s: TimelineState, { message: e }: Edited): TimelineState => ({
           mcpSecret: e.mcpSecret,
           secretCard: e.secretCard,
           progress: e.progress,
+          card: e.card,
           actions: e.actions,
         }
       : m.quote?.kind === 'message' && m.quote.id === e.id

@@ -1,11 +1,13 @@
-import type {
-  CreationCard,
-  CreationReq,
-  GroupPluginDto,
-  PluginBlocker,
-  PluginCategory,
-  PluginDto,
-  PluginManifest,
+import {
+  type CreationCard,
+  type CreationReq,
+  type GroupPluginDto,
+  type PluginBlocker,
+  type PluginCategory,
+  type PluginDto,
+  type PluginManifest,
+  templateInputs,
+  usesDesignSystem,
 } from '@gonggong/protocol'
 import { t } from '../../i18n'
 import type { IconName } from '../../ui'
@@ -63,7 +65,10 @@ export const previewUrl = (pluginId: string, path: string) =>
 export type CreationDraft = Omit<CreationReq, 'attachmentIds' | 'botId'> & { botId: string | null }
 
 /** The request a creation card was made from: labels map back to input ids; values the manifest no longer knows are dropped. */
-export function draftOfCard(card: CreationCard, p: GroupPluginDto): CreationDraft {
+export function draftOfCard(
+  card: Pick<CreationCard, 'inputs' | 'template' | 'designSystem' | 'directions' | 'botId'>,
+  p: GroupPluginDto,
+): CreationDraft {
   const inputs: CreationReq['inputs'] = {}
   for (const { label, value } of card.inputs) {
     const input = p.manifest.inputs.find((i) => i.label === label)
@@ -83,21 +88,28 @@ export function draftOfCard(card: CreationCard, p: GroupPluginDto): CreationDraf
 export function newDraft(p: GroupPluginDto, botId: string | null): CreationDraft {
   const inputs: CreationReq['inputs'] = {}
   for (const i of p.manifest.inputs) if (i.default !== null) inputs[i.id] = i.default
+  const tpl = p.manifest.templates[0]
   return {
     pluginId: p.id,
-    templateId: p.manifest.templates[0]?.id ?? null,
-    designSystemId: p.manifest.designSystems[0]?.id ?? null,
+    templateId: tpl?.id ?? null,
+    designSystemId: usesDesignSystem(p.manifest, tpl) ? (p.manifest.designSystems[0]?.id ?? null) : null,
     inputs,
     directions: false,
     botId,
   }
 }
 
-/** Blank strings are left out, as if never filled. */
-export function requestOf(d: CreationDraft, attachmentIds: string[]): CreationReq | null {
+/** Only the template's inputs; blank strings are left out, as if never filled. */
+export function requestOf(d: CreationDraft, attachmentIds: string[], m: PluginManifest): CreationReq | null {
   if (!d.botId) return null
+  const asked = new Set(
+    templateInputs(
+      m,
+      m.templates.find((x) => x.id === d.templateId),
+    ).map((i) => i.id),
+  )
   const inputs = Object.fromEntries(
-    Object.entries(d.inputs).filter(([, v]) => typeof v === 'boolean' || v.trim() !== ''),
+    Object.entries(d.inputs).filter(([k, v]) => asked.has(k) && (typeof v === 'boolean' || v.trim() !== '')),
   )
   return { ...d, inputs, botId: d.botId, attachmentIds }
 }

@@ -1,4 +1,4 @@
-import type { BotDto, GroupDto, MessageDto, UserDto, WebEvent } from '@gonggong/protocol'
+import type { BotDto, CreationDraftCard, GroupDto, MessageDto, UserDto, WebEvent } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -210,5 +210,32 @@ describe('edit (编辑)', () => {
     expect(await screen.findByText('李建国 已选择 B')).toBeTruthy()
     push({ t: 'message.edited', message: { ...progress, progress: { ...card, detail: '部署中' } } })
     expect(await screen.findByText('部署中')).toBeTruthy()
+
+    const draft: CreationDraftCard = {
+      type: 'creation-draft',
+      pluginId: 'p1',
+      pluginTitle: '网页原型',
+      category: 'web',
+      pluginVersion: '1.0.0',
+      template: null,
+      designSystem: null,
+      inputs: [],
+      directions: false,
+      botId: 'b1',
+      botName: '小助手',
+      missing: [],
+      note: null,
+      status: 'pending',
+      by: null,
+      creationId: null,
+    }
+    const proposal = msg({ seq: 3, id: 'm3', kind: 'event', authorId: null, body: '', card: draft })
+    push({ t: 'message.new', message: proposal })
+    expect(await screen.findByText('创作确认 · 网页原型')).toBeTruthy()
+    push({
+      t: 'message.edited',
+      message: { ...proposal, card: { ...draft, status: 'started', by: '李建国' } },
+    })
+    expect(await screen.findByText('李建国 已开始创作')).toBeTruthy()
   })
 })

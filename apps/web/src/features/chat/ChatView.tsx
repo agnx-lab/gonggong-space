@@ -45,6 +45,7 @@ import { GroupTabBar } from '../group-tabs/GroupTabBar'
 import { GroupAvatar } from '../groups/GroupAvatar'
 import { GroupInfo, type InfoView, type SettingsTab } from '../groups/GroupInfo'
 import { GroupNotice } from '../groups/GroupNotice'
+import { CreationDraftView } from '../plugins/CreationCard'
 import { CreationHost } from '../plugins/CreationHost'
 import { useEnabledPlugins, useGroupPlugins } from '../plugins/store'
 import { PreviewTags } from '../previews/PreviewTags'
@@ -447,6 +448,7 @@ export function ChatView({
     if (m.mcpSecret) return <McpSecretCard m={m} card={m.mcpSecret} />
     if (m.secretCard) return <SecretCard m={m} card={m.secretCard} />
     if (m.progress) return <ProgressCard card={m.progress} />
+    if (m.card?.type === 'creation-draft') return <CreationDraftView m={m} card={m.card} />
     if (m.kind === 'event') return <EventRow m={m} />
     if (m.recalled) return <RecallRow m={m} mine={m.authorId === meId} />
     if (m.kind === 'bot') return <BotReply m={m} compact={compact} />

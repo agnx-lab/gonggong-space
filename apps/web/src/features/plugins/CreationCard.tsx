@@ -1,4 +1,4 @@
-import type { CreationCard as Card, MessageDto } from '@gonggong/protocol'
+import type { CreationCard as Card, CreationDraftCard, MessageDto } from '@gonggong/protocol'
 import { useState } from 'react'
 import { t } from '../../i18n'
 import { attempt } from '../../lib/errors'
@@ -6,7 +6,7 @@ import { Button } from '../../ui'
 import { MessageAttachments } from '../attachments/MessageAttachments'
 import { draftOfCard, requestOf } from './model'
 import { PluginTile } from './PluginTile'
-import { createInGroup, openCreation, useEnabledPlugins } from './store'
+import { createInGroup, dismissDraft, openCreation, useEnabledPlugins } from './store'
 import './plugins.css'
 
 /**
@@ -22,7 +22,7 @@ export function CreationCardView({ m, card }: { m: MessageDto; card: Card }) {
   const summary = [card.template?.title, card.designSystem?.title].filter(Boolean).join(' · ')
   const files = m.attachments.length
   const again = async () => {
-    const req = draft && requestOf(draft, [])
+    const req = draft && plugin && requestOf(draft, [], plugin.manifest)
     if (!req) return
     setBusy(true)
     await attempt(() => createInGroup(m.groupId, req))
@@ -73,7 +73,7 @@ export function CreationCardView({ m, card }: { m: MessageDto; card: Card }) {
         <Button
           size="small"
           disabled={!draft}
-          onClick={() => draft && openCreation({ groupId: m.groupId, draft, step: 2 })}
+          onClick={() => draft && openCreation({ groupId: m.groupId, draft, step: 'content' })}
         >
           {t('改参数重做…')}
         </Button>
@@ -83,6 +83,95 @@ export function CreationCardView({ m, card }: { m: MessageDto; card: Card }) {
             version: card.pluginVersion,
           })}
         </span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A bot's 创作确认卡 (creation_propose): what it suggests, with 开始 (as the member, once nothing required is
+ * missing), 改参数… (the panel prefilled) and 不用了; settled cards say who did what.
+ */
+export function CreationDraftView({ m, card }: { m: MessageDto; card: CreationDraftCard }) {
+  const [busy, setBusy] = useState(false)
+  const plugin = useEnabledPlugins(m.groupId).find((p) => p.id === card.pluginId)
+  const draft = plugin && { ...draftOfCard(card, plugin), fromDraft: m.id }
+  const [head] = card.inputs
+  const summary = [card.template?.title, card.designSystem?.title].filter(Boolean).join(' · ')
+  const run = async (f: () => Promise<unknown>) => {
+    setBusy(true)
+    await attempt(f)
+    setBusy(false)
+  }
+  const start = () => {
+    const req = draft && plugin && requestOf(draft, [], plugin.manifest)
+    if (req) void run(() => createInGroup(m.groupId, req))
+  }
+  const pending = card.status === 'pending'
+  return (
+    <div className="plg-req" data-testid="creation-draft">
+      <div className="plg-req__head">
+        <PluginTile m={card} size={22} />
+        <b>{t('创作确认 · {title}', { title: card.pluginTitle })}</b>
+        <span className="plg-req__to">{t('{bot} 提议', { bot: card.botName })}</span>
+      </div>
+      <div className="plg-req__body">
+        <div className="plg-req__line">
+          {[summary, head ? `「${head.value}」` : ''].filter(Boolean).join(' ·')}
+        </div>
+        {card.note ? <div className="plg-req__muted">{card.note}</div> : null}
+        <div className="plg-req__all">
+          {card.inputs.map((i) => (
+            <div key={i.label}>{`${i.label}：${i.value}`}</div>
+          ))}
+          {card.directions ? <div>{t('先出视觉方向：是')}</div> : null}
+        </div>
+        {pending && card.missing.length ? (
+          <div className="plg-req__warn">{t('待补充：{names}', { names: card.missing.join(t('、')) })}</div>
+        ) : null}
+      </div>
+      <div className="plg-req__foot">
+        {pending ? (
+          <>
+            <Button
+              size="small"
+              variant="primary"
+              disabled={!draft || busy || card.missing.length > 0}
+              title={card.missing.length ? t('先在「改参数」里补充') : undefined}
+              onClick={start}
+            >
+              {t('开始')}
+            </Button>
+            <Button
+              size="small"
+              disabled={!draft || busy}
+              onClick={() =>
+                draft &&
+                openCreation({
+                  groupId: m.groupId,
+                  draft,
+                  step: card.missing.length ? 'content' : 'template',
+                })
+              }
+            >
+              {t('改参数…')}
+            </Button>
+            <Button
+              size="small"
+              disabled={busy}
+              onClick={() => void run(() => dismissDraft(m.groupId, m.id))}
+            >
+              {t('不用了')}
+            </Button>
+            {plugin ? null : <span className="plg-req__ver">{t('这个插件已在本群停用')}</span>}
+          </>
+        ) : (
+          <span className="plg-req__ver">
+            {card.status === 'started'
+              ? t('{name} 已开始创作', { name: card.by ?? '' })
+              : t('{name} 选了不用', { name: card.by ?? '' })}
+          </span>
+        )}
       </div>
     </div>
   )

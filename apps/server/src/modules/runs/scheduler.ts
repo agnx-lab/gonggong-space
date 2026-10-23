@@ -22,6 +22,7 @@ import {
   users,
 } from '../../db/schema.js'
 import { FEISHU_HINT } from '../agent-tools/feishu.js'
+import { pluginHint } from '../agent-tools/plugins.js'
 import { botCatalog, resolveConfig } from '../bots/config.js'
 import { publishBot } from '../bots/dto.js'
 import { gitIdentity } from '../bots/git.js'
@@ -308,6 +309,7 @@ export async function buildRunStart(
         ...(feishu ? [FEISHU_HINT] : []),
         ...(protectBase && repo ? [branchHint(repo.baseBranch)] : []),
         ...(command ? [] : [UI_BLOCKS_GUIDE]),
+        ...(command || !plugins.length ? [] : [pluginHint(plugins.map((p) => p.name))]),
         bot.systemPrompt,
       ]
         .filter((s) => s.trim())

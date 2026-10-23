@@ -1,6 +1,7 @@
 import type {
   BotDto,
   CreationCard,
+  CreationDraftCard,
   GroupDto,
   GroupPluginDto,
   MessageDto,
@@ -71,8 +72,18 @@ const manifest = (o: Partial<PluginManifest> = {}): PluginManifest => ({
       description: '首屏 · 功能 · 价格 · CTA',
       group: null,
       preview: 'previews/saas.png',
+      inputs: null,
+      designSystem: true,
     },
-    { id: 'event', title: '活动报名页', description: '倒计时 · 议程 · 报名表', group: null, preview: null },
+    {
+      id: 'event',
+      title: '活动报名页',
+      description: '倒计时 · 议程 · 报名表',
+      group: null,
+      preview: null,
+      inputs: null,
+      designSystem: true,
+    },
   ],
   designSystems: [
     {
@@ -370,7 +381,7 @@ describe('插件 · 创作入口', () => {
     expect(box().value).toBe('')
   })
 
-  it('walks the 4 steps and hands the request to the bot', async () => {
+  it('walks the steps and hands the request to the only bot that can take it', async () => {
     const calls = mockApi({
       ...chatRoutes([plugin()]),
       'POST /groups/g1/creations': msg({
@@ -392,7 +403,9 @@ describe('插件 · 创作入口', () => {
       '/api/plugins/p1/files/previews/saas.png',
     )
     fireEvent.click(d.getByRole('button', { name: /活动报名页/ }))
-    expect(d.getByText('1 / 4')).toBeTruthy()
+    // Only 设计助手 can use it: 交给谁 folds into the last step.
+    expect(d.getByText('1 / 3')).toBeTruthy()
+    expect(d.queryByRole('button', { name: /交给谁/ })).toBeNull()
     fireEvent.click(d.getByRole('button', { name: '下一步' }))
 
     // 2 设计系统
@@ -404,13 +417,7 @@ describe('插件 · 创作入口', () => {
     fireEvent.change(d.getByLabelText('主标题'), { target: { value: '共工' } })
     fireEvent.click(d.getByRole('radio', { name: '亲切' }))
     fireEvent.click(d.getByRole('switch', { name: '视觉方向' }))
-    fireEvent.click(d.getByRole('button', { name: '下一步' }))
-
-    // 4 交给谁: bots that can't use the plugin are greyed out with the reason.
-    expect(d.getByRole('radio', { name: /设计助手/ }).getAttribute('aria-checked')).toBe('true')
-    const codex = d.getByRole('radio', { name: /温涛的 Codex/ })
-    expect(codex.getAttribute('aria-disabled')).toBe('true')
-    expect(codex.textContent).toContain('机器版本过低，需升级到 0.4.0 才能使用插件')
+    expect(d.getByText('3 / 3')).toBeTruthy()
 
     // The summary on the right follows every step.
     const summary = d.getByLabelText('将交给 AI 的内容')
@@ -419,9 +426,10 @@ describe('插件 · 创作入口', () => {
     expect(summary.textContent).toContain('主标题：共工')
     expect(summary.textContent).toContain('语气：亲切')
     expect(summary.textContent).toContain('先出视觉方向：是')
+    expect(summary.textContent).toContain('交给：设计助手')
     expect(d.getByText('可以开始：Bot 在线，插件可用，密钥齐全')).toBeTruthy()
 
-    fireEvent.click(d.getByRole('button', { name: '交给 AI' }))
+    fireEvent.click(d.getByRole('button', { name: '交给 设计助手' }))
     await waitFor(() =>
       expect(calls).toContainEqual({
         method: 'POST',
@@ -442,8 +450,175 @@ describe('插件 · 创作入口', () => {
   })
 })
 
+describe('插件 · 步骤随插件和模板变化', () => {
+  /** A wireframe asking only for 主标题 with its own look; both bots can take it. */
+  const wired = plugin({
+    manifest: manifest({
+      templates: [
+        ...manifest().templates,
+        {
+          id: 'wire',
+          title: '线框图',
+          description: '',
+          group: null,
+          preview: null,
+          inputs: ['title'],
+          designSystem: false,
+        },
+      ],
+    }),
+    bots: [
+      { botId: 'b1', blocker: null },
+      { botId: 'b2', blocker: null },
+    ],
+  })
+
+  it('drops the design step and the other inputs for a template with its own look; asks 交给谁 among several bots', async () => {
+    const calls = mockApi({
+      ...chatRoutes([wired]),
+      'POST /groups/g1/creations': msg({ seq: 2, id: 'm2', mentions: ['b2'], card }),
+    })
+    renderAt('/g/g1')
+    fireEvent.click(await screen.findByRole('button', { name: '创作' }))
+    const d = within(await screen.findByRole('dialog', { name: '创作' }))
+    const steps = () =>
+      within(d.getByRole('navigation', { name: '步骤' }))
+        .getAllByRole('button')
+        .map((b) => b.querySelector('.plg-step__text > :first-child')?.textContent)
+    expect(steps()).toEqual(['类型与模板', '设计系统', '内容与参数', '交给谁'])
+    fireEvent.click(d.getByRole('button', { name: /线框图/ }))
+    expect(steps()).toEqual(['类型与模板', '内容与参数', '交给谁'])
+    fireEvent.click(d.getByRole('button', { name: '下一步' }))
+    expect(d.getByLabelText('主标题')).toBeTruthy()
+    expect(d.queryByLabelText('核心卖点')).toBeNull()
+    expect(d.queryByRole('radio', { name: '亲切' })).toBeNull()
+    fireEvent.change(d.getByLabelText('主标题'), { target: { value: '后台' } })
+    fireEvent.click(d.getByRole('button', { name: '下一步' }))
+    fireEvent.click(d.getByRole('radio', { name: /温涛的 Codex/ }))
+    expect(d.getByLabelText('将交给 AI 的内容').textContent).not.toContain('设计系统')
+    fireEvent.click(d.getByRole('button', { name: '交给 AI' }))
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        path: '/groups/g1/creations',
+        body: {
+          pluginId: 'p1',
+          templateId: 'wire',
+          designSystemId: null,
+          inputs: { title: '后台' },
+          directions: false,
+          botId: 'b2',
+          attachmentIds: [],
+        },
+      }),
+    )
+  })
+})
+
+describe('插件 · 创作确认卡', () => {
+  const draft = (o: Partial<CreationDraftCard> = {}): MessageDto =>
+    msg({
+      seq: 2,
+      id: 'd1',
+      kind: 'event',
+      authorId: null,
+      authorName: '',
+      body: '设计助手 提议用「网页原型」创作，等群成员确认',
+      card: {
+        ...card,
+        type: 'creation-draft',
+        inputs: [{ label: '语气', value: '亲切' }],
+        directions: false,
+        missing: [],
+        note: '活动页用报名模板',
+        status: 'pending',
+        by: null,
+        creationId: null,
+        ...o,
+      },
+    })
+
+  it('starts as the member with the bot it names, marking the card', async () => {
+    const calls = mockApi({
+      ...chatRoutes([plugin()], [draft({ inputs: [{ label: '主标题', value: '共工' }] })]),
+      'POST /groups/g1/creations': msg({ seq: 3, id: 'm3', mentions: ['b1'], card }),
+    })
+    renderAt('/g/g1')
+    const c = within(await screen.findByTestId('creation-draft'))
+    expect(c.getByText('创作确认 · 网页原型')).toBeTruthy()
+    expect(c.getByText('活动页用报名模板')).toBeTruthy()
+    fireEvent.click(c.getByRole('button', { name: '开始' }))
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        path: '/groups/g1/creations',
+        body: {
+          pluginId: 'p1',
+          templateId: 'event',
+          designSystemId: 'warm-editorial',
+          inputs: { title: '共工' },
+          directions: false,
+          botId: 'b1',
+          fromDraft: 'd1',
+          attachmentIds: [],
+        },
+      }),
+    )
+  })
+
+  it('asks for missing inputs in the prefilled panel, and drops the card on 不用了', async () => {
+    const calls = mockApi({
+      ...chatRoutes([plugin()], [draft({ missing: ['主标题'] })]),
+      'POST /groups/g1/creations': msg({ seq: 3, id: 'm3', mentions: ['b1'], card }),
+      'POST /groups/g1/creation-drafts/d1/dismiss': undefined,
+    })
+    renderAt('/g/g1')
+    const c = within(await screen.findByTestId('creation-draft'))
+    expect(c.getByText('待补充：主标题')).toBeTruthy()
+    expect((c.getByRole('button', { name: '开始' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(c.getByRole('button', { name: '改参数…' }))
+    const d = within(await screen.findByRole('dialog', { name: '创作' }))
+    expect((d.getByRole('radio', { name: '亲切' }) as HTMLInputElement).getAttribute('aria-checked')).toBe(
+      'true',
+    )
+    fireEvent.change(d.getByLabelText('主标题'), { target: { value: '共工' } })
+    fireEvent.click(d.getByRole('button', { name: '交给 设计助手' }))
+    await waitFor(() =>
+      expect(calls.find((x) => x.path === '/groups/g1/creations')?.body).toMatchObject({
+        templateId: 'event',
+        inputs: { title: '共工', tone: '亲切' },
+        fromDraft: 'd1',
+      }),
+    )
+    fireEvent.click(c.getByRole('button', { name: '不用了' }))
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: 'POST',
+        path: '/groups/g1/creation-drafts/d1/dismiss',
+        body: {},
+      }),
+    )
+  })
+
+  it('says who settled it', async () => {
+    mockApi(chatRoutes([plugin()], [draft({ status: 'dismissed', by: '李建国' })]))
+    renderAt('/g/g1')
+    const c = within(await screen.findByTestId('creation-draft'))
+    expect(c.getByText('李建国 选了不用')).toBeTruthy()
+    expect(c.queryByRole('button', { name: '开始' })).toBeNull()
+  })
+})
+
 const tpl = (id: string, title: string, group: string | null) =>
-  ({ id, title, description: '', group, preview: null }) as PluginManifest['templates'][number]
+  ({
+    id,
+    title,
+    description: '',
+    group,
+    preview: null,
+    inputs: null,
+    designSystem: true,
+  }) as PluginManifest['templates'][number]
 const dsys = (id: string, title: string, category: string | null, description = '') =>
   ({
     id,

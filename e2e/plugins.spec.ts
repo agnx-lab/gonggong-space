@@ -56,9 +56,9 @@ test('the built-in plugin is installed at startup; a group turns it on, creates 
         await sheet.getByRole('button', { name: '下一步' }).click()
         await sheet.getByRole('button', { name: '下一步' }).click()
         await sheet.getByLabel('主题').fill('mock:echo 共工落地页')
-        await sheet.getByRole('button', { name: '下一步' }).click()
-        await expect(sheet.getByText(botName).first()).toBeVisible()
-        await sheet.getByRole('button', { name: '交给 AI' }).click()
+        // The group's only bot: 交给谁 folds into this last step.
+        await expect(sheet.getByText(`交给：${botName}`)).toBeVisible()
+        await sheet.getByRole('button', { name: `交给 ${botName}` }).click()
         await expect(sheet).toBeHidden()
         await expect(page.getByText('创作请求 · 产品原型')).toBeVisible()
         await expect(page.getByText(`已交给 @${botName}`)).toBeVisible()
@@ -85,6 +85,19 @@ test('the built-in plugin is installed at startup; a group turns it on, creates 
         expect(readFileSync(join(dir!, 'skills/web-prototype/SKILL.md'), 'utf8')).toContain(
           'name: web-prototype',
         )
+      })
+
+      await test.step('a bot proposes a creation from the chat and a member starts it', async () => {
+        const args = { plugin: 'web-prototype', template: 'saas', inputs: { title: '共工二版' } }
+        await page
+          .getByPlaceholder(composer)
+          .fill(`@${botName} mock:tool creation_propose ${JSON.stringify(args)}`)
+        await page.getByRole('button', { name: '发送' }).click()
+        const draft = page.getByTestId('creation-draft')
+        await expect(draft).toContainText('创作确认 · 产品原型', { timeout: 60_000 })
+        await draft.getByRole('button', { name: '开始' }).click()
+        await expect(draft).toContainText('已开始创作')
+        await expect(page.getByText('创作请求 · 产品原型')).toHaveCount(2)
       })
     } finally {
       m.stop()

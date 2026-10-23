@@ -1,4 +1,14 @@
-import type { BotDto, GroupDto, GroupPluginDto, MessageDto, PluginInput } from '@gonggong/protocol'
+import {
+  type BotDto,
+  type CreationStep,
+  creationSteps,
+  type GroupDto,
+  type GroupPluginDto,
+  type MessageDto,
+  type PluginInput,
+  templateInputs,
+  usesDesignSystem,
+} from '@gonggong/protocol'
 import { type ChangeEvent, useRef, useState } from 'react'
 import { useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
@@ -25,7 +35,12 @@ import { PluginTile, Swatches } from './PluginTile'
 import { type CreationOpen, closeCreation, createInGroup } from './store'
 import './plugins.css'
 
-const STEPS = [t('类型与模板'), t('设计系统'), t('内容与参数'), t('交给谁')]
+const STEP_LABEL: Record<CreationStep, string> = {
+  template: t('类型与模板'),
+  design: t('设计系统'),
+  content: t('内容与参数'),
+  bot: t('交给谁'),
+}
 
 const blockerOf = (p: GroupPluginDto, botId: string) => p.bots.find((b) => b.botId === botId)?.blocker ?? null
 
@@ -40,7 +55,11 @@ const SEARCH_FROM = 9
 const valueText = (v: string | boolean | undefined) =>
   typeof v === 'boolean' ? (v ? t('是') : t('否')) : (v ?? '').trim()
 
-/** 创作 (prototype #sheet-0~3): type and template → design system → content → bot, with the summary on the right. */
+/**
+ * 创作 (prototype #sheet-0~3): type and template → design system → content → bot, with the summary on the right. The
+ * steps follow the plugin and template (creationSteps): no design system step for a template with its own look, and
+ * 交给谁 folds into the last step when exactly one bot can take it.
+ */
 export function CreationSheet({
   group,
   plugins,
@@ -69,7 +88,7 @@ export function CreationSheet({
     }
   }
   const [filter, setFilter] = useState(() => facetsOf(draft))
-  const [step, setStep] = useState(open.step ?? 0)
+  const [stepKey, setStep] = useState<CreationStep>(open.step ?? 'template')
   const [busy, setBusy] = useState(false)
   const uploads = useUploads(group.id)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -77,8 +96,19 @@ export function CreationSheet({
   const m = plugin.manifest
   const template = m.templates.find((x) => x.id === draft.templateId)
   const ds = m.designSystems.find((x) => x.id === draft.designSystemId)
-  const bot = bots.find((b) => b.id === draft.botId)
+  const usable = bots.filter((b) => !blockerOf(plugin, b.id))
+  const steps = creationSteps(m, template, usable.length)
+  const step = steps.includes(stepKey) ? stepKey : 'content'
+  const at = steps.indexOf(step)
+  const asksBot = steps.includes('bot')
+  const bot = asksBot ? bots.find((b) => b.id === draft.botId) : usable[0]
+  const asked = templateInputs(m, template)
   const set = (patch: Partial<CreationDraft>) => setDraft((d) => ({ ...d, ...patch }))
+  const pickTemplate = (id: string) => {
+    const tp = m.templates.find((x) => x.id === id)
+    const keep = draft.designSystemId ?? m.designSystems[0]?.id ?? null
+    set({ templateId: id, designSystemId: usesDesignSystem(m, tp) ? keep : null })
+  }
   const setInput = (id: string, v: string | boolean) =>
     setDraft((d) => ({ ...d, inputs: { ...d.inputs, [id]: v } }))
   const pickPlugin = (p: GroupPluginDto) => {
@@ -96,13 +126,13 @@ export function CreationSheet({
       (!query || `${x.title}\n${x.description}`.toLowerCase().includes(query)),
   )
 
-  const filled = m.inputs.flatMap((i) => {
+  const filled = asked.flatMap((i) => {
     const v = valueText(draft.inputs[i.id])
     return v ? [{ label: i.label, value: v }] : []
   })
   const blocker = bot ? blockerOf(plugin, bot.id) : null
   const problems = [
-    ...m.inputs
+    ...asked
       .filter((i) => i.required && !valueText(draft.inputs[i.id]))
       .map((i) => t('请填写{label}', { label: i.label })),
     ...(!bot
@@ -113,7 +143,7 @@ export function CreationSheet({
   ]
 
   const submit = async () => {
-    const req = requestOf(draft, uploads.ids)
+    const req = requestOf({ ...draft, botId: bot?.id ?? null }, uploads.ids, m)
     if (!req) return
     setBusy(true)
     try {
@@ -125,58 +155,62 @@ export function CreationSheet({
     }
   }
 
-  const subtitles = [
-    [m.title, template?.title].filter(Boolean).join(' · '),
-    ds?.title ?? '—',
-    filled.find((f) => m.inputs.find((i) => i.label === f.label)?.type !== 'select')?.value ?? '—',
-    bot?.name ?? t('未选'),
-  ]
-  const last = step === STEPS.length - 1
+  const subtitles: Record<CreationStep, string> = {
+    template: [m.title, template?.title].filter(Boolean).join(' · '),
+    design: ds?.title ?? '—',
+    content: filled.find((f) => asked.find((i) => i.label === f.label)?.type !== 'select')?.value ?? '—',
+    bot: bot?.name ?? t('未选'),
+  }
+  const last = at === steps.length - 1
 
   return (
     <Dialog
       open
-      width={940}
+      width={1200}
       title={t('创作')}
       message={t('选好以后由 AI 一键完成，结果发到本群')}
       onClose={closeCreation}
       closeOnBackdrop={false}
-      footer={<span className="plg-sheet__count">{`${step + 1} / ${STEPS.length}`}</span>}
+      footer={<span className="plg-sheet__count">{`${at + 1} / ${steps.length}`}</span>}
       actions={[
         { label: t('取消'), onClick: closeCreation },
-        ...(step > 0 ? [{ label: t('上一步'), onClick: () => setStep(step - 1) }] : []),
+        ...(at > 0 ? [{ label: t('上一步'), onClick: () => setStep(steps[at - 1] as CreationStep) }] : []),
         last
           ? {
-              label: t('交给 AI'),
+              label: !asksBot && bot ? t('交给 {bot}', { bot: bot.name }) : t('交给 AI'),
               variant: 'primary' as const,
               disabled: busy || problems.length > 0 || uploads.uploading,
               onClick: () => void submit(),
             }
-          : { label: t('下一步'), variant: 'primary' as const, onClick: () => setStep(step + 1) },
+          : {
+              label: t('下一步'),
+              variant: 'primary' as const,
+              onClick: () => setStep(steps[at + 1] as CreationStep),
+            },
       ]}
     >
       <div className="plg-sheet">
         <nav className="plg-steps" aria-label={t('步骤')}>
-          {STEPS.map((label, i) => (
+          {steps.map((key, i) => (
             <button
-              key={label}
+              key={key}
               type="button"
-              className={cx('plg-step', i === step && 'plg-step--on')}
-              aria-current={i === step ? 'step' : undefined}
-              onClick={() => setStep(i)}
+              className={cx('plg-step', i === at && 'plg-step--on')}
+              aria-current={i === at ? 'step' : undefined}
+              onClick={() => setStep(key)}
             >
-              <span className={cx('plg-step__n', i < step && 'plg-step__n--done')}>
-                {i < step ? <Icon name="check" size={10} /> : i + 1}
+              <span className={cx('plg-step__n', i < at && 'plg-step__n--done')}>
+                {i < at ? <Icon name="check" size={10} /> : i + 1}
               </span>
               <span className="plg-step__text">
-                <span>{label}</span>
-                <span className="plg-step__sub">{subtitles[i]}</span>
+                <span>{STEP_LABEL[key]}</span>
+                <span className="plg-step__sub">{subtitles[key]}</span>
               </span>
             </button>
           ))}
         </nav>
         <div className="plg-pane">
-          {step === 0 ? (
+          {step === 'template' ? (
             <>
               <section>
                 <h3 className="plg-heading">{t('做什么')}</h3>
@@ -216,7 +250,7 @@ export function CreationSheet({
                       type="button"
                       className="plg-card"
                       aria-pressed={tp.id === draft.templateId}
-                      onClick={() => set({ templateId: tp.id })}
+                      onClick={() => pickTemplate(tp.id)}
                     >
                       <span className="plg-card__check" aria-hidden="true">
                         <Icon name="check" size={10} />
@@ -242,7 +276,7 @@ export function CreationSheet({
                 </div>
               </section>
             </>
-          ) : step === 1 ? (
+          ) : step === 'design' ? (
             <section>
               <h3 className="plg-heading">{t('设计系统')}</h3>
               <div className="gs-note">{t('决定颜色、字体和组件样式，只对这一次创作生效。')}</div>
@@ -289,12 +323,12 @@ export function CreationSheet({
                 <EmptyState compact icon="appearance" title={t('这个插件没有设计系统，由 AI 自由发挥')} />
               )}
             </section>
-          ) : step === 2 ? (
+          ) : step === 'content' ? (
             <section>
               <h3 className="plg-heading">{t('内容与参数')}</h3>
               <div className="gs-note">{t('表单根据插件声明的输入项自动生成。')}</div>
               <Form className="plg-form">
-                {m.inputs.map((i) => (
+                {asked.map((i) => (
                   <FormRow key={i.id} label={i.label} align={i.type === 'text' ? 'top' : 'center'}>
                     <InputField input={i} value={draft.inputs[i.id]} onChange={(v) => setInput(i.id, v)} />
                   </FormRow>
@@ -381,6 +415,7 @@ export function CreationSheet({
             ))}
             {draft.directions ? <div>{t('先出视觉方向：是')}</div> : null}
             {uploads.items.length ? <div>{t('参考附件：{n} 个', { n: uploads.items.length })}</div> : null}
+            {!asksBot && bot ? <div>{t('交给：{bot}', { bot: bot.name })}</div> : null}
           </section>
           <h4 className="plg-side__title">{t('发出后群里会看到')}</h4>
           <div className="plg-side__box">

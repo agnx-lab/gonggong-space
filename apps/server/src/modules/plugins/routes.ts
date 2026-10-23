@@ -17,7 +17,7 @@ import { requireAdmin, requireMember, requireReader } from '../groups/service.js
 import { type Authorize, eachLayer } from '../mcp/routes.js'
 import { ACTIVE } from '../runs/scheduler.js'
 import { requireTeam } from '../teams/service.js'
-import { createCreation } from './creations.js'
+import { createCreation, dismissDraft } from './creations.js'
 import {
   botStates,
   deletePlugin,
@@ -107,6 +107,15 @@ function groupRoutes(ctx: Ctx, app: FastifyInstance) {
     const me = await requireUser(ctx, req)
     return createCreation(ctx, me, req.params.id, CreationReq.parse(req.body))
   })
+
+  app.post<{ Params: { id: string; messageId: string } }>(
+    '/api/groups/:id/creation-drafts/:messageId/dismiss',
+    async (req, reply) => {
+      const me = await requireUser(ctx, req)
+      await dismissDraft(ctx, me, req.params.id, req.params.messageId)
+      return reply.status(204).send()
+    },
+  )
 }
 
 const MIME: Record<string, string> = {

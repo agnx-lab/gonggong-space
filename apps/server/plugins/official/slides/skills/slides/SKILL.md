@@ -34,7 +34,7 @@ A creation request is a chat message that @-mentions you. It names:
 - parameters as `label：value` lines: `主题` (topic, required), `内容要点` (points, sources, must-keep numbers), `目标受众` (audience), `页数` (slide count), `演讲者备注` (`是` = write speaker notes for every slide);
 - optionally attachments (outlines, documents, data, logos, screenshots, photos) — use them, they beat anything you would fetch or invent.
 
-A plain request without this structure is fine too: pick the closest template from the index below (`html-ppt` when nothing fits better) and do not explore directions.
+A plain request in the chat (no creation message) is confirmed first: pick the closest template from the index below (`html-ppt` when nothing fits better; gonggong's `plugin_catalog` with `plugin: slides` lists them all), fill in what the conversation already says, and post a 创作确认卡 with `creation_propose`, leaving unknown required parameters blank. Build nothing until the creation message arrives. Without those tools, build directly with the closest template and no directions.
 
 ## Template index
 

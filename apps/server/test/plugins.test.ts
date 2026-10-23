@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
+  type CreationCard,
+  type CreationDraftCard,
   type GroupPluginDto,
   type MeDto,
   type MessageDto,
@@ -11,6 +13,7 @@ import {
   PROTOCOL_VERSION,
   type QuestionSetDto,
   type RunStart,
+  type ToolCallRes,
   type WebEvent,
 } from '@gonggong/protocol'
 import { eq } from 'drizzle-orm'
@@ -528,10 +531,13 @@ describe('plugins in run.start', () => {
 
     const on = await build()
     expect(on.plugins.map((x) => x.name)).toEqual(['web-prototype'])
+    expect(on.bot.systemPrompt).toContain('本群启用了创作插件：web-prototype')
+    expect(on.bot.systemPrompt).toContain('creation_propose')
     await switchOn(w, false)
     const off = await build()
     expect(off.plugins).toEqual([])
-    expect({ ...on, plugins: [] }).toEqual(off)
+    expect(off.bot.systemPrompt).not.toContain('创作插件')
+    expect({ ...on, plugins: [], bot: { ...on.bot, systemPrompt: off.bot.systemPrompt } }).toEqual(off)
     await t.db.delete(plugins)
     expect(await build()).toEqual(off)
   })
@@ -647,6 +653,193 @@ describe('creations', () => {
     await switchOn(w, false)
     expect(await status({})).toBe(403)
     expect(await t.db.select().from(messages).where(eq(messages.groupId, w.group.id))).toEqual([])
+    w.conn.ws.close()
+  })
+})
+
+describe('per-template steps', () => {
+  /** A wireframe template asking only for the title and bringing its own look. */
+  const wire = manifest({
+    templates: [
+      { id: 'saas', title: 'SaaS 落地页', preview: 'previews/saas.png' },
+      { id: 'wire', title: '线框图', inputs: ['title'], designSystem: false },
+    ],
+  })
+
+  it('checks template input ids on upload', async () => {
+    const w = await world()
+    const bad = manifest({ templates: [{ id: 'wire', title: '线框图', inputs: ['nope'] }] })
+    const res = await (await w.as(w.root)).post('/api/admin/plugins', { files: pkg(bad) })
+    expect(res.status).toBe(400)
+  })
+
+  it("asks only the template's inputs and no design system when it brings its own look", async () => {
+    const w = await world()
+    await switchOn(w)
+    const p = await upload(w, pkg(wire))
+    await (await w.as(w.eve)).put(`/api/groups/${w.group.id}/plugins/${p.id}`, { enabled: true })
+    const { bot, token } = await groupBot(w, { name: '小原' })
+    const conn = await daemon(token)
+    const mia = await w.as(w.mia)
+    const url = `/api/groups/${w.group.id}/creations`
+    const req = {
+      pluginId: p.id,
+      templateId: 'wire',
+      designSystemId: null,
+      inputs: { title: '后台', audience: '运营' },
+      botId: bot.id,
+    }
+    expect((await mia.post(url, { ...req, designSystemId: 'neutral-modern' })).status).toBe(400)
+    const res = await mia.post<MessageDto>(url, req)
+    expect(res.status).toBe(200)
+    const card = res.body.card as CreationCard
+    expect(card.designSystem).toBeNull()
+    expect(card.inputs).toEqual([{ label: '主标题', value: '后台' }])
+    expect(res.body.body).not.toContain('DESIGN.md')
+    conn.ws.close()
+  })
+})
+
+describe('creation from the chat', () => {
+  async function chatWorld() {
+    const w = await world()
+    await switchOn(w)
+    const p = await upload(w)
+    await (await w.as(w.eve)).put(`/api/groups/${w.group.id}/plugins/${p.id}`, { enabled: true })
+    const { bot, token } = await groupBot(w, { name: '小原' })
+    const conn = await daemon(token)
+    const trigger = await userMessage(w, bot.id, '@小原 做个落地页')
+    const [run] = await t.db
+      .insert(runs)
+      .values({
+        groupId: w.group.id,
+        botId: bot.id,
+        triggerMessageId: trigger.id,
+        originUserId: w.eve.id,
+        status: 'running',
+      })
+      .returning()
+    const call = async (name: string, args: unknown) => {
+      const res = await t.app.inject({
+        method: 'POST',
+        url: `/api/daemon/runs/${run!.id}/tools/${name}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { arguments: args },
+      })
+      expect(res.statusCode).toBe(200)
+      return res.json<ToolCallRes>()
+    }
+    const draftOf = async (res: ToolCallRes) => {
+      const id = /id：([0-9a-f-]{36})/.exec(res.text)?.[1] as string
+      const [m] = await t.db.select().from(messages).where(eq(messages.id, id))
+      return { id, m: m!, card: (m!.meta as { card: CreationDraftCard }).card }
+    }
+    return { ...w, p, bot, conn, call, draftOf }
+  }
+
+  it('plugin_catalog lists the enabled plugins and one plugin in detail', async () => {
+    const w = await chatWorld()
+    const list = await w.call('plugin_catalog', {})
+    expect(list.isError).toBe(false)
+    expect(list.text).toContain('web-prototype（网页原型）')
+    expect(list.text).toContain('模板 1 个，设计系统 1 套；可用')
+    const one = await w.call('plugin_catalog', { plugin: 'web-prototype' })
+    for (const s of [
+      'saas｜SaaS 落地页',
+      'neutral-modern｜中性现代',
+      'title｜主标题｜string｜必填',
+      'tone｜语气',
+    ])
+      expect(one.text).toContain(s)
+    expect((await w.call('plugin_catalog', { plugin: 'nope' })).isError).toBe(true)
+    await switchOn(w, false)
+    expect((await w.call('plugin_catalog', {})).text).toContain('插件功能未开启')
+    w.conn.ws.close()
+  })
+
+  it('creation_propose posts a pending card a member starts, edits or drops', async () => {
+    const w = await chatWorld()
+    const seen: WebEvent[] = []
+    t.ctx.bus.attach(w.mia.id, (e) => seen.push(e))
+    const res = await w.call('creation_propose', {
+      plugin: 'web-prototype',
+      template: 'saas',
+      inputs: { audience: '研发团队' },
+      note: '落地页用 SaaS 模板最合适',
+    })
+    expect(res.isError).toBe(false)
+    expect(res.text).toContain('在那之前不要出稿')
+    expect(res.text).toContain('主标题')
+    const d = await w.draftOf(res)
+    expect(d.m.kind).toBe('event')
+    expect(d.card).toMatchObject({
+      type: 'creation-draft',
+      status: 'pending',
+      template: { id: 'saas' },
+      designSystem: { id: 'neutral-modern' },
+      inputs: [
+        { label: '语气', value: '专业' },
+        { label: '目标受众', value: '研发团队' },
+      ],
+      missing: ['主标题'],
+      note: '落地页用 SaaS 模板最合适',
+      botId: w.bot.id,
+      by: null,
+    })
+
+    // 开始 (after filling 主标题 in the panel) starts it as the member and marks the card.
+    const mia = await w.as(w.mia)
+    const url = `/api/groups/${w.group.id}/creations`
+    const req = {
+      pluginId: w.p.id,
+      templateId: 'saas',
+      designSystemId: 'neutral-modern',
+      inputs: { title: '共工', audience: '研发团队' },
+      botId: w.bot.id,
+      fromDraft: d.id,
+    }
+    const started = await mia.post<MessageDto>(url, req)
+    expect(started.status).toBe(200)
+    expect(started.body.authorId).toBe(w.mia.id)
+    const after = await w.draftOf(res)
+    expect(after.card).toMatchObject({ status: 'started', by: '米娅', creationId: started.body.id })
+    expect(
+      seen.some(
+        (e) => e.t === 'message.edited' && e.message.id === d.id && e.message.card?.type === 'creation-draft',
+      ),
+    ).toBe(true)
+    expect((await mia.post(url, req)).status).toBe(409)
+
+    // 不用了
+    const other = await w.call('creation_propose', { plugin: 'web-prototype', template: 'saas' })
+    const o = await w.draftOf(other)
+    const dismiss = `/api/groups/${w.group.id}/creation-drafts/${o.id}/dismiss`
+    const outsider = await t.seed.user({ name: '路人' })
+    expect((await (await w.as(outsider)).post(dismiss, {})).status).toBe(404)
+    expect((await mia.post(dismiss, {})).status).toBe(204)
+    expect((await w.draftOf(other)).card).toMatchObject({ status: 'dismissed', by: '米娅' })
+    expect((await mia.post(dismiss, {})).status).toBe(409)
+    expect(
+      (await mia.post(`/api/groups/${w.group.id}/creation-drafts/${started.body.id}/dismiss`, {})).status,
+    ).toBe(404)
+    w.conn.ws.close()
+  })
+
+  it('creation_propose refuses what a creation would: unknown template, bad values, a bot that cannot use it', async () => {
+    const w = await chatWorld()
+    const refused = async (args: Record<string, unknown>) =>
+      (await w.call('creation_propose', { plugin: 'web-prototype', template: 'saas', ...args })).isError
+    expect(await refused({ template: 'nope' })).toBe(true)
+    expect(await refused({ template: undefined })).toBe(true)
+    expect(await refused({ inputs: { tone: '冷淡' } })).toBe(true)
+    expect(await refused({ plugin: 'nope' })).toBe(true)
+    await t.db.update(pluginVersions).set({ manifest: PluginManifestOf({ agents: ['codex'] }) })
+    expect(await refused({})).toBe(true)
+    expect(
+      (await t.db.select().from(messages).where(eq(messages.groupId, w.group.id))).filter(
+        (m) => m.kind === 'event',
+      ),
+    ).toEqual([])
     w.conn.ws.close()
   })
 })

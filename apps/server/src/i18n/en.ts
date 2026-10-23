@@ -458,6 +458,9 @@ export const en = {
   '{label}的取值不在选项里': '{label} is not one of the options',
   '{bot} 现在用不了这个插件': "{bot} can't use this plugin now",
   选项不存在: 'Option not found',
+  这个模板不用设计系统: "This template doesn't use a design system",
+  这张创作确认卡不存在: 'Creation proposal not found',
+  这张创作确认卡已经处理过了: 'This creation proposal has already been handled',
 
   // Messages
   引用的内容不存在: 'Quoted content not found',

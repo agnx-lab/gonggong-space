@@ -220,6 +220,8 @@ export default {
   '删除 MCP': 'Delete MCP server',
   密钥列表: 'List secrets',
   请求填写密钥: 'Request secrets',
+  插件目录: 'Plugin catalog',
+  发起创作确认: 'Propose a creation',
   'Skill 版本历史': 'Skill version history',
   '回滚 Skill': 'Roll back skill',
   '子 agent {n} 个运行中': '{n} {n:subagent|subagents} running',

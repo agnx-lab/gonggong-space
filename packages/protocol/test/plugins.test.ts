@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { PLUGIN_MAX_FILES, PluginFiles, PluginManifest } from '../src/index.js'
+import {
+  creationSteps,
+  PLUGIN_MAX_FILES,
+  PluginFiles,
+  PluginManifest,
+  templateInputs,
+  usesDesignSystem,
+} from '../src/index.js'
 
 const base = {
   name: 'web-prototype',
@@ -55,5 +62,36 @@ describe('plugin manifest', () => {
     const files = (k: number) => Array.from({ length: k }, (_, i) => ({ path: `f${i}`, content: '' }))
     expect(PluginFiles.safeParse(files(600)).success).toBe(true)
     expect(PluginFiles.safeParse(files(601)).success).toBe(false)
+  })
+})
+
+describe('creation steps', () => {
+  const m = PluginManifest.parse({
+    ...base,
+    templates: [tpl(1), { ...tpl(2), inputs: ['pages'], designSystem: false }],
+    designSystems: [ds(1)],
+    inputs: [
+      { id: 'title', label: '主题', type: 'string' },
+      { id: 'pages', label: '页数', type: 'select', options: ['6', '12'] },
+    ],
+  })
+  const [all, own] = m.templates
+
+  it('lets a template pick its inputs and skip the design system, checking the ids', () => {
+    expect(templateInputs(m, all).map((i) => i.id)).toEqual(['title', 'pages'])
+    expect(templateInputs(m, own).map((i) => i.id)).toEqual(['pages'])
+    expect(usesDesignSystem(m, all)).toBe(true)
+    expect(usesDesignSystem(m, own)).toBe(false)
+    expect(usesDesignSystem({ ...m, designSystems: [] }, all)).toBe(false)
+    const bad = PluginManifest.safeParse({ ...base, templates: [{ ...tpl(1), inputs: ['nope'] }] })
+    expect(bad.success).toBe(false)
+  })
+
+  it('shows the design step only when used and 交给谁 unless exactly one bot can take it', () => {
+    expect(creationSteps(m, all, 2)).toEqual(['template', 'design', 'content', 'bot'])
+    expect(creationSteps(m, own, 2)).toEqual(['template', 'content', 'bot'])
+    expect(creationSteps(m, all, 1)).toEqual(['template', 'design', 'content'])
+    // No usable bot: the step stays to show why.
+    expect(creationSteps(m, own, 0)).toEqual(['template', 'content', 'bot'])
   })
 })

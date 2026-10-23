@@ -44,6 +44,10 @@ export const PluginTemplate = z.object({
   group: z.string().min(1).max(20).nullable().default(null),
   /** An image in the folder shown on the template card; null = a placeholder. */
   preview: PkgPath.nullable().default(null),
+  /** Ids of the manifest inputs this template asks for; null = all of them. */
+  inputs: z.array(z.string()).max(12).nullable().default(null),
+  /** False when the template brings its own look: the panel skips the design system step. */
+  designSystem: z.boolean().default(true),
 })
 export type PluginTemplate = z.infer<typeof PluginTemplate>
 
@@ -60,38 +64,69 @@ export const PluginDesignSystem = z.object({
 })
 export type PluginDesignSystem = z.infer<typeof PluginDesignSystem>
 
-export const PluginManifest = z.object({
-  name: z.string().regex(ID),
-  version: z.string().regex(SEMVER),
-  title: z.string().min(1).max(40),
-  description: z.string().min(1).max(200),
-  category: PluginCategory,
-  /** Agents the plugin works with; bots on other agents cannot use it. */
-  agents: z.array(AgentKind).min(1),
-  /** Oldest daemon version that can load it (daemons also need the `plugins` feature). */
-  minDaemon: z.string().regex(SEMVER),
-  /** The skill a creation invokes: `skills/<entry>/SKILL.md` must exist. */
-  entry: z.string().regex(ID),
-  templates: z.array(PluginTemplate).max(80).default([]),
-  designSystems: z.array(PluginDesignSystem).max(80).default([]),
-  inputs: z.array(PluginInput).max(12).default([]),
-  /** Env var names of secrets it needs (plan 团队密钥-方案); runs without them do not get the plugin. */
-  secrets: z
-    .array(z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/))
-    .max(10)
-    .default([]),
-  license: z.string().min(1).max(40),
-  /** Where it came from, shown with the license (e.g. an open-design template at a pinned commit). */
-  source: z
-    .object({
-      name: z.string().max(80),
-      url: z.string().url(),
-      revision: z.string().max(64).nullable().default(null),
-    })
-    .nullable()
-    .default(null),
-})
+export const PluginManifest = z
+  .object({
+    name: z.string().regex(ID),
+    version: z.string().regex(SEMVER),
+    title: z.string().min(1).max(40),
+    description: z.string().min(1).max(200),
+    category: PluginCategory,
+    /** Agents the plugin works with; bots on other agents cannot use it. */
+    agents: z.array(AgentKind).min(1),
+    /** Oldest daemon version that can load it (daemons also need the `plugins` feature). */
+    minDaemon: z.string().regex(SEMVER),
+    /** The skill a creation invokes: `skills/<entry>/SKILL.md` must exist. */
+    entry: z.string().regex(ID),
+    templates: z.array(PluginTemplate).max(80).default([]),
+    designSystems: z.array(PluginDesignSystem).max(80).default([]),
+    inputs: z.array(PluginInput).max(12).default([]),
+    /** Env var names of secrets it needs (plan 团队密钥-方案); runs without them do not get the plugin. */
+    secrets: z
+      .array(z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/))
+      .max(10)
+      .default([]),
+    license: z.string().min(1).max(40),
+    /** Where it came from, shown with the license (e.g. an open-design template at a pinned commit). */
+    source: z
+      .object({
+        name: z.string().max(80),
+        url: z.string().url(),
+        revision: z.string().max(64).nullable().default(null),
+      })
+      .nullable()
+      .default(null),
+  })
+  .superRefine((m, ctx) => {
+    const ids = new Set(m.inputs.map((i) => i.id))
+    for (const [k, tpl] of m.templates.entries())
+      for (const id of tpl.inputs ?? [])
+        if (!ids.has(id))
+          ctx.addIssue({ code: 'custom', path: ['templates', k, 'inputs'], message: `没有输入项 ${id}` })
+  })
 export type PluginManifest = z.infer<typeof PluginManifest>
+
+/** The inputs a creation from `tpl` asks for, in manifest order. */
+export const templateInputs = (m: PluginManifest, tpl: PluginTemplate | null | undefined) => {
+  const only = tpl?.inputs
+  return only ? m.inputs.filter((i) => only.includes(i.id)) : m.inputs
+}
+
+/** Whether a creation from `tpl` picks a design system. */
+export const usesDesignSystem = (m: PluginManifest, tpl: PluginTemplate | null | undefined) =>
+  m.designSystems.length > 0 && tpl?.designSystem !== false
+
+export type CreationStep = 'template' | 'design' | 'content' | 'bot'
+/** The creation panel's steps: 交给谁 folds into the last step when exactly one bot can take it. */
+export const creationSteps = (
+  m: PluginManifest,
+  tpl: PluginTemplate | null | undefined,
+  usableBots: number,
+): CreationStep[] => [
+  'template',
+  ...(usesDesignSystem(m, tpl) ? (['design'] as const) : []),
+  'content',
+  ...(usableBots === 1 ? [] : (['bot'] as const)),
+]
 
 export const PluginLayer = z.enum(['platform', 'team', 'group'])
 export type PluginLayer = z.infer<typeof PluginLayer>
@@ -142,6 +177,8 @@ export const CreationReq = z.object({
   directions: z.boolean().default(false),
   botId: z.string(),
   attachmentIds: z.array(z.string()).max(10).default([]),
+  /** The 创作确认卡 (creation-draft card message id) this request starts. */
+  fromDraft: z.string().optional(),
 })
 export type CreationReq = z.infer<typeof CreationReq>
 
@@ -160,6 +197,19 @@ export const CreationCard = z.object({
   botName: z.string(),
 })
 export type CreationCard = z.infer<typeof CreationCard>
+/** A bot's proposal from the chat (creation_propose): a member starts it as is, edits it in the panel or drops it. */
+export const CreationDraftCard = CreationCard.extend({
+  type: z.literal('creation-draft'),
+  /** Labels of required inputs the bot left blank: filled in the panel before starting. */
+  missing: z.array(z.string()),
+  note: z.string().nullable(),
+  status: z.enum(['pending', 'started', 'dismissed']),
+  /** Who started or dropped it. */
+  by: z.string().nullable(),
+  /** The creation request message it started. */
+  creationId: z.string().nullable(),
+})
+export type CreationDraftCard = z.infer<typeof CreationDraftCard>
 /** Generic message card; new kinds join the union and old clients fall back to the body. */
-export const MessageCard = z.discriminatedUnion('type', [CreationCard])
+export const MessageCard = z.discriminatedUnion('type', [CreationCard, CreationDraftCard])
 export type MessageCard = z.infer<typeof MessageCard>

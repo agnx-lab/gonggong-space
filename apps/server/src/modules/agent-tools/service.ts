@@ -33,6 +33,7 @@ import { runRedactors } from '../secrets/resolve.js'
 import { listFeishuMessages } from './feishu.js'
 import { kbCreate, kbDelete, kbGet, kbList, kbSearch, kbUpdate } from './knowledge.js'
 import { mcpCreate, mcpDelete, mcpGet, mcpList, mcpToggle, mcpUpdate } from './mcp.js'
+import { creationPropose, pluginCatalog } from './plugins.js'
 import { progressCard } from './progress.js'
 import { scheduleCreate, scheduleDelete, scheduleList, scheduleUpdate } from './schedules.js'
 import { secretList, secretRequest } from './secrets.js'
@@ -422,6 +423,8 @@ const TOOLS: { [N in GonggongToolName]: (ctx: Ctx, s: Scope, a: Args<N>) => Prom
   secret_list: (ctx, s) => secretList(ctx, s.run),
   secret_request: (ctx, s, a) => secretRequest(ctx, s.run, a),
   progress_card: (ctx, s, a) => progressCard(ctx, s.run, a),
+  plugin_catalog: (ctx, s, a) => pluginCatalog(ctx, s.run, a),
+  creation_propose: (ctx, s, a) => creationPropose(ctx, s.run, a),
 }
 
 export async function callTool(

@@ -1,4 +1,4 @@
-import type { GroupPluginDto, MessageDto } from '@gonggong/protocol'
+import type { CreationStep, GroupPluginDto, MessageDto } from '@gonggong/protocol'
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 import { api } from '../../lib/api'
@@ -50,12 +50,15 @@ export async function togglePlugin(groupId: string, pluginId: string, enabled: b
 export const createInGroup = (groupId: string, body: unknown) =>
   api.post<MessageDto>(`/groups/${groupId}/creations`, body)
 
-/** The open 创作 panel: a plugin to preselect, or a whole draft to start from (改参数重做). */
+export const dismissDraft = (groupId: string, messageId: string) =>
+  api.post<void>(`/groups/${groupId}/creation-drafts/${messageId}/dismiss`, {})
+
+/** The open 创作 panel: a plugin to preselect, or a whole draft to start from (改参数重做, a bot's 创作确认卡). */
 export interface CreationOpen {
   groupId: string
   pluginId?: string
   draft?: CreationDraft
-  step?: number
+  step?: CreationStep
 }
 export const useCreation = create<{ open: CreationOpen | null }>()(() => ({ open: null }))
 export const openCreation = (open: CreationOpen) => useCreation.setState({ open })
