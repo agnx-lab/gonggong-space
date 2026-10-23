@@ -1674,6 +1674,9 @@ pub enum DaemonToServer {
     QuestionWithdraw { run_id: String, request_id: String },
     #[serde(rename = "run.discarded", rename_all = "camelCase")]
     RunDiscarded { run_id: String, ok: bool, files: u32, error: Option<String> },
+    /// The agent went on by itself after `run_id` ended: asks for a run to report it under (`run.continued`).
+    #[serde(rename = "run.continue", rename_all = "camelCase")]
+    RunContinue { request_id: String, run_id: String },
     #[serde(rename = "session.config", rename_all = "camelCase")]
     SessionConfig {
         run_id: String,
@@ -1782,6 +1785,9 @@ pub enum ServerToDaemon {
     RunStart(Box<RunStart>),
     #[serde(rename = "run.cancel", rename_all = "camelCase")]
     RunCancel { run_id: String },
+    /// The run opened for a `run.continue`, already running; None = refused.
+    #[serde(rename = "run.continued", rename_all = "camelCase")]
+    RunContinued { request_id: String, run_id: Option<String> },
     #[serde(rename = "task.stop", rename_all = "camelCase")]
     TaskStop { run_id: String, task_id: String },
     #[serde(rename = "run.tier", rename_all = "camelCase")]

@@ -633,6 +633,7 @@ export const RunCard = memo(function RunCard({
       {t('查看过程')}
     </Button>
   )
+  const continued = run.continuationOf ? <Tag tone="purple">{t('后台任务完成后继续')}</Tag> : null
   const sub = t('{agent} · {name} 触发', { agent, name: trigger })
   const meta = (
     <span className="run-card__sub" title={sub}>
@@ -643,6 +644,7 @@ export const RunCard = memo(function RunCard({
     const tags = (
       <div className="run-card__meta run-card__tags">
         {run.status === 'completed' ? null : <Tag tone={TONE[run.status]}>{STATUS_LABEL[run.status]}</Tag>}
+        {continued}
         {run.hop > 1 ? <HopChain hop={run.hop} max={run.hopMax} /> : null}
         <FilesFact n={run.filesChanged} onOpen={diff} />
         {started !== null ? <ClockFact ms={elapsed} text={fmtDuration(elapsed)} live={false} /> : null}
@@ -690,6 +692,7 @@ export const RunCard = memo(function RunCard({
               <div className="pn-mcard__head">
                 <RunStatusIcon status={run.status} spelled />
                 <span className="pn-mcard__title" />
+                {continued}
                 {run.hop > 1 ? <HopChain hop={run.hop} max={run.hopMax} /> : null}
                 {canFold ? (
                   <button

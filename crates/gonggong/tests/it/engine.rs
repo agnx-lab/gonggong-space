@@ -1,5 +1,5 @@
 //! Drives the Engine against the scriptable mock ACP agent (tools/mock-agent) without a server.
-use gonggong::engine::{Engine, EngineConfig};
+use gonggong::engine::{Continuation, Engine, EngineConfig};
 use gonggong::local::LocalSettings;
 use gonggong::protocol::*;
 use gonggong::service::{Handler, Outbox, OutboxRx};
@@ -24,6 +24,19 @@ fn rig_reaping(idle: Duration, reap: Duration) -> Rig {
 }
 
 fn rig_with(idle: Duration, reap: Duration, cancel_grace: Duration) -> Rig {
+    rig_full(
+        idle,
+        reap,
+        cancel_grace,
+        Continuation { adopt_wait: Duration::from_secs(10), quiet: Duration::from_secs(20) },
+    )
+}
+
+fn rig_continuing(continuation: Continuation) -> Rig {
+    rig_full(Duration::from_secs(60), Duration::from_secs(600), Duration::from_secs(30), continuation)
+}
+
+fn rig_full(idle: Duration, reap: Duration, cancel_grace: Duration, continuation: Continuation) -> Rig {
     gonggong::i18n::set_locale(gonggong::i18n::Locale::Zh);
     let home = tempfile::tempdir().unwrap();
     let agent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock-agent/agent.js");
@@ -34,6 +47,7 @@ fn rig_with(idle: Duration, reap: Duration, cancel_grace: Duration) -> Rig {
         idle,
         reap,
         cancel_grace,
+        continuation,
         api: None,
     });
     let (out, rx) = Outbox::channel();
@@ -1217,6 +1231,111 @@ async fn stops_a_background_task_that_outlived_its_run() {
     let DaemonToServer::RunEvent { run_id, event } = r.next().await else { panic!("expected the task's end") };
     assert_eq!(run_id, "r1");
     assert!(matches!(event, RunEvent::Task { state: TaskState::Stopped, can_stop: false, .. }));
+}
+
+/// Skips the background task reports of the ended turn up to the daemon asking for a continuation run:
+/// (request id, the run continued).
+async fn until_continue(r: &mut Rig) -> (String, String) {
+    loop {
+        match r.next().await {
+            DaemonToServer::RunContinue { request_id, run_id } => return (request_id, run_id),
+            DaemonToServer::RunEvent { event: RunEvent::Task { .. }, .. } => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+/// Runs `text` (a `mock:later` turn) as r1, then opens the continuation c1 the daemon asks for.
+async fn continued(r: &mut Rig, text: &str) -> RunDone {
+    r.run(start("r1", text));
+    let (_, first) = r.finish("r1").await;
+    assert_eq!(first.reply, "等它跑完我再继续");
+    let (request_id, run_id) = until_continue(r).await;
+    assert_eq!(run_id, "r1");
+    r.send(ServerToDaemon::RunContinued { request_id, run_id: Some("c1".into()) });
+    first
+}
+
+#[tokio::test]
+async fn reports_what_the_agent_does_after_a_background_task_under_a_new_run() {
+    let mut r = rig(Duration::from_secs(60));
+    let first = continued(&mut r, "mock:later").await;
+    let (events, done) = r.finish("c1").await;
+    assert_eq!(done.outcome, RunOutcome::Completed);
+    assert_eq!(done.reply, "后台任务跑完了，继续收尾。");
+    assert_eq!(done.session_id, first.session_id);
+    assert_eq!(events.first(), Some(&RunEvent::Text { delta: "后台任务跑完了，".into(), agent_id: None }));
+    assert!(events.iter().any(|e| matches!(e, RunEvent::Tool { title, .. } if title == "Read log.txt")));
+    assert_eq!(done.usage.as_ref().and_then(|u| u.cost_usd), Some(0.02));
+
+    // The conversation goes on as usual.
+    r.run(follow_up("r2", "mock:echo", &done));
+    let (_, next) = r.finish("r2").await;
+    assert_eq!(next.outcome, RunOutcome::Completed);
+}
+
+#[tokio::test]
+async fn a_continuation_asks_the_owner_for_approval_under_its_run() {
+    let mut r = rig(Duration::from_secs(60));
+    continued(&mut r, "mock:later-exec").await;
+    let (_, approval) = until_approval(&mut r).await;
+    assert_eq!((approval.run_id.as_str(), approval.title.as_str()), ("c1", "rm -rf dist"));
+    decide(&r, &approval, Some("allow"));
+    let (_, done) = r.finish("c1").await;
+    assert_eq!(done.reply, "后台任务跑完了，ran");
+}
+
+#[tokio::test]
+async fn a_new_turn_ends_the_continuation_first() {
+    let mut r = rig(Duration::from_secs(60));
+    let first = continued(&mut r, "mock:later-open").await;
+    until_of(
+        &mut r,
+        "c1",
+        |m| matches!(m, DaemonToServer::RunEvent { event: RunEvent::Text { delta, .. }, .. } if delta == "继续收尾。"),
+    )
+    .await;
+    r.run(follow_up("r2", "mock:echo", &first));
+    let DaemonToServer::RunDone(done) = r.next().await else { panic!("the continuation ends before r2 starts") };
+    assert_eq!((done.run_id.as_str(), done.outcome), ("c1", RunOutcome::Completed));
+    assert_eq!(done.reply, "后台任务跑完了，继续收尾。");
+    let (_, next) = r.finish("r2").await;
+    assert_eq!(next.outcome, RunOutcome::Completed);
+}
+
+#[tokio::test]
+async fn a_silent_continuation_ends_after_the_quiet_period_and_one_can_stop_it() {
+    let mut r = rig_continuing(Continuation { adopt_wait: Duration::from_secs(10), quiet: Duration::from_secs(1) });
+    continued(&mut r, "mock:later-open").await;
+    let (_, done) = r.finish("c1").await;
+    assert_eq!(done.outcome, RunOutcome::Completed);
+
+    r.run(follow_up("r2", "mock:later-open", &done));
+    r.finish("r2").await;
+    let (request_id, _) = until_continue(&mut r).await;
+    r.send(ServerToDaemon::RunContinued { request_id, run_id: Some("c2".into()) });
+    until_of(&mut r, "c2", |m| matches!(m, DaemonToServer::RunEvent { event: RunEvent::Text { .. }, .. })).await;
+    r.send(ServerToDaemon::RunCancel { run_id: "c2".into() });
+    let (_, done) = done_of(&mut r, "c2").await;
+    assert_eq!(done.outcome, RunOutcome::Interrupted);
+}
+
+#[tokio::test]
+async fn without_a_run_from_the_server_the_continuation_is_dropped() {
+    let mut r = rig_continuing(Continuation { adopt_wait: Duration::from_millis(500), quiet: Duration::from_secs(20) });
+    r.run(start("r1", "mock:later"));
+    let (_, first) = r.finish("r1").await;
+    // An older server ignores the request.
+    let (request_id, _) = until_continue(&mut r).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    // A run opened too late is ended at once.
+    r.send(ServerToDaemon::RunContinued { request_id, run_id: Some("c1".into()) });
+    let DaemonToServer::RunDone(done) = r.next().await else { panic!("expected the late run to end") };
+    assert_eq!((done.run_id.as_str(), done.outcome, done.reply.as_str()), ("c1", RunOutcome::Completed, ""));
+
+    r.run(follow_up("r2", "mock:echo", &first));
+    let (_, next) = r.finish("r2").await;
+    assert_eq!(next.outcome, RunOutcome::Completed);
 }
 
 /// A run of another group bound (/cd) to the shared directory `dir`.

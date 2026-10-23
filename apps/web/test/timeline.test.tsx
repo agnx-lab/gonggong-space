@@ -365,6 +365,17 @@ describe('timeline bubbles', () => {
       file: null,
     })
   })
+
+  it('labels the run of an agent going on by itself after a background task, offering no append', async () => {
+    renderChat({
+      messages: [msg({ seq: 1, authorId: 'u1', authorName: '王磊' })],
+      runs: [run({ continuationOf: 'r0' })],
+    })
+    const card = await screen.findByTestId('run-card')
+    expect(within(card).getByText('后台任务完成后继续')).toBeTruthy()
+    expect(within(card).queryByRole('button', { name: '打断并追加' })).toBeNull()
+    expect(within(card).getByRole('button', { name: '停止' })).toBeTruthy()
+  })
 })
 
 describe('system event folding', () => {

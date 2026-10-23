@@ -1298,6 +1298,8 @@ export const RunDto = z.object({
   endedAt: z.string().nullable(),
   /** Relay chain (spec §4.6): hop 1 = triggered by a human; hopMax = the group's chain limit. */
   parentRunId: z.string().nullable(),
+  /** The run whose agent went on by itself here once a background task finished (后台任务完成后继续). */
+  continuationOf: z.string().nullable().optional(),
   hopMax: z.number().int(),
   /** The group's offline wait (spec §4.8): an offline_wait card expires at queuedAt + this. */
   offlineWaitMin: z.number().int(),

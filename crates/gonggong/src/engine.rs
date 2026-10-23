@@ -61,8 +61,24 @@ pub struct EngineConfig {
     pub reap: Duration,
     /// A cancelled turn whose agent has not ended its prompt this long is cut off: the adapter is torn down.
     pub cancel_grace: Duration,
+    pub continuation: Continuation,
     /// Server REST access for downloading attachments; `None` (tests) skips them.
     pub api: Option<Config>,
+}
+
+/// The agent going on by itself between turns (a background task it started finished): how long the server has to
+/// open a run for it, and how long it may stay silent before it is taken as finished (agents that never report the
+/// end of such a cycle).
+#[derive(Debug, Clone, Copy)]
+pub struct Continuation {
+    pub adopt_wait: Duration,
+    pub quiet: Duration,
+}
+
+impl Default for Continuation {
+    fn default() -> Self {
+        Self { adopt_wait: Duration::from_secs(15), quiet: Duration::from_secs(5 * 60) }
+    }
 }
 
 #[derive(Clone)]
@@ -290,6 +306,19 @@ impl Handler for Engine {
             ServerToDaemon::RunCancel { run_id } => {
                 for actor in self.0.actors.lock().unwrap().values() {
                     actor.shared.cancel(&run_id);
+                }
+            }
+            ServerToDaemon::RunContinued { request_id, run_id } => {
+                let actors = self.0.actors.lock().unwrap();
+                if !actors.values().any(|a| a.shared.adopted(&request_id, run_id.as_deref()))
+                    && let Some(run_id) = run_id
+                {
+                    tracing::warn!("run {run_id} opened for a continuation no longer waited for: ended");
+                    out.send(DaemonToServer::RunDone(RunDone {
+                        outcome: RunOutcome::Completed,
+                        error: None,
+                        ..failed_done(&run_id, String::new())
+                    }));
                 }
             }
             ServerToDaemon::TaskStop { run_id, task_id } => {
@@ -721,7 +750,7 @@ impl Inner {
         let key = (start.group_id.clone(), start.bot.id.clone());
         let actor = actors.entry(key.clone()).or_insert_with(|| {
             let (tx, rx) = mpsc::unbounded_channel();
-            let shared = Arc::new(Shared::default());
+            let shared = Arc::new(Shared::new(self.config.continuation));
             let entry = ask.register(Arc::downgrade(&shared) as Weak<dyn Asker>);
             tokio::spawn(session::run(self.clone(), key, shared.clone(), entry, rx));
             Actor { tx, shared }

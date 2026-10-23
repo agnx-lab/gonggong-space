@@ -138,6 +138,7 @@ export default {
   '后台任务 {n} 个运行中': '{n} background {n:task|tasks} running',
   '耗时 {time}': 'Took {time}',
   '接力 {hop}/{max}': 'Relay {hop}/{max}',
+  后台任务完成后继续: 'Continued after a background task',
   '扇出 · {n} 个 Bot 并行': 'Fan-out · {n} {n:Bot|Bots} in parallel',
   '{label}：{bots}': '{label}: {bots}',
   '、': ', ',

@@ -628,6 +628,11 @@ export const runs = pgTable(
       .references(() => users.id),
     parentRunId: uuid('parent_run_id'),
     hop: integer('hop').notNull().default(1),
+    /**
+     * The run whose agent went on by itself here once a background task finished (run.continue). Holds no slot of
+     * its bot: the group's next turn ends it.
+     */
+    continuationOf: uuid('continuation_of'),
     /** See protocol RunStatus. */
     status: text('status').notNull(),
     step: text('step').notNull().default(''),

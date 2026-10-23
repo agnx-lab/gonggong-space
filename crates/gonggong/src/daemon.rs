@@ -69,6 +69,7 @@ impl Daemon {
             idle: IDLE_REAP,
             reap: CONVERSATION_REAP,
             cancel_grace: CANCEL_GRACE,
+            continuation: Default::default(),
             api: Some(opts.config.clone()),
         });
         engine.watch_agents(agents.clone());

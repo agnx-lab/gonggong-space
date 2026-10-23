@@ -322,6 +322,8 @@ export function ChatView({
    */
   const fanOutsKey = JSON.stringify(
     [...runsByTrigger]
+      // A continuation is the same bot going on by itself, not another one the message reached.
+      .map(([id, rs]) => [id, rs.filter((r) => !r.continuationOf)] as const)
       .filter(([, rs]) => rs.length > 1)
       .map(([id, rs]) => [id, rs.map((r) => botsById.get(r.botId)?.name ?? 'Bot')]),
   )

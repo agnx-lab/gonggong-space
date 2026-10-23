@@ -522,6 +522,17 @@ export const RunDiscarded = z.object({
 })
 export type RunDiscarded = z.infer<typeof RunDiscarded>
 
+/**
+ * The agent went on by itself after `runId` ended (a background task it started finished): the daemon asks for a new
+ * run of the same conversation to report that work under; answered with run.continued.
+ */
+export const RunContinue = z.object({
+  t: z.literal('run.continue'),
+  requestId: z.string(),
+  runId: z.string(),
+})
+export type RunContinue = z.infer<typeof RunContinue>
+
 /** ACP available_commands_update for a (group, bot) session, for the / candidates (spec §8.7). */
 export const CommandsUpdate = z.object({
   t: z.literal('commands.update'),
@@ -1070,6 +1081,7 @@ export const DaemonToServer = z.discriminatedUnion('t', [
   QuestionWithdraw,
   ApprovalRequest,
   RunDiscarded,
+  RunContinue,
   SessionConfig,
   Hello,
   Heartbeat,
@@ -1127,6 +1139,12 @@ export const Reject = z.object({
   upgrade: UpgradeInfo.optional(),
 })
 export const RunCancel = z.object({ t: z.literal('run.cancel'), runId: z.string() })
+/** Answer to run.continue: the run opened for the continuation, already running; null = refused. */
+export const RunContinued = z.object({
+  t: z.literal('run.continued'),
+  requestId: z.string(),
+  runId: z.string().nullable(),
+})
 /** Stops a background task a run started; its end arrives as a `task` run event. */
 export const TaskStop = z.object({ t: z.literal('task.stop'), runId: z.string(), taskId: z.string() })
 /** The bot's effective tier changed mid-run: permission requests from now on follow it. */
@@ -1495,6 +1513,7 @@ export const ServerToDaemon = z.discriminatedUnion('t', [
   Reject,
   RunStart,
   RunCancel,
+  RunContinued,
   TaskStop,
   RunTier,
   WorkspaceEnsure,
