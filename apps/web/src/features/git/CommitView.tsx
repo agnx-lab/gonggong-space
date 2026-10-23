@@ -2,10 +2,16 @@ import type { GitChangesDto } from '@gonggong/protocol'
 import { useState } from 'react'
 import { t } from '../../i18n'
 import { Alert, Button, EmptyState, Icon, type MenuItem, Spinner, Tooltip } from '../../ui'
-import { useDiffLayout } from '../diff/store'
 import { openTab } from '../workbench/open'
 import type { GitTarget } from './api'
-import { type ChangeGroup, type ChangeTarget, ChangeTree, folderPaths, type TreeChange } from './ChangeTree'
+import {
+  type ChangeGroup,
+  type ChangeTarget,
+  ChangeTree,
+  folderPaths,
+  type TreeChange,
+  useChangeLayout,
+} from './ChangeTree'
 import { CommitBox } from './CommitBox'
 import { gitCommands, ongoingLabel } from './commands'
 
@@ -50,8 +56,8 @@ export function CommitView({
   onPick: (c: TreeChange) => void
   onReload: () => void
 }) {
-  const layout = useDiffLayout((s) => s.layout)
-  const toggleLayout = useDiffLayout((s) => s.toggle)
+  const layout = useChangeLayout((s) => s.layout)
+  const toggleLayout = useChangeLayout((s) => s.toggle)
   // Unpicked rather than picked: files that turn up later start picked.
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set())
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
@@ -88,7 +94,8 @@ export function CommitView({
       ? cmd.openMerge(c.path)
       : openTab({ kind: 'diff', botId: target.botId, scope: 'uncommitted', file: c.path, repo: target.repo })
   const rollback = (changes: TreeChange[]) =>
-    changes.length && cmd.discard(commitPaths(changes), changes.filter((c) => c.untracked).length)
+    changes.length &&
+    cmd.discard(commitPaths(changes), changes.filter((c) => c.untracked).length, changes.length)
   const menu = (tg: ChangeTarget): MenuItem[] => {
     const f = tg.file
     const files = pickedOrAll(tg)
@@ -219,6 +226,7 @@ export function CommitView({
       <CommitBox
         target={target}
         paths={commitPaths(picked)}
+        count={picked.length}
         head={data.head}
         total={all.length}
         onCommitted={() => setSkipped(new Set())}

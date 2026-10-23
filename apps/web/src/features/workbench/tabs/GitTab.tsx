@@ -164,6 +164,7 @@ export function GitTab({ tab, tabKey, active }: TabProps<'git'>) {
               gitCommands(target).discard(
                 picked.oldPath ? [picked.oldPath, picked.path] : [picked.path],
                 picked.untracked ? 1 : 0,
+                1,
               )
             }
           >

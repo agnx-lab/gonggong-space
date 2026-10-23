@@ -1,10 +1,24 @@
 import type { GitChange, GitConflict } from '@gonggong/protocol'
 import { type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, useState } from 'react'
+import { create } from 'zustand'
 import { t } from '../../i18n'
 import { cx } from '../../lib/cx'
 import { Checkbox, ContextMenu, FileIcon, Icon, type MenuItem } from '../../ui'
 import { type DiffNode, diffTree } from '../diff/patch'
 import './changes.css'
+
+const LAYOUT_KEY = 'gg.git.treeLayout'
+
+/** How git change trees list files: grouped by directory (IDEA's default) or flat; kept across visits. */
+export const useChangeLayout = create<{ layout: 'tree' | 'list'; toggle: () => void }>((set) => ({
+  layout: localStorage.getItem(LAYOUT_KEY) === 'list' ? 'list' : 'tree',
+  toggle: () =>
+    set((s) => {
+      const layout = s.layout === 'tree' ? 'list' : 'tree'
+      localStorage.setItem(LAYOUT_KEY, layout)
+      return { layout }
+    }),
+}))
 
 /** A row of the tree: a change, an untracked file, or (with `conflict`) an unmerged path. */
 export interface TreeChange {
@@ -106,21 +120,18 @@ export function ChangeTree({
 }) {
   const [target, setTarget] = useState<ChangeTarget | null>(null)
   const byPath = new Map<string, TreeChange>(
-    groups.flatMap((g) => g.changes.map((c) => [`${g.key}\0${c.path}`, c] as const)),
+    groups.flatMap((g) => g.changes.map((c) => [`${g.key}:${c.path}`, c] as const)),
   )
   const indent = (depth: number) => ({ '--depth': depth }) as CSSProperties
 
-  const check = (paths: string[], all: boolean, g: ChangeGroup) =>
+  /** `name`: what the checkbox picks (a file or folder path, a group's label). */
+  const check = (paths: string[], all: boolean, g: ChangeGroup, name: string) =>
     g.checkable && checked && onCheck ? (
       <Checkbox
         checked={all}
         indeterminate={!all && paths.some((p) => checked.has(p))}
         onChange={(on) => onCheck(paths, on)}
-        label={
-          <span className="git-sr">
-            {t('选择 {path}', { path: paths.length === 1 ? (paths[0] ?? '') : label })}
-          </span>
-        }
+        label={<span className="git-sr">{t('选择 {path}', { path: name })}</span>}
       />
     ) : null
 
@@ -132,9 +143,9 @@ export function ChangeTree({
         key={`${g.key}:${c.path}`}
         className="gt-row"
         style={indent(depth)}
-        data-key={`${g.key}\0${c.path}`}
+        data-gt-file={`${g.key}:${c.path}`}
       >
-        {check([c.path], !!checked?.has(c.path), g)}
+        {check([c.path], !!checked?.has(c.path), g, c.path)}
         <button
           type="button"
           className={cx('gt-file', `gt-file--${s.tone}`)}
@@ -171,9 +182,9 @@ export function ChangeTree({
       const files = filesOf(n)
       const paths = files.map((f) => f.path)
       return (
-        <li key={key} className="gt-dir" data-dir={key}>
-          <div className="gt-row" style={indent(depth)} data-dir={key}>
-            {check(paths, !!checked && paths.every((p) => checked.has(p)), g)}
+        <li key={key} className="gt-dir" data-gt-dir={key}>
+          <div className="gt-row" style={indent(depth)} data-gt-dir={key}>
+            {check(paths, !!checked && paths.every((p) => checked.has(p)), g, n.path)}
             <button
               type="button"
               className="gt-folder"
@@ -194,13 +205,13 @@ export function ChangeTree({
     })
 
   const targetOf = (el: HTMLElement): ChangeTarget | null => {
-    const fileKey = el.closest<HTMLElement>('[data-key]')?.dataset.key
+    const fileKey = el.closest<HTMLElement>('[data-gt-file]')?.dataset.gtFile
     if (fileKey) {
       const c = byPath.get(fileKey)
       return c ? { changes: [c], file: c } : null
     }
-    const dir = el.closest<HTMLElement>('[data-dir]')?.dataset.dir
-    const groupKey = el.closest<HTMLElement>('[data-group]')?.dataset.group
+    const dir = el.closest<HTMLElement>('[data-gt-dir]')?.dataset.gtDir
+    const groupKey = el.closest<HTMLElement>('[data-gt-group]')?.dataset.gtGroup
     if (dir) {
       const [gk, ...rest] = dir.split(':')
       const prefix = rest.join(':')
@@ -256,9 +267,9 @@ export function ChangeTree({
         const open = !closed.has(`${g.key}:`)
         const paths = g.changes.map((c) => c.path)
         return (
-          <section key={g.key} className="gt-group" data-group={g.key}>
-            <div className="gt-row gt-row--group" data-group={g.key}>
-              {check(paths, !!checked && paths.every((p) => checked.has(p)), g)}
+          <section key={g.key} className="gt-group" data-gt-group={g.key}>
+            <div className="gt-row gt-row--group" data-gt-group={g.key}>
+              {check(paths, !!checked && paths.every((p) => checked.has(p)), g, g.label)}
               <button
                 type="button"
                 className="gt-folder gt-folder--group"

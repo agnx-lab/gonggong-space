@@ -16,7 +16,7 @@ const NO_OPS: GitOperationDto[] = []
 
 /** The bot's Git tab, pointing at `focus` in its operation log (a notification link). */
 export const openGitPanel = (botId: string, focus: string | null = null) =>
-  openTab({ kind: 'git', botId, focus })
+  openTab({ kind: 'git', botId, focus, view: 'ops' })
 
 const STATUS: Record<GitOperationStatus, { label: string; tone: TagTone }> = {
   pending_approval: { label: t('待审批'), tone: 'orange' },

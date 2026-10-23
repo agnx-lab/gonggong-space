@@ -3,9 +3,8 @@ import { useState } from 'react'
 import { t } from '../../i18n'
 import { ago, fullTime } from '../../lib/time'
 import { Alert, Button, ContextMenu, EmptyState, Icon, Spinner } from '../../ui'
-import { useDiffLayout } from '../diff/store'
 import { type GitTarget, gitBase, gitUrls, useGitGet } from './api'
-import { type ChangeGroup, ChangeTree, type TreeChange } from './ChangeTree'
+import { type ChangeGroup, ChangeTree, type TreeChange, useChangeLayout } from './ChangeTree'
 import { gitCommands } from './commands'
 
 /** What a compare from the empty tree is made against: a stash's untracked files have no parent tree. */
@@ -153,7 +152,7 @@ function StashFiles({
   onPick: (c: TreeChange) => void
 }) {
   const base = gitBase(target.groupId, target.botId)
-  const layout = useDiffLayout((s) => s.layout)
+  const layout = useChangeLayout((s) => s.layout)
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
   const tracked = useGitGet<GitCompareDto>(gitUrls.compare(base, `${stash.hash}^1`, stash.hash, target.repo))
   const untracked = useGitGet<GitCompareDto>(

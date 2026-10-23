@@ -158,11 +158,11 @@ export function gitCommands(target: GitTarget) {
         destructive: true,
         req: { action: 'stash-drop' },
       }),
-    /** IDEA's Rollback: tracked files back to HEAD, untracked ones deleted. */
-    discard: (paths: string[], untracked: number) =>
+    /** IDEA's Rollback: tracked files back to HEAD, untracked ones deleted; `files` counts a rename's two paths once. */
+    discard: (paths: string[], untracked: number, files = paths.length) =>
       confirm({
         title: t('回滚改动'),
-        message: t('将 {n} 个文件恢复到上次提交的状态', { n: paths.length }),
+        message: t('将 {n} 个文件恢复到上次提交的状态', { n: files }),
         consequences: [
           t('这些文件未提交的改动会丢失'),
           ...(untracked ? [t('{n} 个未跟踪文件会被删除', { n: untracked })] : []),

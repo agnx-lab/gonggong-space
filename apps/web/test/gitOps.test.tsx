@@ -1,191 +1,59 @@
-import type {
-  BotDto,
-  GitCompareDto,
-  GitOperationDto,
-  GitRefsDto,
-  GroupBotStateDto,
-  GroupDto,
-  UserDto,
-} from '@gonggong/protocol'
+import type { GroupDto } from '@gonggong/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useSession } from '../src/app/session'
 import { useWorkbench } from '../src/app/workbench'
 import { useWorkspace } from '../src/app/workspace'
 import { GitBar } from '../src/features/chat/GitBar'
+import { GitDialogHost } from '../src/features/git/dialogs/GitDialogHost'
 import { LinkedGitOperation } from '../src/features/git/GitOperations'
 import { GitTab } from '../src/features/workbench/tabs/GitTab'
 import { useToasts } from '../src/ui'
-import { apiError, type Call, mockApi } from './mockApi'
+import {
+  actionsCalled,
+  BASE,
+  benchTabs,
+  branch,
+  done,
+  group,
+  op,
+  REFS,
+  refreshes,
+  resetStores,
+  routes,
+  setMe,
+  state,
+  status,
+  toasts,
+} from './gitFixtures'
+import { apiError, mockApi } from './mockApi'
 
-const group = (o: Partial<GroupDto> = {}): GroupDto => ({
-  id: 'g1',
-  teamId: 't1',
-  name: '退款 v2 迁移',
-  kind: 'group',
-  mode: 'partition',
-  adminOnlyInvite: false,
-  protectBase: true,
-  notice: '',
-  noticeHidden: false,
-  avatar: null,
-  repo: { url: 'git@git.corp:pay/refund.git', branch: 'main' },
-  members: [],
-  botIds: ['b1'],
-  unread: 0,
-  lastSeq: 0,
-  last: '',
-  pinned: false,
-  muted: false,
-  foldRuns: false,
-  liveRunIds: [],
-  liveRuns: [],
-  ...o,
-})
-
-type Git = NonNullable<GroupBotStateDto['git']>
-const status = (o: Partial<Git> = {}): Git => ({
-  branch: 'feat/refund-v2',
-  ahead: 3,
-  behind: 0,
-  dirty: true,
-  dirtyCount: 3,
-  workspace: 'managed',
-  repos: [],
-  ...o,
-})
-
-const state = (o: Partial<GroupBotStateDto> = {}): GroupBotStateDto => ({
-  botId: 'b1',
-  workspace: 'managed',
-  path: '/w/b1',
-  state: 'ready',
-  git: status(),
-  error: null,
-  reason: null,
-  tier: null,
-  model: null,
-  effort: null,
-  context: null,
-  extraDirs: [],
-  ...o,
-})
-
-const branch = (name: string, o: Partial<GitRefsDto['branches'][number]> = {}) => ({
-  name,
-  kind: 'local' as const,
-  current: false,
-  upstream: null,
-  ahead: null,
-  behind: null,
-  commit: 'abc',
-  subject: 's',
-  at: '2026-10-20T00:00:00.000Z',
-  ...o,
-})
-
-const REFS: GitRefsDto = {
-  branches: [
-    branch('main', { upstream: 'origin/main', ahead: 0, behind: 2, subject: '发布 v0.3.6' }),
-    branch('feat/refund-v2', { current: true, upstream: 'origin/feat/refund-v2', ahead: 3, behind: 0 }),
-    branch('origin/main', { kind: 'remote' }),
-    branch('origin/feat/pay', { kind: 'remote' }),
-  ],
-  remotes: [{ name: 'origin', url: 'git@git.corp:pay/refund.git' }],
-  tags: [],
-  recent: [],
-}
-
-const CHANGES: GitCompareDto = {
-  changes: [
-    { path: 'src/a.ts', change: 'modified', oldPath: null },
-    { path: 'src/new.ts', change: 'added', oldPath: null },
-    { path: 'b.ts', change: 'renamed', oldPath: 'old.ts' },
-  ],
-}
-
-const op = (o: Partial<GitOperationDto> = {}): GitOperationDto => ({
-  id: 'op1',
-  groupId: 'g1',
-  botId: 'b1',
-  repo: null,
-  action: 'push',
-  branch: 'main',
-  remote: 'origin',
-  message: null,
-  paths: null,
-  args: null,
-  pushesBase: true,
-  status: 'pending_approval',
-  requestedBy: { id: 'u2', name: '老李' },
-  decidedBy: null,
-  output: null,
-  error: null,
-  createdAt: '2026-10-21T00:00:00.000Z',
-  expiresAt: '2026-10-22T00:00:00.000Z',
-  finishedAt: null,
-  ...o,
-})
-
-const BASE = '/groups/g1/bots/b1/git'
-
-const setMe = (id: string) => useSession.setState({ user: { id, name: id } as UserDto })
-
-beforeEach(() => {
-  setMe('u1')
-  useWorkspace.setState({
-    bots: [{ id: 'b1', name: '小王的 Claude', ownerId: 'u1', ownerName: '小王' } as BotDto],
-    groups: [group()],
-    botStates: {},
-    gitOps: {},
-  })
-  useWorkbench.setState({ groupId: 'g1', benches: {} })
-  useToasts.setState({ items: [] })
-})
+beforeEach(resetStores)
 afterEach(() => vi.unstubAllGlobals())
 
-const routes = (extra: Record<string, unknown> = {}) => ({
-  'GET /groups/g1/bot-states': [state()],
-  'GET /groups/g1/git/operations': { operations: [] },
-  [`GET ${BASE}/refs`]: REFS,
-  [`GET ${BASE}/compare?from=HEAD`]: CHANGES,
-  [`GET ${BASE}/diff?from=HEAD&path=src%2Fa.ts`]: { patch: '', truncated: false },
-  [`POST ${BASE}/refresh`]: undefined,
-  ...extra,
-})
-const toasts = () => useToasts.getState().items.map((t) => t.message)
-const actionsCalled = (calls: Call[]) => calls.filter((c) => c.path === `${BASE}/actions`).map((c) => c.body)
-const refreshes = (calls: Call[]) => calls.filter((c) => c.path === `${BASE}/refresh`).map((c) => c.body)
-const benchTabs = () => useWorkbench.getState().benches.g1?.tabs ?? []
-
-/** The bar plus the bot's Git tab once opened, as the chat page and its workbench show them. */
+/** The bar plus the bot's Git tab once opened and the git dialogs, as the chat page and its workbench show them. */
 function Page({ g = group() }: { g?: GroupDto }) {
   const tab = useWorkbench((s) => s.benches.g1?.tabs.find((t) => t.kind === 'git'))
   return (
     <>
       <GitBar group={g} />
       {tab?.kind === 'git' ? <GitTab tab={tab} tabKey={`git:${tab.botId}`} active /> : null}
+      <GitDialogHost />
     </>
   )
 }
 
-/** Opens the Git tab from the bar's branch button. */
 const openGit = async () => {
   fireEvent.click(await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' }))
   return within(await screen.findByTestId('git-tab'))
 }
-const branches = async () => {
+const dialog = async (name: string | RegExp) => within(await screen.findByRole('dialog', { name }))
+/** The Git tab's branch popup. */
+const popup = async () => {
   const tab = await openGit()
   fireEvent.click(await tab.findByRole('button', { name: '切换 小王的 Claude 的分支' }))
-  return within(await screen.findByRole('dialog', { name: '小王的 Claude 的分支' }))
+  return dialog('小王的 Claude 的分支')
 }
-const checkoutOp = op({
-  action: 'checkout',
-  status: 'succeeded',
-  pushesBase: false,
-  requestedBy: { id: 'u1', name: '小王' },
-})
 
 describe('git status bar', () => {
   it('opens the Git tab from the branch or the workspace menu; git actions live there only', async () => {
@@ -194,7 +62,7 @@ describe('git status bar', () => {
     const trigger = await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' })
     expect(trigger.textContent).toBe('feat/refund-v2')
     fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
-    const menu = within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
+    const menu = await dialog('小王的 Claude 的工作区')
     expect(menu.queryByRole('button', { name: /拉取|推送|提交/ })).toBeNull()
     fireEvent.click(menu.getByRole('button', { name: '打开 小王的 Claude 的 Git' }))
     expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1' }])
@@ -205,141 +73,38 @@ describe('git status bar', () => {
     mockApi(routes())
     render(<Page g={group({ mode: 'force' })} />)
     fireEvent.click(await screen.findByRole('button', { name: '小王的 Claude 的工作区' }))
-    const menu = within(await screen.findByRole('dialog', { name: '小王的 Claude 的工作区' }))
+    const menu = await dialog('小王的 Claude 的工作区')
     expect(menu.queryByRole('button', { name: /Git/ })).toBeNull()
     expect(screen.queryByRole('button', { name: '打开 小王的 Claude 的 Git' })).toBeNull()
   })
 })
 
-describe('branch switcher', () => {
-  it('groups local and remote branches with their last commit, searches, and switches a clean tree directly', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-10-21T00:00:00.000Z'))
-    const calls = mockApi(
-      routes({
-        'GET /groups/g1/bot-states': [state({ git: status({ dirty: false, dirtyCount: 0 }) })],
-        [`POST ${BASE}/actions`]: checkoutOp,
-      }),
-    )
-    render(<Page />)
-    const pop = await branches()
-    await waitFor(() => expect(refreshes(calls)).toContainEqual({ fetch: false }))
-    const local = within(await pop.findByRole('group', { name: '本地' }))
-    const remote = within(pop.getByRole('group', { name: '远程' }))
-    expect(local.getAllByRole('button').map((b) => b.dataset.ref)).toEqual(['main', 'feat/refund-v2'])
-    expect(remote.getAllByRole('button').map((b) => b.dataset.ref)).toEqual([
-      'origin/main',
-      'origin/feat/pay',
-    ])
-    const main = local.getByRole('button', { name: /^main/ })
-    expect(within(main).getByRole('img', { name: '落后 2 个提交' })).toBeTruthy()
-    expect(within(main).getByText('发布 v0.3.6 · 1 天前')).toBeTruthy()
-    const current = local.getByRole('button', { name: /^feat\/refund-v2/ })
-    expect(current.getAttribute('aria-current')).toBe('true')
-    expect(within(current).getByRole('img', { name: '领先 3 个提交' })).toBeTruthy()
-    vi.useRealTimers()
-
-    fireEvent.change(pop.getByRole('searchbox', { name: '搜索分支' }), { target: { value: 'pay' } })
-    expect(pop.queryByRole('group', { name: '本地' })).toBeNull()
-    fireEvent.click(pop.getByRole('button', { name: /origin\/feat\/pay/ }))
-
-    expect(screen.queryByRole('dialog', { name: '切换分支' })).toBeNull()
-    await waitFor(() =>
-      expect(actionsCalled(calls)).toEqual([{ action: 'checkout', branch: 'origin/feat/pay' }]),
-    )
-    await waitFor(() => expect(toasts()).toContain('小王的 Claude：切换分支完成'))
-  })
-
-  it('shows the switch in progress on the branch button', async () => {
-    let finish: (r: Response) => void = () => {}
-    mockApi(
-      routes({
-        'GET /groups/g1/bot-states': [state({ git: status({ dirty: false }) })],
-        [`POST ${BASE}/actions`]: () => new Promise<Response>((r) => (finish = r)),
-      }),
-    )
-    render(<Page />)
-    const pop = await branches()
-    fireEvent.click(await pop.findByRole('button', { name: /origin\/feat\/pay/ }))
-    const trigger = await screen.findByRole('button', { name: '切换 小王的 Claude 的分支' })
-    await waitFor(() => expect(trigger.textContent).toContain('切换中…'))
-    expect((trigger as HTMLButtonElement).disabled).toBe(true)
-    finish(new Response(JSON.stringify(checkoutOp)))
-    await waitFor(() => expect(trigger.textContent).toBe('feat/refund-v2'))
-  })
-
-  it('confirms first when the work tree has uncommitted changes', async () => {
-    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: checkoutOp }))
-    render(<Page />)
-    fireEvent.click(await (await branches()).findByRole('button', { name: /origin\/feat\/pay/ }))
-    const confirm = within(await screen.findByRole('dialog', { name: '切换分支' }))
-    expect(confirm.getByText(/feat\/pay/)).toBeTruthy()
-    expect(confirm.getByText('未提交的改动会带到新分支；与目标分支冲突时 git 会拒绝切换')).toBeTruthy()
-    fireEvent.click(confirm.getByRole('button', { name: '切换' }))
-    await waitFor(() =>
-      expect(actionsCalled(calls)).toEqual([{ action: 'checkout', branch: 'origin/feat/pay' }]),
-    )
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '切换分支' })).toBeNull())
-  })
-
-  it("tells a non-owner the switch is a request for the owner's approval", async () => {
-    setMe('u2')
-    const calls = mockApi(
-      routes({
-        'GET /groups/g1/bot-states': [state({ git: status({ dirty: false }) })],
-        [`POST ${BASE}/actions`]: op({ action: 'checkout', status: 'pending_approval' }),
-      }),
-    )
-    render(<Page />)
-    fireEvent.click(await (await branches()).findByRole('button', { name: /origin\/feat\/pay/ }))
-    const confirm = within(await screen.findByRole('dialog', { name: '申请切换分支' }))
-    expect(confirm.getByText('需要 Bot 主人 小王 批准后才会切换')).toBeTruthy()
-    fireEvent.click(confirm.getByRole('button', { name: '提交申请' }))
-    await waitFor(() =>
-      expect(actionsCalled(calls)).toEqual([{ action: 'checkout', branch: 'origin/feat/pay' }]),
-    )
-    await waitFor(() => expect(toasts()).toContain('已提交申请，等待 Bot 主人 小王 审批'))
-  })
-})
-
-describe('Git tab sync bar', () => {
-  it('refreshes the status when shown and tells how far the branch is from its upstream', async () => {
+describe('Git tab toolbar', () => {
+  it('refreshes the status when shown and shows the branch with how far it is from its upstream', async () => {
     const calls = mockApi(
       routes({ 'GET /groups/g1/bot-states': [state({ git: status({ behind: 2, ahead: 3 }) })] }),
     )
     render(<Page />)
     const tab = await openGit()
     await waitFor(() => expect(refreshes(calls)).toEqual([{ fetch: false }]))
-    expect(tab.getByRole('button', { name: /^拉取/ }).textContent).toBe('拉取↓2')
-    expect(tab.getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…↑3')
+    const bar = within(tab.getByRole('toolbar', { name: 'Git 工具栏' }))
+    expect(bar.getByRole('button', { name: '切换 小王的 Claude 的分支' }).textContent).toBe('feat/refund-v2')
+    expect(bar.getByRole('img', { name: '落后 2 个提交' }).textContent).toBe('↓2')
+    expect(bar.getByRole('img', { name: '领先 3 个提交' }).textContent).toBe('↑3')
+    expect(bar.getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…↑3')
   })
 
-  it('says a push has nothing new or publishes a branch without an upstream', async () => {
-    mockApi(
-      routes({
-        'GET /groups/g1/bot-states': [state({ git: status({ dirty: false, dirtyCount: 0, ahead: 0 }) })],
-      }),
-    )
+  it('names a detached HEAD by its commit and an unpublished branch as such', async () => {
+    mockApi(routes({ 'GET /groups/g1/bot-states': [state({ git: status({ branch: null, ahead: null }) })] }))
     const { unmount } = render(<Page />)
-    const tab = await openGit()
-    expect(tab.getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…无新提交')
-    expect(tab.getByRole('button', { name: /^拉取/ }).textContent).toBe('拉取')
+    let tab = await openGit()
+    expect(tab.getByRole('button', { name: '切换 小王的 Claude 的分支' }).textContent).toBe('a1b2c3d（游离）')
     unmount()
     useWorkbench.setState({ benches: {} })
-
     mockApi(routes({ 'GET /groups/g1/bot-states': [state({ git: status({ ahead: null, behind: null }) })] }))
     render(<Page />)
-    expect((await openGit()).getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…未发布')
-  })
-
-  it("words a non-owner's actions as requests", async () => {
-    setMe('u2')
-    mockApi(routes())
-    render(<Page />)
-    const tab = await openGit()
-    expect(tab.getByRole('button', { name: /^申请拉取/ })).toBeTruthy()
-    expect(tab.getByRole('button', { name: /^申请推送…/ })).toBeTruthy()
-    expect(tab.getByRole('button', { name: '提交申请' })).toBeTruthy()
+    tab = await openGit()
+    expect(tab.getByRole('button', { name: /^推送…/ }).textContent).toBe('推送…未发布')
   })
 
   it('fetches the remotes on demand, showing progress and the failure reason', async () => {
@@ -362,229 +127,529 @@ describe('Git tab sync bar', () => {
     expect(tab.getByRole('button', { name: '获取远程更新' })).toBeTruthy()
   })
 
-  it('pulls, and tells a non-owner the request waits for approval', async () => {
-    const calls = mockApi(
-      routes({
-        [`POST ${BASE}/actions`]: (b: { action: string }) =>
-          op({ action: b.action as 'pull', status: 'succeeded' }),
-      }),
-    )
-    const { unmount } = render(<Page />)
-    fireEvent.click((await openGit()).getByRole('button', { name: /^拉取/ }))
-    await waitFor(() => expect(actionsCalled(calls)).toEqual([{ action: 'pull' }]))
-    unmount()
-
-    setMe('u2')
-    mockApi(routes({ [`POST ${BASE}/actions`]: op({ action: 'pull', status: 'pending_approval' }) }))
+  it('updates by merge, rebase or fast-forward only, remembering the choice', async () => {
+    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
     render(<Page />)
-    fireEvent.click((await openGit()).getByRole('button', { name: /^申请拉取/ }))
+    fireEvent.click((await openGit()).getByRole('button', { name: '更新…' }))
+    let d = await dialog('更新 feat/refund-v2')
+    expect(d.getByText('从 origin/feat/refund-v2 获取')).toBeTruthy()
+    expect((d.getByRole('radio', { name: /^仅快进/ }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(d.getByRole('radio', { name: /^变基/ }))
+    expect(d.getByText('未提交的改动会先自动贮藏，更新后恢复')).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '更新' }))
+    await waitFor(() => expect(actionsCalled(calls)).toEqual([{ action: 'pull', mode: 'rebase' }]))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '更新 feat/refund-v2' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '更新…' }))
+    d = await dialog('更新 feat/refund-v2')
+    expect((d.getByRole('radio', { name: /^变基/ }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it("words a non-owner's actions as requests", async () => {
+    setMe('u2')
+    const calls = mockApi(
+      routes({ [`POST ${BASE}/actions`]: op({ action: 'pull', status: 'pending_approval' }) }),
+    )
+    render(<Page />)
+    const tab = await openGit()
+    expect(tab.getByRole('button', { name: '提交申请' })).toBeTruthy()
+    fireEvent.click(tab.getByRole('button', { name: '更新…' }))
+    const d = await dialog('更新 feat/refund-v2')
+    expect(d.getByText('需要 Bot 主人 小王 批准后才会执行')).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '提交申请' }))
+    await waitFor(() => expect(actionsCalled(calls)).toEqual([{ action: 'pull', mode: 'ff-only' }]))
     await waitFor(() => expect(toasts()).toContain('已提交申请，等待 Bot 主人 小王 审批'))
   })
 
-  it('shows the server message when the bot is busy', async () => {
-    mockApi(
-      routes({ [`POST ${BASE}/actions`]: apiError(409, 'conflict', '小王的 Claude 正在运行，请稍后再试') }),
-    )
-    render(<Page />)
-    fireEvent.click((await openGit()).getByRole('button', { name: /^拉取/ }))
-    await waitFor(() => expect(toasts()).toContain('小王的 Claude 正在运行，请稍后再试'))
-  })
-
-  it('opens the commit history in the workbench', async () => {
-    mockApi(routes())
-    render(<Page />)
-    fireEvent.click((await openGit()).getByRole('button', { name: '提交历史' }))
-    expect(benchTabs().at(-1)).toEqual({ kind: 'git-log', botId: 'b1', ref: null, commit: null })
-  })
-})
-
-describe('Git tab commit', () => {
-  it('lists the changes as a folder tree, all picked, and commits the picked ones with the message', async () => {
-    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: op({ action: 'commit', status: 'succeeded' }) }))
-    render(<Page />)
-    const tab = await openGit()
-    expect(await tab.findByText('已选 3 / 3 个文件')).toBeTruthy()
-    const files = within(tab.getByRole('list', { name: '要提交的文件' }))
-    expect(files.getByRole('button', { name: 'src' }).getAttribute('aria-expanded')).toBe('true')
-    expect(files.getAllByRole('checkbox').map((c) => (c as HTMLInputElement).checked)).toEqual([
-      true,
-      true,
-      true,
-      true,
-    ])
-    expect(
-      within(files.getByRole('button', { name: '查看 b.ts 的改动' })).getByTitle('重命名').textContent,
-    ).toBe('R')
-    expect(files.getByTitle('old.ts → b.ts')).toBeTruthy()
-
-    fireEvent.click(files.getByRole('checkbox', { name: 'src/new.ts' }))
-    expect(tab.getByText('已选 2 / 3 个文件')).toBeTruthy()
-    expect((files.getByRole('checkbox', { name: 'src' }) as HTMLInputElement).indeterminate).toBe(true)
-    const submit = tab.getByRole('button', { name: '提交' }) as HTMLButtonElement
-    expect(submit.disabled).toBe(true)
-    fireEvent.change(tab.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
-    fireEvent.click(submit)
-    await waitFor(() =>
-      expect(actionsCalled(calls)).toEqual([
-        { action: 'commit', message: '修复退款', paths: ['src/a.ts', 'old.ts', 'b.ts'] },
-      ]),
-    )
-    await waitFor(() =>
-      expect((tab.getByRole('textbox', { name: '提交说明' }) as HTMLTextAreaElement).value).toBe(''),
-    )
-  })
-
-  it('picks a whole folder, selects all or none, and commits with ⌘/Ctrl+Enter', async () => {
-    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: op({ action: 'commit', status: 'succeeded' }) }))
-    render(<Page />)
-    const tab = await openGit()
-    await tab.findByText('已选 3 / 3 个文件')
-    fireEvent.click(tab.getByRole('checkbox', { name: 'src' }))
-    expect(tab.getByText('已选 1 / 3 个文件')).toBeTruthy()
-    const message = tab.getByRole('textbox', { name: '提交说明' })
-    fireEvent.change(message, { target: { value: '修复退款' } })
-    fireEvent.click(tab.getByRole('button', { name: '全选' }))
-    fireEvent.click(tab.getByRole('button', { name: '取消全选' }))
-    expect(tab.getByText('已选 0 / 3 个文件')).toBeTruthy()
-    fireEvent.keyDown(message, { key: 'Enter', metaKey: true })
-    expect(actionsCalled(calls)).toEqual([])
-    fireEvent.click(tab.getByRole('button', { name: '全选' }))
-    fireEvent.keyDown(message, { key: 'Enter', ctrlKey: true })
-    await waitFor(() =>
-      expect(actionsCalled(calls)).toEqual([
-        { action: 'commit', message: '修复退款', paths: ['src/a.ts', 'src/new.ts', 'old.ts', 'b.ts'] },
-      ]),
-    )
-  })
-
-  it("shows the picked file's diff beside the changes", async () => {
-    const calls = mockApi(
-      routes({ [`GET ${BASE}/diff?from=HEAD&path=b.ts`]: { patch: '', truncated: false } }),
-    )
-    render(<Page />)
-    const tab = await openGit()
-    await tab.findByText('已选 3 / 3 个文件')
-    await waitFor(() =>
-      expect(calls.some((c) => c.path === `${BASE}/diff?from=HEAD&path=src%2Fa.ts`)).toBe(true),
-    )
-    fireEvent.click(tab.getByRole('button', { name: '查看 b.ts 的改动' }))
-    expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1', file: 'b.ts' }])
-    await waitFor(() => expect(calls.some((c) => c.path === `${BASE}/diff?from=HEAD&path=b.ts`)).toBe(true))
-  })
-
-  it('says when there is nothing to commit or the changes cannot be read', async () => {
-    mockApi(routes({ [`GET ${BASE}/compare?from=HEAD`]: { changes: [] } }))
-    const { unmount } = render(<Page />)
-    let tab = await openGit()
-    expect(await tab.findByText('没有未提交的改动')).toBeTruthy()
-    expect((tab.getByRole('button', { name: '提交' }) as HTMLButtonElement).disabled).toBe(true)
-    unmount()
-    useWorkbench.setState({ benches: {} })
-
-    mockApi(routes({ [`GET ${BASE}/compare?from=HEAD`]: apiError(502, 'git_failed', '工作区不可用') }))
-    render(<Page />)
-    tab = await openGit()
-    expect(await tab.findByText('读取改动失败：工作区不可用')).toBeTruthy()
-  })
-
-  it('keeps the message when git fails, with its reason', async () => {
+  it('shows the server message when the bot is busy, keeping the dialog open', async () => {
     mockApi(
       routes({
-        [`POST ${BASE}/actions`]: () =>
-          op({
-            id: 'op-fail',
-            action: 'commit',
-            status: 'failed',
-            error: '没有可提交的改动',
-            requestedBy: { id: 'u1', name: '王磊' },
+        [`POST ${BASE}/actions`]: apiError(409, 'conflict', '小王的 Claude 正在运行，等运行结束后再操作'),
+      }),
+    )
+    render(<Page />)
+    fireEvent.click((await openGit()).getByRole('button', { name: '更新…' }))
+    fireEvent.click((await dialog('更新 feat/refund-v2')).getByRole('button', { name: '更新' }))
+    await waitFor(() => expect(toasts()).toContain('小王的 Claude 正在运行，等运行结束后再操作'))
+    expect(screen.getByRole('dialog', { name: '更新 feat/refund-v2' })).toBeTruthy()
+  })
+
+  it('opens the commit history and the rest of the commands from ⋯', async () => {
+    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
+    render(<Page />)
+    const tab = await openGit()
+    fireEvent.click(tab.getByRole('button', { name: '提交历史' }))
+    expect(benchTabs().at(-1)).toMatchObject({
+      kind: 'git-log',
+      botId: 'b1',
+      ref: null,
+      commit: null,
+      path: null,
+    })
+
+    fireEvent.click(tab.getByRole('button', { name: '更多 Git 操作' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '编辑上一次提交说明…' }))
+    const reword = await dialog('编辑提交说明')
+    const text = reword.getByRole('textbox', { name: '提交说明' }) as HTMLTextAreaElement
+    expect(text.value).toBe('修复退款金额\n\n按原路退回。')
+    fireEvent.change(text, { target: { value: '修复退款金额的计算' } })
+    fireEvent.click(reword.getByRole('button', { name: '保存' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([
+        { action: 'commit', message: '修复退款金额的计算', paths: [], amend: true },
+      ]),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '编辑提交说明' })).toBeNull())
+
+    fireEvent.click(tab.getByRole('button', { name: '更多 Git 操作' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '撤销上一次提交…' }))
+    const undo = await dialog('撤销提交')
+    expect(undo.getByText('撤销 a1b2c3d，它的改动回到未提交的更改')).toBeTruthy()
+    fireEvent.click(undo.getByRole('button', { name: '撤销提交' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls).at(-1)).toEqual({ action: 'reset', commit: 'HEAD~1', mode: 'soft' }),
+    )
+  })
+
+  it('switches between the repos of a workspace with sub-repos, each read and acted on by its path', async () => {
+    const calls = mockApi(
+      routes({
+        'GET /groups/g1/bot-states': [
+          state({
+            git: status({
+              repos: [
+                { path: 'libs/core', kind: 'submodule', branch: 'dev', ahead: 0, behind: 1, dirty: false },
+              ],
+            }),
           }),
+        ],
+        [`GET ${BASE}/changes?repo=libs%2Fcore`]: { ...CHANGES_EMPTY },
+        [`GET ${BASE}/refs?repo=libs%2Fcore`]: {
+          ...REFS,
+          branches: [branch('dev', { current: true, upstream: 'origin/dev', behind: 1 })],
+        },
+        [`POST ${BASE}/actions`]: done,
       }),
     )
     render(<Page />)
     const tab = await openGit()
-    await tab.findByText('已选 3 / 3 个文件')
-    fireEvent.change(tab.getByRole('textbox', { name: '提交说明' }), { target: { value: '修复退款' } })
-    fireEvent.click(tab.getByRole('button', { name: '提交' }))
-    await waitFor(() => expect(toasts()).toContain('没有可提交的改动'))
-    expect((tab.getByRole('textbox', { name: '提交说明' }) as HTMLTextAreaElement).value).toBe('修复退款')
+    fireEvent.click(tab.getByRole('button', { name: '仓库' }))
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'libs/core' }))
+    await waitFor(() =>
+      expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1', repo: 'libs/core', file: null }]),
+    )
+    expect(await tab.findByText('没有未提交的改动')).toBeTruthy()
+    expect(tab.getByRole('button', { name: '切换 小王的 Claude 的分支' }).textContent).toBe('dev')
+    fireEvent.click(tab.getByRole('button', { name: '更新…' }))
+    fireEvent.click((await dialog('更新 dev')).getByRole('button', { name: '更新' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([{ action: 'pull', mode: 'ff-only', repo: 'libs/core' }]),
+    )
   })
 })
 
-describe('Git tab push', () => {
-  it('pushes to the current branch saying what goes where, and asks for a second confirmation for the protected base', async () => {
-    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: op({ status: 'succeeded' }) }))
+const CHANGES_EMPTY = { changes: [], conflicts: [], ongoing: null, head: null, limited: false }
+
+describe('branch popup', () => {
+  it('lists recent, local, remote branches and tags, favourites first, with incoming and outgoing counts', async () => {
+    mockApi(routes())
+    render(<Page />)
+    const pop = await popup()
+    const heads = [...document.querySelectorAll('.gb__head')].map((h) => h.textContent)
+    expect(heads).toEqual(['最近', '本地', '远程 · origin', '标签'])
+    const rows = [...document.querySelectorAll('.gb__item .gb__row')].map((r) => r.getAttribute('title'))
+    // main is the group's base branch: a favourite until unstarred; the current branch comes first too.
+    expect(rows).toEqual([
+      'feat/fee',
+      'main',
+      'feat/refund-v2',
+      'feat/fee',
+      'origin/main',
+      'origin/feat/pay',
+      'v1.2',
+    ])
+    expect(pop.getByRole('button', { name: '取消收藏 main' })).toBeTruthy()
+    const main = pop.getAllByRole('button', { name: /^main/ })[0] as HTMLElement
+    expect(within(main).getByRole('img', { name: '落后 2 个提交' }).textContent).toBe('↓2')
+    // feat/… folders under 本地 and 远程, unfolded while there are few branches; folding hides their branches.
+    const [localFeat] = pop.getAllByRole('button', { name: 'feat' })
+    expect(localFeat?.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(localFeat as HTMLElement)
+    expect(pop.getAllByTitle('feat/fee')).toHaveLength(1)
+  })
+
+  it('searches branches and tags flat, then lists a branch’s actions', async () => {
+    mockApi(routes())
+    render(<Page />)
+    const pop = await popup()
+    fireEvent.change(pop.getByRole('searchbox', { name: '搜索分支和标签' }), { target: { value: 'pay' } })
+    expect(pop.queryByText('最近')).toBeNull()
+    fireEvent.click(pop.getByTitle('origin/feat/pay'))
+    const actions = pop.getAllByRole('button').map((b) => b.textContent)
+    expect(actions).toEqual([
+      '',
+      '检出',
+      '从 origin/feat/pay 新建分支…',
+      '与 feat/refund-v2 比较',
+      '显示与工作区的差异',
+      '显示提交历史',
+      '将 feat/refund-v2 变基到 origin/feat/pay',
+      '将 origin/feat/pay 合并到 feat/refund-v2',
+      '在远程删除…',
+      '复制名称',
+    ])
+    fireEvent.click(pop.getByRole('button', { name: '返回' }))
+    expect(pop.getByRole('searchbox', { name: '搜索分支和标签' })).toBeTruthy()
+  })
+
+  it('checks out a clean tree at once; changes in the way ask for a smart, plain or force checkout', async () => {
+    const calls = mockApi(
+      routes({
+        'GET /groups/g1/bot-states': [state({ git: status({ dirty: false, dirtyCount: 0 }) })],
+        [`POST ${BASE}/actions`]: done,
+      }),
+    )
+    const { unmount } = render(<Page />)
+    let pop = await popup()
+    fireEvent.click(pop.getAllByRole('button', { name: /^main/ })[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '检出' }))
+    await waitFor(() => expect(actionsCalled(calls)).toEqual([{ action: 'checkout', branch: 'main' }]))
+    await waitFor(() => expect(toasts()).toContain('小王的 Claude：切换分支完成'))
+    unmount()
+
+    useWorkbench.setState({ benches: {} })
+    const calls2 = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
+    render(<Page />)
+    pop = await popup()
+    fireEvent.click(pop.getAllByRole('button', { name: /^main/ })[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '检出' }))
+    const d = await dialog('检出 main')
+    expect(d.getByText('工作区有未提交的改动')).toBeTruthy()
+    expect((d.getByRole('radio', { name: /^智能检出/ }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(d.getByRole('radio', { name: /^强制检出/ }))
+    fireEvent.click(d.getByRole('button', { name: '强制检出' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls2)).toEqual([
+        { action: 'checkout', branch: 'main', detach: false, mode: 'force' },
+      ]),
+    )
+  })
+
+  it('checks a tag out detached, after saying what that means', async () => {
+    const calls = mockApi(
+      routes({
+        'GET /groups/g1/bot-states': [state({ git: status({ dirty: false }) })],
+        [`POST ${BASE}/actions`]: done,
+      }),
+    )
+    render(<Page />)
+    const pop = await popup()
+    fireEvent.click(await pop.findByTitle('v1.2'))
+    fireEvent.click(pop.getByRole('button', { name: '检出' }))
+    const d = await dialog('检出 v1.2')
+    expect(d.getByText(/游离 HEAD/)).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '检出' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([{ action: 'checkout', branch: 'v1.2', detach: true }]),
+    )
+  })
+
+  it('creates a branch from the current HEAD or a picked ref, refusing names git would', async () => {
+    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
+    render(<Page />)
+    const pop = await popup()
+    fireEvent.click(pop.getByRole('button', { name: '新建分支…' }))
+    const d = await dialog('新建分支')
+    const name = d.getByRole('textbox', { name: '新分支名称' })
+    const create = d.getByRole('button', { name: '创建' }) as HTMLButtonElement
+    fireEvent.change(name, { target: { value: 'feat/fee' } })
+    expect(d.getByText('分支 feat/fee 已存在')).toBeTruthy()
+    expect(create.disabled).toBe(true)
+    fireEvent.change(name, { target: { value: 'feat/my fee' } })
+    expect(d.getByText('名称不能包含空格')).toBeTruthy()
+    fireEvent.change(name, { target: { value: 'feat/..x' } })
+    expect(d.getByText('名称不合法：feat/..x')).toBeTruthy()
+    fireEvent.change(name, { target: { value: 'feat/refund-fee' } })
+    fireEvent.change(d.getByRole('combobox'), { target: { value: 'origin/main' } })
+    fireEvent.click(d.getByRole('checkbox', { name: '创建后检出' }))
+    fireEvent.click(create)
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([
+        { action: 'branch-create', name: 'feat/refund-fee', checkout: false, from: 'origin/main' },
+      ]),
+    )
+  })
+
+  it('merges a branch into the current one with the chosen strategy', async () => {
+    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
+    render(<Page />)
+    const pop = await popup()
+    fireEvent.click(pop.getAllByRole('button', { name: /^main/ })[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '将 main 合并到 feat/refund-v2' }))
+    const d = await dialog('合并到 feat/refund-v2')
+    expect((d.getByRole('combobox') as HTMLInputElement).value).toBe('main')
+    fireEvent.click(d.getByRole('radio', { name: /^总是生成合并提交/ }))
+    fireEvent.change(d.getByRole('textbox', { name: '合并提交说明（可选）' }), {
+      target: { value: '合并主干' },
+    })
+    fireEvent.click(d.getByRole('button', { name: '合并' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([
+        { action: 'merge', branch: 'main', mode: 'no-ff', noCommit: false, message: '合并主干' },
+      ]),
+    )
+  })
+
+  it('rebases the current branch, or checks a branch out and rebases it onto the current one', async () => {
+    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
+    render(<Page />)
+    let pop = await popup()
+    fireEvent.click(pop.getAllByRole('button', { name: /^main/ })[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '将 feat/refund-v2 变基到 main' }))
+    fireEvent.click((await dialog('将 feat/refund-v2 变基')).getByRole('button', { name: '变基' }))
+    await waitFor(() => expect(actionsCalled(calls)).toEqual([{ action: 'rebase', onto: 'main' }]))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /变基/ })).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: '切换 小王的 Claude 的分支' }))
+    pop = await dialog('小王的 Claude 的分支')
+    fireEvent.click((await pop.findAllByTitle('feat/fee'))[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '检出并变基到 feat/refund-v2' }))
+    const d = await dialog('将 feat/fee 变基')
+    expect(d.getByText('会先检出 feat/fee')).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '变基' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls).at(-1)).toEqual({
+        action: 'rebase',
+        onto: 'feat/refund-v2',
+        branch: 'feat/fee',
+      }),
+    )
+  })
+
+  it('renames and deletes branches; an unmerged one needs a second confirmation, a remote one deletes on the remote', async () => {
+    const calls = mockApi(
+      routes({
+        [`POST ${BASE}/actions`]: (b: { action: string; force?: boolean; branch: string }) =>
+          b.action === 'branch-delete' && !b.force && !b.branch.startsWith('origin/')
+            ? op({
+                action: 'branch-delete',
+                status: 'failed',
+                error: "error: The branch 'feat/fee' is not fully merged.",
+              })
+            : done(b),
+      }),
+    )
+    render(<Page />)
+    let pop = await popup()
+    fireEvent.click((await pop.findAllByTitle('feat/fee'))[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '重命名…' }))
+    let d = await dialog('重命名分支 feat/fee')
+    fireEvent.change(d.getByRole('textbox', { name: '新名称' }), { target: { value: 'feat/fees' } })
+    fireEvent.click(d.getByRole('button', { name: '重命名' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([
+        { action: 'branch-rename', branch: 'feat/fee', name: 'feat/fees' },
+      ]),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /重命名分支/ })).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: '切换 小王的 Claude 的分支' }))
+    pop = await dialog('小王的 Claude 的分支')
+    fireEvent.click((await pop.findAllByTitle('feat/fee'))[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '删除…' }))
+    d = await dialog('删除分支 feat/fee')
+    expect(d.getByText('删除本地分支 feat/fee')).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '删除' }))
+    expect(await d.findByText(/有尚未合并的提交/)).toBeTruthy()
+    const again = d.getByRole('button', { name: '仍然删除' }) as HTMLButtonElement
+    expect(again.disabled).toBe(true)
+    fireEvent.click(d.getByRole('checkbox', { name: '我确认删除未合并的分支' }))
+    fireEvent.click(again)
+    await waitFor(() =>
+      expect(actionsCalled(calls).slice(-2)).toEqual([
+        { action: 'branch-delete', branch: 'feat/fee', force: false },
+        { action: 'branch-delete', branch: 'feat/fee', force: true },
+      ]),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /删除分支/ })).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: '切换 小王的 Claude 的分支' }))
+    pop = await dialog('小王的 Claude 的分支')
+    fireEvent.click(await pop.findByTitle('origin/feat/pay'))
+    fireEvent.click(pop.getByRole('button', { name: '在远程删除…' }))
+    d = await dialog('删除分支 origin/feat/pay')
+    expect(d.getByText('在远程 origin 上删除分支 feat/pay，其他人将无法再拉取它')).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '删除' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls).at(-1)).toEqual({
+        action: 'branch-delete',
+        branch: 'origin/feat/pay',
+        force: false,
+      }),
+    )
+  })
+
+  it('pushes or deletes a tag, on the remote too when asked', async () => {
+    const calls = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
+    render(<Page />)
+    let pop = await popup()
+    fireEvent.click(await pop.findByTitle('v1.2'))
+    fireEvent.click(pop.getByRole('button', { name: '推送到 origin' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([{ action: 'tag-push', name: 'v1.2', remote: 'origin' }]),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '小王的 Claude 的分支' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '切换 小王的 Claude 的分支' }))
+    pop = await dialog('小王的 Claude 的分支')
+    fireEvent.click(await pop.findByTitle('v1.2'))
+    fireEvent.click(pop.getByRole('button', { name: '删除标签…' }))
+    const d = await dialog('删除标签 v1.2')
+    fireEvent.click(d.getByRole('checkbox', { name: '同时从远程 origin 删除' }))
+    fireEvent.click(d.getByRole('button', { name: '删除' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls).at(-1)).toEqual({ action: 'tag-delete', name: 'v1.2', remote: 'origin' }),
+    )
+  })
+
+  it('stars branches in this browser', async () => {
+    mockApi(routes())
+    render(<Page />)
+    const pop = await popup()
+    fireEvent.click(pop.getByRole('button', { name: '取消收藏 main' }))
+    fireEvent.click(pop.getAllByRole('button', { name: '收藏 feat/fee' })[0] as HTMLElement)
+    expect(JSON.parse(localStorage.getItem('gg.git.favorites') ?? '{}')).toEqual({
+      b1: ['origin/main', 'feat/fee'],
+    })
+  })
+
+  it("tells a non-owner that a checkout is a request for the owner's approval", async () => {
+    setMe('u2')
+    const calls = mockApi(
+      routes({
+        'GET /groups/g1/bot-states': [state({ git: status({ dirty: false }) })],
+        [`POST ${BASE}/actions`]: op({ action: 'checkout', status: 'pending_approval' }),
+      }),
+    )
+    render(<Page />)
+    const pop = await popup()
+    fireEvent.click(pop.getAllByRole('button', { name: /^main/ })[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '检出' }))
+    const d = await dialog('检出 main')
+    expect(d.getByText('需要 Bot 主人 小王 批准后才会执行')).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '提交申请' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls)).toEqual([{ action: 'checkout', branch: 'main', detach: false }]),
+    )
+    await waitFor(() => expect(toasts()).toContain('已提交申请，等待 Bot 主人 小王 审批'))
+  })
+})
+
+describe('push dialog', () => {
+  const LOG = {
+    commits: [
+      {
+        hash: 'c1'.repeat(20),
+        shortHash: 'c1c1c1c',
+        author: '小王',
+        email: 'w@corp',
+        at: '2026-10-21T00:00:00.000Z',
+        subject: '退款按原路返回',
+        parents: [],
+        refs: [],
+      },
+    ],
+    hasMore: false,
+  }
+
+  it('lists the commits going out; pushes, force-pushes with lease, and confirms the protected base twice', async () => {
+    const calls = mockApi(
+      routes({
+        [`GET ${BASE}/refs`]: {
+          ...REFS,
+          branches: [...REFS.branches, branch('origin/feat/refund-v2', { kind: 'remote' })],
+        },
+        [`GET ${BASE}/log?ref=origin%2Ffeat%2Frefund-v2..feat%2Frefund-v2&skip=0`]: LOG,
+        [`GET ${BASE}/log?ref=origin%2Fmain..main&skip=0`]: { commits: [], hasMore: false },
+        [`POST ${BASE}/actions`]: done,
+      }),
+    )
     render(<Page />)
     const tab = await openGit()
     fireEvent.click(tab.getByRole('button', { name: /^推送…/ }))
-    let dialog = within(await screen.findByRole('dialog', { name: '推送' }))
-    expect((dialog.getByRole('textbox', { name: '分支' }) as HTMLInputElement).value).toBe('feat/refund-v2')
-    expect(await dialog.findByRole('button', { name: '远程' })).toBeTruthy()
-    expect(dialog.getByText('将 3 个提交推送到 origin/feat/refund-v2')).toBeTruthy()
-    fireEvent.click(dialog.getByRole('button', { name: '推送' }))
+    let d = await dialog('推送')
+    expect(d.getByText('feat/refund-v2 → origin/feat/refund-v2')).toBeTruthy()
+    expect(await d.findByText('退款按原路返回')).toBeTruthy()
+    fireEvent.click(d.getByRole('checkbox', { name: '同时推送标签' }))
+    fireEvent.click(d.getByRole('button', { name: '推送' }))
     await waitFor(() =>
       expect(actionsCalled(calls)).toEqual([
-        { action: 'push', remote: 'origin', branch: 'feat/refund-v2', confirmBase: false },
+        {
+          action: 'push',
+          remote: 'origin',
+          branch: 'feat/refund-v2',
+          confirmBase: false,
+          force: false,
+          tags: true,
+        },
       ]),
     )
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '推送' })).toBeNull())
 
     fireEvent.click(tab.getByRole('button', { name: /^推送…/ }))
-    dialog = within(await screen.findByRole('dialog', { name: '推送' }))
-    fireEvent.change(dialog.getByRole('textbox', { name: '分支' }), { target: { value: 'main' } })
-    expect(dialog.getByText(/main 是受保护的基准分支/)).toBeTruthy()
-    const push = dialog.getByRole('button', { name: '推送' }) as HTMLButtonElement
+    d = await dialog('推送')
+    fireEvent.click(d.getByRole('checkbox', { name: '强制推送（--force-with-lease）' }))
+    expect(d.getByText(/别人已推送但你还没获取的提交会让推送被拒绝/)).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '强制推送' }))
+    await waitFor(() =>
+      expect(actionsCalled(calls).at(-1)).toMatchObject({ force: true, branch: 'feat/refund-v2' }),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '推送' })).toBeNull())
+
+    fireEvent.click(tab.getByRole('button', { name: /^推送…/ }))
+    d = await dialog('推送')
+    fireEvent.change(d.getByRole('textbox', { name: '分支' }), { target: { value: 'main' } })
+    expect(d.getByText(/main 是受保护的基准分支/)).toBeTruthy()
+    expect(d.queryByRole('checkbox', { name: '强制推送（--force-with-lease）' })).toBeNull()
+    const push = d.getByRole('button', { name: '推送' }) as HTMLButtonElement
     expect(push.disabled).toBe(true)
-    fireEvent.click(dialog.getByRole('checkbox', { name: '我确认推送到基准分支' }))
+    fireEvent.click(d.getByRole('checkbox', { name: '我确认推送到基准分支' }))
     fireEvent.click(push)
     await waitFor(() =>
-      expect(actionsCalled(calls).at(-1)).toEqual({
+      expect(actionsCalled(calls).at(-1)).toMatchObject({
         action: 'push',
-        remote: 'origin',
         branch: 'main',
         confirmBase: true,
+        force: false,
       }),
     )
   })
 
-  it('explains the first push of a branch without an upstream', async () => {
+  it('explains the first push, and the way out when the remote rejects it', async () => {
     mockApi(
       routes({
         'GET /groups/g1/bot-states': [
           state({ git: status({ branch: 'feat/x', ahead: null, behind: null }) }),
         ],
-        [`GET ${BASE}/refs`]: {
-          ...REFS,
-          branches: [branch('main', { upstream: 'origin/main' }), branch('feat/x', { current: true })],
-        },
-      }),
-    )
-    render(<Page />)
-    fireEvent.click((await openGit()).getByRole('button', { name: /^推送…/ }))
-    const dialog = within(await screen.findByRole('dialog', { name: '推送' }))
-    expect(await dialog.findByText('首次推送，会在远程创建 feat/x 并设为上游')).toBeTruthy()
-  })
-
-  it('tells to pull first when the remote rejects the push', async () => {
-    mockApi(
-      routes({
+        [`GET ${BASE}/refs`]: { ...REFS, branches: [branch('main'), branch('feat/x', { current: true })] },
+        [`GET ${BASE}/log?ref=origin%2Fmain..feat%2Fx&skip=0`]: { commits: [], hasMore: false },
         [`POST ${BASE}/actions`]: op({
           status: 'failed',
           requestedBy: { id: 'u1', name: '小王' },
-          error: ' ! [rejected]        feat/refund-v2 -> feat/refund-v2 (fetch first)',
+          error: 'origin/feat/x [rejected] (fetch first)',
         }),
       }),
     )
     render(<Page />)
     fireEvent.click((await openGit()).getByRole('button', { name: /^推送…/ }))
-    const dialog = within(await screen.findByRole('dialog', { name: '推送' }))
-    fireEvent.click(dialog.getByRole('button', { name: '推送' }))
-    expect(await dialog.findByText('远程有新的提交，请先拉取再推送')).toBeTruthy()
+    const d = await dialog('推送')
+    expect(await d.findByText('首次推送，会在远程创建 feat/x 并设为上游')).toBeTruthy()
+    fireEvent.click(d.getByRole('button', { name: '推送' }))
+    expect(await d.findByText('远程有新的提交：先更新再推送，或改写过历史时强制推送')).toBeTruthy()
     expect(screen.getByRole('dialog', { name: '推送' })).toBeTruthy()
   })
 })
 
 describe('git operation approvals', () => {
-  it('badges pending requests; the owner approves or rejects them in the Git tab', async () => {
+  it('badges pending requests; the owner approves or rejects them in the Git tab’s activity', async () => {
     const calls = mockApi(
       routes({
         'GET /groups/g1/git/operations': {
@@ -592,11 +657,10 @@ describe('git operation approvals', () => {
             op(),
             op({
               id: 'op2',
-              action: 'commit',
-              branch: null,
+              action: 'merge',
+              branch: 'feat/fee',
               remote: null,
-              message: '修复',
-              paths: ['src/a.ts', 'src/b.ts'],
+              args: { mode: 'no-ff' },
               pushesBase: false,
             }),
           ],
@@ -608,14 +672,15 @@ describe('git operation approvals', () => {
     render(<Page />)
     fireEvent.click(await screen.findByRole('button', { name: '待审批 2' }))
     const tab = within(await screen.findByTestId('git-tab'))
+    expect(tab.getByRole('tab', { name: '记录 · 待审批 2' }).getAttribute('aria-selected')).toBe('true')
     const first = within(tab.getByTestId('git-op-op1'))
     expect(first.getByText('老李')).toBeTruthy()
     expect(first.getByText('推送')).toBeTruthy()
     expect(first.getByText('origin/main')).toBeTruthy()
     expect(first.getByText('批准即确认推送基准分支')).toBeTruthy()
     const second = within(tab.getByTestId('git-op-op2'))
-    expect(second.getByText('修复')).toBeTruthy()
-    expect(second.getByText('2 个文件')).toBeTruthy()
+    expect(second.getByText('合并')).toBeTruthy()
+    expect(second.getByText('feat/fee')).toBeTruthy()
 
     fireEvent.click(first.getByRole('button', { name: '批准' }))
     await waitFor(() =>
@@ -678,6 +743,6 @@ describe('git operation approvals', () => {
     )
     const tab = within(await screen.findByTestId('git-tab'))
     expect(tab.getByTestId('git-op-op1').dataset.focused).toBe('true')
-    expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1', focus: 'op1' }])
+    expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1', focus: 'op1', view: 'ops' }])
   })
 })

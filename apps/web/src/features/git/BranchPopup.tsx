@@ -327,6 +327,9 @@ function Highlight({ text, q }: { text: string; q: string }) {
   )
 }
 
+/** Branches of a section up to which its `/` folders start unfolded. */
+const UNFOLDED = 10
+
 /** The popup's rows: sections of refs, favourites first, `/` folders unless searching. */
 export function buildRows(
   refs: GitRefsDto,
@@ -366,6 +369,8 @@ export function buildRows(
         })
       return
     }
+    // A few branches show unfolded; many start folded. Toggling flips the default either way.
+    const unfolded = rest.length <= UNFOLDED
     const walk = (nodes: BranchNode[], d: number) => {
       for (const n of nodes) {
         if (n.kind === 'branch') {
@@ -378,7 +383,7 @@ export function buildRows(
           })
           continue
         }
-        const isOpen = o.open.has(`${keyPrefix}${n.path}`)
+        const isOpen = unfolded !== o.open.has(`${keyPrefix}${n.path}`)
         rows.push({
           kind: 'folder',
           key: `${keyPrefix}${n.path}/`,

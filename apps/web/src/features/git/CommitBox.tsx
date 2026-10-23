@@ -33,12 +33,15 @@ const remember = (botId: string, message: string) => {
 export function CommitBox({
   target,
   paths,
+  count,
   head,
   total,
   onCommitted,
 }: {
   target: GitTarget
   paths: string[]
+  /** Files picked (a rename is one file with two paths). */
+  count: number
   head: GitHeadCommit | null
   /** Files in the change list, to tell "nothing picked" from "nothing changed". */
   total: number
@@ -137,13 +140,13 @@ export function CommitBox({
       />
       <div className="gc-box__actions">
         <span className="gc-box__hint">
-          {paths.length
-            ? t('已选 {n} / {total} 个文件', { n: paths.length, total })
+          {count
+            ? t('已选 {n} / {total} 个文件', { n: count, total })
             : amend
               ? t('只修改提交说明')
               : total
                 ? t('勾选要提交的文件')
-                : t('没有未提交的改动')}
+                : ''}
         </span>
         <span className="spacer" />
         {owner ? (
