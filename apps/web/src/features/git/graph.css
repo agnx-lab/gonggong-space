@@ -1,0 +1,73 @@
+/* Commit graph (GraphCell). Lane colors keep at least 3:1 against the content background of each theme. */
+:root,
+[data-theme="light"],
+[data-theme="hc-light"] {
+  --git-graph-0: #2563eb;
+  --git-graph-1: #ea580c;
+  --git-graph-2: #16a34a;
+  --git-graph-3: #c026d3;
+  --git-graph-4: #0d9488;
+  --git-graph-5: #b38600;
+  --git-graph-6: #7c3aed;
+  --git-graph-7: #dc2626;
+}
+[data-theme="dark"],
+[data-theme="hc-dark"] {
+  --git-graph-0: #60a5fa;
+  --git-graph-1: #fb923c;
+  --git-graph-2: #4ade80;
+  --git-graph-3: #e879f9;
+  --git-graph-4: #2dd4bf;
+  --git-graph-5: #facc15;
+  --git-graph-6: #a78bfa;
+  --git-graph-7: #f87171;
+}
+
+.git-graph {
+  display: block;
+  flex: none;
+  shape-rendering: geometricPrecision;
+}
+.git-graph path {
+  fill: none;
+  stroke: var(--git-graph-color);
+  stroke-width: 1.6;
+}
+/* A ring in the row background (override --git-graph-ring on selected rows) sets the dot off the lines it joins. */
+.git-graph__node {
+  fill: var(--git-graph-color);
+  stroke: var(--git-graph-ring, var(--content-bg));
+  stroke-width: 2;
+  paint-order: stroke;
+}
+.git-graph__node--merge {
+  fill: var(--git-graph-ring, var(--content-bg));
+  stroke: var(--git-graph-color);
+  stroke-width: 1.6;
+  paint-order: normal;
+}
+
+.git-graph__c0 {
+  --git-graph-color: var(--git-graph-0);
+}
+.git-graph__c1 {
+  --git-graph-color: var(--git-graph-1);
+}
+.git-graph__c2 {
+  --git-graph-color: var(--git-graph-2);
+}
+.git-graph__c3 {
+  --git-graph-color: var(--git-graph-3);
+}
+.git-graph__c4 {
+  --git-graph-color: var(--git-graph-4);
+}
+.git-graph__c5 {
+  --git-graph-color: var(--git-graph-5);
+}
+.git-graph__c6 {
+  --git-graph-color: var(--git-graph-6);
+}
+.git-graph__c7 {
+  --git-graph-color: var(--git-graph-7);
+}
