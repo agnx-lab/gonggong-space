@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.0 — 2026-10-23
+
+- Git 管理对标 IntelliJ IDEA：Commit 窗口、完整差异视图、带提交图的 Git Log、比较、分支弹窗、合并冲突三方解决、贮藏、注解和文件历史 / IDEA-style Git management: Commit window, full diff viewer, Git Log with commit graph, compare, branch popup, three-way conflict resolution, stashes, blame and file history
+- Git 写操作扩到 23 种：分支、合并、变基、优选、还原、重置、贮藏、标签与冲突解决；新增 `gitOps3` 协议能力、`git_operations.args` 迁移，以及所有 Git 读写的仓库选择 / Git writes expand to 23 actions including branch, merge, rebase, cherry-pick, revert, reset, stash, tags and conflict resolution, with the `gitOps3` capability, `git_operations.args` migration and repository selection on every Git read and write
+- 受控写操作沿用主人直执行、成员审批、运行中拒绝与基准分支保护；危险操作二次确认，非基准分支只允许 `--force-with-lease`；提交类操作显式使用 Bot 身份 / Guarded writes keep owner-direct execution, member approval, refusal during runs and base-branch protection; dangerous actions ask again, non-base force pushes use only `--force-with-lease`, and commit-oriented actions use the Bot identity explicitly
+
 ## v0.3.9 — 2026-10-23
 
 - 后台任务跑完后 Bot 自主续跑单独开一轮运行（「后台任务完成后继续」），回复、审批、改动与用量照常记录，不再丢失或被自动拒绝；有后台任务时不再回收空闲的 agent 进程 / A Bot's own continuation after a background task runs as a new run ("Continued after background task") with its reply, approvals, changes and usage recorded instead of dropped or refused; idle agent processes are no longer recycled while background tasks run
