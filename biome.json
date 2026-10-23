@@ -10,6 +10,7 @@
       "!.gonggong-dev",
       "!**/drizzle",
       "!.claude",
+      "!.agents",
       "!.obsidian",
       "!**/test-results",
       "!**/playwright-report",

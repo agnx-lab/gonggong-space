@@ -13,7 +13,7 @@ export default {
   '每条消息最多 {n} 个附件': 'Up to {n} attachments per message',
   '引用 {who}': 'Quoting {who}',
   引用内容一起发送: 'The quote is sent along',
-  '仅引用，不会触发 Bot；要让它处理请 @': 'Quote only, the Bot is not triggered; @ it to have it respond',
+  '已自动 @ Bot，删掉 @ 就只引用、不触发': 'The Bot is @-ed; delete the @ to quote without triggering it',
   '@ {name}': '@ {name}',
   关闭引用: 'Remove quote',
   '预览 {name}': 'Preview {name}',

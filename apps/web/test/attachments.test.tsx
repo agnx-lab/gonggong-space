@@ -324,7 +324,7 @@ describe('composer attachments', () => {
 })
 
 describe('quotes', () => {
-  it('quotes a bot reply and sends the quote along', async () => {
+  it('quotes a bot reply with the bot @-ed (removable) and sends the quote along', async () => {
     const calls = mockApi({
       'POST /groups/g1/messages': () => msg({ seq: 10, authorId: 'u1', authorName: '王磊', body: '再总结' }),
     })
@@ -333,7 +333,9 @@ describe('quotes', () => {
     fireEvent.click(within(reply).getByRole('button', { name: '引用回复' }))
     expect(composer().getByText('引用 小王的 Claude')).toBeTruthy()
     expect(composer().getByText('已修复')).toBeTruthy()
-    expect(composer().getByText('仅引用，不会触发 Bot；要让它处理请 @')).toBeTruthy()
+    // Quoting a bot @s it right away; the chip's @ does not add a second one.
+    await waitFor(() => expect(box().value).toBe('@小王的 Claude '))
+    expect(composer().getByText('已自动 @ Bot，删掉 @ 就只引用、不触发')).toBeTruthy()
     fireEvent.click(composer().getByRole('button', { name: '@ 小王的 Claude' }))
     expect(box().value).toBe('@小王的 Claude ')
     fireEvent.click(screen.getByRole('button', { name: '关闭引用' }))
@@ -342,6 +344,8 @@ describe('quotes', () => {
     // The reply is merged into its run card, which then offers only the reply quote.
     expect(within(screen.getByTestId('run-card')).queryByRole('button', { name: '引用' })).toBeNull()
     fireEvent.click(within(reply).getByRole('button', { name: '引用回复' }))
+    await waitFor(() => expect(box().value).toBe('@小王的 Claude '))
+    // Deleting the @ leaves a plain quote that triggers nobody.
     fireEvent.change(box(), { target: { value: '再总结' } })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
     await waitFor(() => expect(calls.some((c) => c.path === '/groups/g1/messages')).toBe(true))
@@ -349,7 +353,18 @@ describe('quotes', () => {
       body: '再总结',
       quote: { kind: 'message', id: 'm3' },
     })
-    await waitFor(() => expect(screen.queryByText('仅引用，不会触发 Bot；要让它处理请 @')).toBeNull())
+    expect(calls.find((c) => c.path === '/groups/g1/messages')!.body?.mentions ?? []).toEqual([])
+    await waitFor(() => expect(screen.queryByText('已自动 @ Bot，删掉 @ 就只引用、不触发')).toBeNull())
+  })
+
+  it('quotes a member message without any @', async () => {
+    mockApi()
+    renderChat()
+    await screen.findByText('CI 挂了，见附件')
+    const bar = document.querySelector('[data-message-id="m2"]') as HTMLElement
+    fireEvent.click(within(bar).getByRole('button', { name: '引用回复' }))
+    expect(composer().getByText('引用内容一起发送')).toBeTruthy()
+    expect(box().value).toBe('')
   })
 })
 

@@ -43,6 +43,7 @@ import { isRich, replyFiles } from './grouping'
 import { Markdown } from './Markdown'
 import { type ActionTarget, MessageMenu } from './MessageActions'
 import { MessageEditor } from './MessageEditor'
+import { mentionInChat } from './mention'
 import {
   ClockFact,
   DelegationFacts,
@@ -250,20 +251,23 @@ export const RecallRow = memo(function RecallRow({ m, mine }: { m: MessageDto; m
 /** First line of a quoted text, without markdown emphasis (prototype quote chip). */
 const quoteLine = (text: string) => (text.split('\n')[0] ?? '').replace(/[`*]/g, '')
 
-const quoteMessage = (m: MessageDto) =>
+/** Quoting a bot also @s it in the composer; deleting the @ leaves a quote that triggers nobody (spec §8.6). */
+const quoteMessage = (m: MessageDto) => {
+  const bot = m.kind === 'bot' ? m.authorName : undefined
   useQuote.getState().set({
     groupId: m.groupId,
     kind: 'message',
     id: m.id,
     who: m.authorName,
     text: quoteLine(m.body),
-    bot: m.kind === 'bot' ? m.authorName : undefined,
+    bot,
   })
+  if (bot) mentionInChat(m.groupId, bot)
+}
 
 const link = (groupId: string, query: string) => `${location.origin}/g/${groupId}?${query}`
 
-/** Quoting a bot only adds context; @ it to trigger it (spec §8.6). */
-const BOT_QUOTE = t('引用回复不会触发 Bot')
+const BOT_QUOTE = t('引用并 @ Bot')
 
 const messageTarget = (
   m: MessageDto,
@@ -608,17 +612,18 @@ export const RunCard = memo(function RunCard({
     message: reply ?? null,
     link: link(run.groupId, reply ? `msg=${reply.id}` : `run=${run.id}`),
     quoteTitle: BOT_QUOTE,
-    onQuote: () =>
-      reply
-        ? quoteMessage(reply)
-        : quote({
-            groupId: run.groupId,
-            kind: 'run',
-            id: run.id,
-            who: t('{name} 的运行卡片', { name: botName }),
-            text: toolTitle(stepText(run)) || STATUS_LABEL[run.status],
-            bot: botName,
-          }),
+    onQuote: () => {
+      if (reply) return quoteMessage(reply)
+      quote({
+        groupId: run.groupId,
+        kind: 'run',
+        id: run.id,
+        who: t('{name} 的运行卡片', { name: botName }),
+        text: toolTitle(stepText(run)) || STATUS_LABEL[run.status],
+        bot: botName,
+      })
+      mentionInChat(run.groupId, botName)
+    },
     copyText: reply?.body,
     branchable,
   }
