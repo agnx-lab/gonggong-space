@@ -260,7 +260,12 @@ export function ChangeTree({
       className="gt"
       aria-label={label}
       onKeyDown={keyDown}
-      onContextMenuCapture={(e: MouseEvent<HTMLElement>) => setTarget(targetOf(e.target as HTMLElement))}
+      onContextMenuCapture={(e: MouseEvent<HTMLElement>) => {
+        // A right-clicked file becomes the selected one, as in IDEA.
+        const tg = targetOf(e.target as HTMLElement)
+        setTarget(tg)
+        if (tg?.file) onSelect(tg.file)
+      }}
     >
       {groups.map((g) => {
         if (!g.changes.length) return null
@@ -297,11 +302,7 @@ export function ChangeTree({
   )
   if (!menu) return body
   return (
-    <ContextMenu
-      items={target ? menu(target) : []}
-      onSelect={(v) => target && onMenu?.(v, target)}
-      onOpen={() => target?.file && onSelect(target.file)}
-    >
+    <ContextMenu items={target ? menu(target) : []} onSelect={(v) => target && onMenu?.(v, target)}>
       {body}
     </ContextMenu>
   )

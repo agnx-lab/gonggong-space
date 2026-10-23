@@ -109,7 +109,8 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
       await expect(page.getByText(/提交了 .* 的改动：add hello/).first()).toBeAttached({ timeout: 30_000 })
 
       await git.getByRole('button', { name: '提交历史' }).click()
-      await page.locator('.git-log__row', { hasText: 'add hello' }).click()
+      await page.locator('.glog-row', { hasText: 'add hello' }).click()
+      await page.getByRole('button', { name: '新增：hello.txt' }).click()
       await expect(page.locator('.diff__line').filter({ hasText: 'hi' }).first()).toBeVisible({
         timeout: 30_000,
       })

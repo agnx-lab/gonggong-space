@@ -172,6 +172,21 @@ export function GitTab({ tab, tabKey, active }: TabProps<'git'>) {
           </Button>
         }
       />
+    ) : data?.conflicts[0] ? (
+      <EmptyState
+        compact
+        icon="git-merge"
+        title={t('{n} 个文件有冲突', { n: data.conflicts.length })}
+        description={t('在合并工具里逐处选择保留哪一方，或手动编辑结果')}
+        action={
+          <Button
+            variant="primary"
+            onClick={() => gitCommands(target).openMerge(data.conflicts[0]?.path ?? '')}
+          >
+            {t('解决冲突')}
+          </Button>
+        }
+      />
     ) : (
       <EmptyState compact icon="doc-text" title={t('选择一个文件查看改动')} />
     )

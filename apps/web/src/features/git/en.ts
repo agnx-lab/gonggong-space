@@ -380,4 +380,7 @@ export default {
   '（删除了这几行）': '(these lines were deleted)',
   '{op}中': '{op} in progress',
   '{n} 个冲突': '{n} {n:conflict|conflicts}',
+  '{n} 个文件有冲突': '{n} {n:file has|files have} conflicts',
+  '在合并工具里逐处选择保留哪一方，或手动编辑结果':
+    'Pick a side for each conflict in the merge tool, or edit the result',
 } satisfies Record<string, string>

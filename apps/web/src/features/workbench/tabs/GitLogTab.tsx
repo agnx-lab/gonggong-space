@@ -145,6 +145,12 @@ export function GitLogTab({ tab, tabKey, active }: TabProps<'git-log'>) {
   const listed = (hashes: string[]) => log.commits.filter((c) => hashes.includes(c.hash))
 
   const layout = wide ? 'wide' : roomy ? 'medium' : 'narrow'
+  // As in IDEA, the first commit is picked once the log arrives, so its details fill the room below the table.
+  const first = log.commits[0]?.hash
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only a new first commit or layout picks again
+  useEffect(() => {
+    if (active && first && layout !== 'narrow' && !now().commit) select(first)
+  }, [active, first, layout])
   const paneShown = layout === 'narrow' ? paneOnPhone : (pane ?? layout === 'wide')
   const filterRef = (ref: string | null, all: boolean) => {
     control.setRef(ref, all)

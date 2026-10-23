@@ -1,6 +1,7 @@
 import type { GitCommit, GitShowDto } from '@gonggong/protocol'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useWorkbench } from '../src/app/workbench'
 import { fullTime } from '../src/lib/time'
 import {
   commit,
@@ -87,6 +88,12 @@ describe('commit table', () => {
     expect(row(tab, '1').querySelector('svg.git-graph')).toBeTruthy()
     expect(within(row(tab, '2')).getByText('老李')).toBeTruthy()
     expect(within(row(tab, '1')).getByTitle(fullTime(LOG[0]?.at ?? ''))).toBeTruthy()
+  })
+
+  it('picks the first commit once the log arrives, as IDEA does, so its details show', async () => {
+    const tab = await openLog()
+    await waitFor(() => expect(row(tab, '1').getAttribute('aria-selected')).toBe('true'))
+    expect(useWorkbench.getState().benches.g1?.tabs[0]).toMatchObject({ commit: hash('1') })
   })
 
   it('moves with the keyboard: ↑↓ rows, ← parent, → child', async () => {
