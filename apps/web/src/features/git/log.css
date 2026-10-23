@@ -1,0 +1,894 @@
+/* IDEA's Git Log (GitLogTab, features/git/log/) and the compare tab (GitCompareTab). */
+:root,
+[data-theme="light"] {
+  --glog-head-bg: #fff0c2;
+  --glog-head-text: #7a4b00;
+}
+[data-theme="hc-light"] {
+  --glog-head-bg: #ffe8a3;
+  --glog-head-text: #5c3800;
+}
+[data-theme="dark"] {
+  --glog-head-bg: #3d2e08;
+  --glog-head-text: #ffcf5c;
+}
+[data-theme="hc-dark"] {
+  --glog-head-bg: #4a3608;
+  --glog-head-text: #ffe08f;
+}
+
+.glog,
+.gcmp {
+  /* Opaque, so a graph node's ring (--git-graph-ring) matches the row behind it. */
+  --glog-hover: color-mix(in srgb, var(--label) 5%, var(--content-bg));
+  --glog-picked: color-mix(in srgb, var(--accent) 15%, var(--content-bg));
+  --glog-primary: color-mix(in srgb, var(--accent) 24%, var(--content-bg));
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--content-bg);
+}
+.glog__center {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.glog-note {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  color: var(--label-secondary);
+  font-size: var(--text-callout-size);
+}
+.glog-note--error {
+  justify-content: flex-start;
+  padding: 6px 12px;
+  color: var(--tint-red-text);
+  white-space: pre-wrap;
+}
+.glog__details {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.glog__details > .ui-empty,
+.glog__details > .glog-note {
+  margin: auto;
+}
+
+/* Toolbar buttons. */
+.glog-tool {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label-secondary);
+  cursor: pointer;
+}
+.glog-tool:hover:not(:disabled),
+.glog-tool[aria-expanded="true"] {
+  background: var(--quote-fill);
+  color: var(--label);
+}
+.glog-tool[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-text);
+}
+.glog-tool:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.glog-tool:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.glog-tool--small {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+/* Filter bar. */
+.glf {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--separator);
+}
+.glf-search {
+  display: inline-flex;
+  flex: 1 1 200px;
+  align-items: center;
+  gap: 2px;
+  min-width: 160px;
+  max-width: 360px;
+  height: 26px;
+  padding: 0 3px 0 8px;
+  border-radius: 7px;
+  background: var(--control-track);
+  box-shadow: var(--shadow-outline);
+  color: var(--label-secondary);
+}
+.glf-search:focus-within {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.glf-search__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  outline: none;
+}
+.glf-search__input::placeholder {
+  color: var(--label-tertiary);
+}
+.glf-search__input::-webkit-search-cancel-button {
+  display: none;
+}
+.glf-flag {
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--label-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.glf-flag:hover {
+  background: var(--quote-fill);
+  color: var(--label);
+}
+.glf-flag[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-text);
+}
+.glf-goto {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.glf-goto:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.glf-item {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 6px;
+}
+.glf-item[data-on] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.glf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  height: 24px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label-secondary);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.glf-btn:hover,
+.glf-btn[aria-expanded="true"] {
+  background: var(--quote-fill);
+  color: var(--label);
+}
+.glf-btn > svg {
+  flex: none;
+  opacity: 0.7;
+}
+.glf-item[data-on] .glf-btn {
+  padding-right: 4px;
+  color: var(--accent-text);
+}
+.glf-item[data-on] .glf-btn:hover {
+  background: transparent;
+}
+.glf-clear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent-text);
+  cursor: pointer;
+}
+.glf-clear:hover {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.glf-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.glf-reset:hover {
+  background: var(--quote-fill);
+}
+.glf-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.glf-options {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  margin: 0 -6px;
+  overflow: auto;
+}
+.glf-option {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  text-align: left;
+  cursor: pointer;
+}
+.glf-option > svg {
+  flex: none;
+  color: var(--label-tertiary);
+}
+.glf-option:hover {
+  background: var(--selection-fill);
+}
+.glf-option[aria-pressed="true"] {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.glf-option[aria-pressed="true"]::after {
+  content: "✓";
+  margin-left: auto;
+}
+.glf-option[aria-expanded="true"] {
+  color: var(--label-secondary);
+}
+.glf-dates {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--separator);
+}
+.glf-date {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+}
+.glf-hint {
+  padding: 0 2px;
+  color: var(--label-tertiary);
+  font-size: var(--text-subheadline-size);
+}
+.glf-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.glf-panel .ui-field {
+  min-width: 0;
+}
+
+/* Commit table: rows as tall as the graph's, so its lanes run on from row to row. */
+.glog-table {
+  container: glog-table / inline-size;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.glog-list {
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+.glog-row {
+  --git-graph-ring: var(--content-bg);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px 84px 60px;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  height: 26px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  background: var(--content-bg);
+  color: var(--label);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  text-align: left;
+  cursor: default;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
+}
+.glog-row:hover {
+  --git-graph-ring: var(--glog-hover);
+  background: var(--glog-hover);
+}
+.glog-row[aria-selected="true"] {
+  --git-graph-ring: var(--glog-picked);
+  background: var(--glog-picked);
+}
+.glog-row[aria-selected="true"][data-primary] {
+  --git-graph-ring: var(--glog-primary);
+  background: var(--glog-primary);
+}
+.glog-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.glog-row__subject {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+}
+.glog-row__graph {
+  display: flex;
+  flex: none;
+  max-width: 45%;
+  height: 100%;
+  overflow: hidden;
+}
+.glog-row__text {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glog-row[data-merge] .glog-row__text {
+  color: var(--label-secondary);
+}
+.glog-row__author,
+.glog-row__date {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glog-row__date {
+  font-variant-numeric: tabular-nums;
+}
+.glog-row__hash {
+  overflow: hidden;
+  color: var(--label-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+@container glog-table (max-width: 620px) {
+  .glog-row {
+    grid-template-columns: minmax(0, 1fr) 84px 60px;
+  }
+  .glog-row__author {
+    display: none;
+  }
+}
+@container glog-table (max-width: 440px) {
+  .glog-row {
+    grid-template-columns: minmax(0, 1fr) 76px;
+  }
+  .glog-row__hash {
+    display: none;
+  }
+}
+.glog-more {
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+}
+.glog-more:empty {
+  display: none;
+}
+
+/* Ref labels: HEAD yellow-orange, local green, remote purple, tags gray. */
+.glog-refs {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 3px;
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+}
+.glog-ref {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 180px;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--tint-gray);
+  color: var(--tint-gray-text);
+  font-size: var(--text-subheadline-size);
+  font-weight: 600;
+  line-height: 17px;
+  white-space: nowrap;
+}
+.glog-ref > svg {
+  flex: none;
+}
+.glog-ref__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.glog-ref[data-ref="head"],
+.glog-ref[data-ref="current"] {
+  background: var(--glog-head-bg);
+  color: var(--glog-head-text);
+}
+.glog-ref[data-ref="local"] {
+  background: var(--tint-green);
+  color: var(--tint-green-text);
+}
+.glog-ref[data-ref="remote"] {
+  background: var(--tint-purple);
+  color: var(--tint-purple-text);
+}
+.glog-ref--more {
+  flex: none;
+}
+
+/* Branches pane. */
+.glb {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--content-bg);
+}
+.glb__head {
+  flex: none;
+  padding: 6px 8px 4px;
+}
+.glb__search {
+  width: 100%;
+  min-width: 0;
+}
+.glb__tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+  padding: 0 6px 4px;
+  border-bottom: 1px solid var(--separator);
+}
+.glb__menu {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.glb__list {
+  padding: 4px 0 8px;
+}
+.glb[data-picker] {
+  max-height: min(420px, 60vh);
+  margin: -12px;
+}
+.glb[data-picker] .glb__list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.glb__back {
+  flex: none;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--separator);
+}
+.glb-item {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+}
+.glb-item:hover {
+  background: var(--selection-fill);
+}
+.glb-item:hover .gb__star,
+.glb-item .gb__star[data-on] {
+  visibility: visible;
+}
+.glb-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  font-size: var(--text-callout-size);
+  text-align: left;
+  cursor: pointer;
+}
+.glb-row:hover {
+  background: var(--selection-fill);
+}
+.glb-item .glb-row:hover {
+  background: transparent;
+}
+.glb-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.glb-row[aria-current="true"],
+.glb-item:has(> .glb-row[aria-current="true"]) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.glb-row[aria-current="true"] {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.glb-row--section {
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+  font-weight: 600;
+}
+.glb-row__icon {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 16px;
+  color: var(--label-secondary);
+}
+.glb-row__icon[data-star] {
+  color: var(--tint-orange-text);
+}
+.glb-item[data-current] .glb-row__icon {
+  color: var(--accent-text);
+}
+.glb-item[data-current] .glb-row {
+  font-weight: 600;
+}
+.glb-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glb-row__note {
+  color: var(--label-secondary);
+  font-weight: 400;
+}
+
+/* Commit details, changed files and the diff. */
+.glog-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+.glog-info {
+  flex: none;
+  padding: 10px 12px 10px;
+}
+.glog-page__body > .glog-info {
+  border-bottom: 1px solid var(--separator);
+}
+.glog-info__subject {
+  margin: 0 0 6px;
+  font-size: var(--text-body-size);
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.glog-info__body {
+  max-height: 160px;
+  margin-bottom: 8px;
+  overflow: auto;
+  color: var(--label);
+  font-size: var(--text-callout-size);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.glog-info__meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+  font-size: var(--text-callout-size);
+  line-height: 20px;
+}
+.glog-info__meta dt {
+  color: var(--label-tertiary);
+}
+.glog-info__meta dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+  margin: 0;
+  color: var(--label-secondary);
+}
+.glog-info__meta .glog-info__hashrow {
+  flex-wrap: nowrap;
+}
+.glog-info__hash {
+  min-width: 0;
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.glog-info__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.glog-info__more {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+.glog-info__link:hover,
+.glog-info__more:hover {
+  text-decoration: underline;
+}
+.glog-info__time {
+  color: var(--label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.glog-info__branches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: var(--text-callout-size);
+}
+.glog-info__label {
+  margin-right: 2px;
+  color: var(--label-tertiary);
+}
+.glog-info__branch {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--quote-fill);
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+  line-height: 18px;
+}
+.glog-files {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  padding-bottom: 6px;
+}
+.glog-files__bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 2px 8px;
+}
+.glog-diff {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+.glog-diff > .ui-empty {
+  height: 100%;
+}
+.glog-info > .glog-note--error {
+  padding: 8px 0 0;
+}
+
+/* Phones: one view at a time, each with its way back. */
+.glog-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.glog-page__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--separator);
+}
+.glog-page__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--label-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-callout-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glog-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Compare tab. */
+.gcmp__bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--separator);
+}
+.gcmp__rev {
+  max-width: 40%;
+  padding: 2px 8px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--quote-fill);
+  color: var(--label);
+  font-family: var(--font-mono);
+  font-size: var(--text-callout-size);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gcmp__swap {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--label-secondary);
+  font-size: 15px;
+  cursor: pointer;
+}
+.gcmp__swap:hover {
+  background: var(--quote-fill);
+  color: var(--label);
+}
+.gcmp__arrow {
+  color: var(--label-tertiary);
+}
+.gcmp__main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.gcmp__commits {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+}
+.gcmp[data-layout="narrow"] .gcmp__commits {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+.gcmp__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.gcmp__column + .gcmp__column {
+  border-left: 1px solid var(--separator);
+}
+.gcmp[data-layout="narrow"] .gcmp__column + .gcmp__column {
+  border-top: 1px solid var(--separator);
+  border-left: 0;
+}
+.gcmp__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--separator);
+  font-size: var(--text-callout-size);
+  font-weight: 600;
+}
+.gcmp__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gcmp__count {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--quote-fill);
+  color: var(--label-secondary);
+  font-size: var(--text-caption-size);
+  line-height: 16px;
+}
+.gcmp__files {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}

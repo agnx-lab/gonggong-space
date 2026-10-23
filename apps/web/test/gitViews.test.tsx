@@ -52,7 +52,7 @@ const REFS: GitRefsDto = {
       at: '',
     },
   ],
-  remotes: [],
+  remotes: [{ name: 'origin', url: 'git@x:r.git' }],
   tags: [],
   recent: [],
 }
@@ -180,34 +180,36 @@ describe('commit history tab', () => {
   it('pages the log, switches the ref and shows a commit’s changed files', async () => {
     open({ kind: 'git-log', botId: 'b1', ref: null, commit: null })
     const tab = within(screen.getByTestId('git-log:b1'))
-    expect(tab.getByRole('heading').textContent).toBe('提交历史 · 小王的 Claude')
-    const first = await tab.findByRole('button', { name: /提交 1/ })
+    expect(tab.getByRole('heading', { level: 2 }).textContent).toBe('提交历史 · 小王的 Claude')
+    const first = await tab.findByRole('option', { name: /提交 1/ })
     expect(calls).toContain('/api/groups/g1/bots/b1/git/log?skip=0')
     expect(first.textContent).toContain('1111111')
     expect(first.textContent).toContain('小王')
-    expect(within(first).getByText('HEAD -> feat/x')).toBeTruthy()
+    // HEAD's branch and its remote twin share one label.
+    const label = await within(first).findByText('origin & feat/x')
+    expect(label.closest('[data-ref]')?.getAttribute('data-ref')).toBe('current')
 
     fireEvent.click(tab.getByRole('button', { name: '加载更多' }))
-    expect(await tab.findByRole('button', { name: /提交 3/ })).toBeTruthy()
+    expect(await tab.findByRole('option', { name: /提交 3/ })).toBeTruthy()
     expect(calls).toContain('/api/groups/g1/bots/b1/git/log?skip=2')
     expect(tab.queryByRole('button', { name: '加载更多' })).toBeNull()
 
-    fireEvent.click(tab.getByRole('button', { name: /提交 2/ }))
+    fireEvent.click(tab.getByRole('option', { name: /提交 2/ }))
     expect(current()[0]).toMatchObject({ commit: '2'.repeat(40) })
-    const files = within(await tab.findByRole('list', { name: '变更文件' }))
+    const files = within(await tab.findByRole('region', { name: '变更文件' }))
     expect(calls).toContain(`/api/groups/g1/bots/b1/git/compare?from=${'3'.repeat(40)}&to=${'2'.repeat(40)}`)
-    expect(files.getByRole('button', { name: /src\/a\.ts/ }).textContent).toContain('M')
-    expect(files.getByRole('button', { name: /b\.ts/ }).textContent).toContain('a.ts → b.ts')
+    expect(files.getByRole('button', { name: '修改：src/a.ts' }).textContent).toContain('M')
+    expect(files.getByRole('button', { name: '重命名：b.ts' }).getAttribute('title')).toBe('a.ts → b.ts')
 
     // The first file's diff against the first parent shows right away.
-    expect(files.getByRole('button', { name: /src\/a\.ts/ }).getAttribute('aria-current')).toBe('true')
+    expect(files.getByRole('button', { name: '修改：src/a.ts' }).getAttribute('aria-current')).toBe('true')
     await waitFor(() => expect(diffText(tab)).toContain(`+${'2'.repeat(40)}:src/a.ts`))
     expect(diffText(tab)).toContain(`-${'3'.repeat(40)}:src/a.ts`)
     expect(calls).toContain(
       `/api/groups/g1/bots/b1/git/diff?from=${'3'.repeat(40)}&to=${'2'.repeat(40)}&path=src%2Fa.ts`,
     )
 
-    fireEvent.click(files.getByRole('button', { name: /gone\.ts/ }))
+    fireEvent.click(files.getByRole('button', { name: '删除：gone.ts' }))
     expect(current()[0]).toMatchObject({ file: 'gone.ts' })
     await waitFor(() => expect(diffText(tab)).toContain(`-${'3'.repeat(40)}:gone.ts`))
 
@@ -217,7 +219,7 @@ describe('commit history tab', () => {
       kind: 'file',
       source: { botId: 'b1', path: 'gone.ts', rev: '3'.repeat(40) },
     })
-    fireEvent.click(files.getByRole('button', { name: /src\/a\.ts/ }))
+    fireEvent.click(files.getByRole('button', { name: '修改：src/a.ts' }))
     fireEvent.click(tab.getByRole('button', { name: '打开此版本' }))
     expect(current().at(-1)).toEqual({
       kind: 'file',
@@ -227,34 +229,44 @@ describe('commit history tab', () => {
     expect(screen.getByRole('heading', { name: 'a.ts @ 2222222' })).toBeTruthy()
 
     // Another commit starts on its own first file.
-    fireEvent.click(tab.getByRole('button', { name: /提交 1/ }))
+    fireEvent.click(tab.getByRole('option', { name: /提交 1/ }))
     expect(current()[0]).toMatchObject({ commit: '1'.repeat(40), file: null })
 
-    fireEvent.click(tab.getByRole('button', { name: '分支' }))
-    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: 'main' }))
-    expect(await tab.findByRole('button', { name: /提交 7/ })).toBeTruthy()
+    fireEvent.click(within(tab.getByRole('region', { name: '分支' })).getByRole('button', { name: 'main' }))
+    expect(await tab.findByRole('option', { name: /提交 7/ })).toBeTruthy()
     expect(calls).toContain('/api/groups/g1/bots/b1/git/log?ref=main&skip=0')
   })
 
   it('compares a root commit against the empty tree', async () => {
     open({ kind: 'git-log', botId: 'b1', ref: null, commit: null })
     const tab = within(screen.getByTestId('git-log:b1'))
-    await tab.findByRole('button', { name: /提交 1/ })
+    await tab.findByRole('option', { name: /提交 1/ })
     fireEvent.click(tab.getByRole('button', { name: '加载更多' }))
-    fireEvent.click(await tab.findByRole('button', { name: /提交 3/ }))
+    fireEvent.click(await tab.findByRole('option', { name: /提交 3/ }))
     await waitFor(() => expect(diffText(tab)).toContain(`-${EMPTY_TREE}:src/a.ts`))
     expect(calls).toContain(`/api/groups/g1/bots/b1/git/compare?from=${EMPTY_TREE}&to=${'3'.repeat(40)}`)
   })
 
-  it('keeps the picked file in the tab and shows the commit alone when narrow', async () => {
+  it('keeps the picked file in the tab and walks list → commit → file when narrow', async () => {
     const width = narrow(600)
     open({ kind: 'git-log', botId: 'b1', ref: null, commit: '2'.repeat(40), file: 'b.ts' })
     const tab = within(screen.getByTestId('git-log:b1'))
     await waitFor(() => expect(diffText(tab)).toContain(`+${'2'.repeat(40)}:b.ts`))
-    expect(tab.queryByRole('button', { name: /提交 1/ })).toBeNull()
-    fireEvent.click(tab.getByRole('button', { name: '全部提交' }))
-    expect(current()[0]).toMatchObject({ commit: null })
-    expect(await tab.findByRole('button', { name: /提交 1/ })).toBeTruthy()
+    expect(tab.queryByRole('option', { name: /提交 1/ })).toBeNull()
+    expect(tab.queryByRole('region', { name: '变更文件' })).toBeNull()
+
+    fireEvent.click(tab.getByRole('button', { name: '返回提交详情' }))
+    expect(current()[0]).toMatchObject({ commit: '2'.repeat(40), file: null })
+    const files = within(await tab.findByRole('region', { name: '变更文件' }))
+    expect(tab.queryByTestId('git-diff')).toBeNull()
+    fireEvent.click(files.getByRole('button', { name: '修改：src/a.ts' }))
+    expect(current()[0]).toMatchObject({ file: 'src/a.ts' })
+    await waitFor(() => expect(diffText(tab)).toContain(`+${'2'.repeat(40)}:src/a.ts`))
+
+    fireEvent.click(tab.getByRole('button', { name: '返回提交详情' }))
+    fireEvent.click(await tab.findByRole('button', { name: '全部提交' }))
+    expect(current()[0]).toMatchObject({ commit: null, file: null })
+    expect(await tab.findByRole('option', { name: /提交 1/ })).toBeTruthy()
     width.mockRestore()
   })
 })
