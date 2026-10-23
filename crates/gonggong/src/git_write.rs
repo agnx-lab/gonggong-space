@@ -80,16 +80,17 @@ fn unsupported(mode: &str) -> String {
 
 struct Writer<'a> {
     dir: &'a Path,
+    identity: Option<&'a GitIdentity>,
     /// `-c user.name=… -c user.email=…`: everything that commits, tags or stashes does it as the bot.
     who: Vec<String>,
 }
 
 impl Writer<'_> {
-    fn new<'a>(dir: &'a Path, identity: Option<&GitIdentity>) -> Writer<'a> {
+    fn new<'a>(dir: &'a Path, identity: Option<&'a GitIdentity>) -> Writer<'a> {
         let who = identity.map_or(vec![], |i| {
             vec!["-c".into(), format!("user.name={}", i.name), "-c".into(), format!("user.email={}", i.email)]
         });
-        Writer { dir, who }
+        Writer { dir, identity, who }
     }
 
     /// `args` after the identity.
@@ -103,7 +104,16 @@ impl Writer<'_> {
     }
 
     async fn run_input(&self, args: &[&str], input: Option<&[u8]>) -> Result<String, String> {
-        let out = git_output(self.dir, &self.with(args), &NO_EDITOR, input).await?;
+        let mut env = NO_EDITOR.to_vec();
+        if let Some(i) = self.identity {
+            env.extend([
+                ("GIT_AUTHOR_NAME", i.name.as_str()),
+                ("GIT_AUTHOR_EMAIL", i.email.as_str()),
+                ("GIT_COMMITTER_NAME", i.name.as_str()),
+                ("GIT_COMMITTER_EMAIL", i.email.as_str()),
+            ]);
+        }
+        let out = git_output(self.dir, &self.with(args), &env, input).await?;
         match out.status.success() {
             true => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
             false => Err(explain(&out)),
@@ -178,7 +188,16 @@ impl Writer<'_> {
         if git(dir, &["rev-parse", "--abbrev-ref", "@{upstream}"]).await.is_err() {
             return Err(t!("当前分支没有上游分支，无法拉取").into());
         }
-        match remote_git_with(dir, &self.with(args), &NO_EDITOR, Some(NETWORK_TIMEOUT)).await {
+        let mut env = NO_EDITOR.to_vec();
+        if let Some(i) = self.identity {
+            env.extend([
+                ("GIT_AUTHOR_NAME", i.name.as_str()),
+                ("GIT_AUTHOR_EMAIL", i.email.as_str()),
+                ("GIT_COMMITTER_NAME", i.name.as_str()),
+                ("GIT_COMMITTER_EMAIL", i.email.as_str()),
+            ]);
+        }
+        match remote_git_with(dir, &self.with(args), &env, Some(NETWORK_TIMEOUT)).await {
             Ok(out) if mode == "ff-only" => Ok(out.lines().next().unwrap_or_default().trim().to_string()),
             Ok(_) => head_line(dir).await,
             Err(f) => Err(conflicts(dir).await.unwrap_or(f.detail)),
@@ -238,7 +257,7 @@ impl Writer<'_> {
                     args.push("--amend");
                 }
                 args.extend(["-m", message]);
-                git(dir, &args).await?
+                self.run(&args).await?
             }
             Some(paths) => {
                 let picked = picked(paths)?;
@@ -257,7 +276,7 @@ impl Writer<'_> {
                     args.push("--amend");
                 }
                 args.extend(["-m", message]);
-                git_input(dir, &args, &list).await?
+                self.run_input(&args, Some(&list)).await?
             }
         };
         Ok(out.lines().next().unwrap_or_default().trim().to_string())

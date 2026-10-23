@@ -13,6 +13,10 @@ pub(super) fn sh(dir: &Path, args: &[&str]) -> String {
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
         .args(args)
         .current_dir(dir)
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
         .env("LC_ALL", "C")
         .output()
         .unwrap();
