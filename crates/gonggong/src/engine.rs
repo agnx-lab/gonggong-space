@@ -9,14 +9,15 @@ use crate::explorer;
 use crate::files;
 use crate::git;
 use crate::git_ops;
+use crate::git_write;
 use crate::hosted::Services;
 use crate::i18n::Reason;
 use crate::inject;
 use crate::local::LocalSettings;
 use crate::manage::Manage;
 use crate::protocol::{
-    AgentCatalog, AgentKind, Approval, Attachment, DaemonToServer, DiffScope, GitAction, GitActionKind, RepoKind,
-    RunBot, RunDone, RunOutcome, RunStart, RunSyncDone, SecretEnv, ServerToDaemon, ServiceInfo, SyncWaitIssue, Tier,
+    AgentCatalog, AgentKind, Approval, Attachment, DaemonToServer, DiffScope, RepoKind, RunBot, RunDone, RunOutcome,
+    RunStart, RunSyncDone, SecretEnv, ServerToDaemon, ServiceInfo, SyncWaitIssue, Tier, WorkspaceSpec,
 };
 use crate::providers::{Selection, Store};
 use crate::replicas::{Init, Refusal, Replicas, sync_error};
@@ -269,26 +270,9 @@ async fn workspace_diff(
     }
 }
 
-async fn git_action(dir: &Path, req: &GitAction) -> Result<String, String> {
-    let missing = |what: &str| t!("缺少参数：{what}", what = what);
-    match req.action {
-        GitActionKind::Checkout => {
-            git_ops::checkout(dir, req.branch.as_deref().ok_or_else(|| missing("branch"))?).await
-        }
-        GitActionKind::Pull => git_ops::pull(dir).await,
-        GitActionKind::Commit => {
-            let message = req.message.as_deref().unwrap_or_default();
-            git_ops::commit(dir, message, req.paths.as_deref(), req.identity.as_ref()).await
-        }
-        GitActionKind::Push => {
-            let remote = req.remote.as_deref().ok_or_else(|| missing("remote"))?;
-            let branch = match &req.branch {
-                Some(b) => b.clone(),
-                None => git::branch(dir).await.ok_or_else(|| missing("branch"))?,
-            };
-            git_ops::push(dir, remote, &branch).await
-        }
-    }
+/// The repo of the workspace `dir` a git message is for.
+fn repo_in(dir: &Path, workspace: &WorkspaceSpec, repo: Option<&str>) -> Result<PathBuf, String> {
+    git_ops::repo_path(dir, &workspace.extra_dirs, repo)
 }
 
 impl Handler for Engine {
@@ -455,34 +439,178 @@ impl Handler for Engine {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let out = out.clone();
                 tokio::spawn(async move {
-                    let refs = match git_ops::repo_path(&dir, &req.workspace.extra_dirs, req.repo.as_deref()) {
+                    let refs = match repo_in(&dir, &req.workspace, req.repo.as_deref()) {
                         Ok(repo) => git_ops::refs(&repo).await,
                         Err(e) => Err(e),
                     };
-                    let (branches, remotes, error) = match refs {
-                        Ok((b, r)) => (b, r, None),
-                        Err(e) => (vec![], vec![], Some(e)),
-                    };
-                    out.send(DaemonToServer::GitRefsResult { request_id: req.request_id, branches, remotes, error });
+                    let request_id = req.request_id;
+                    out.send(match refs {
+                        Ok(r) => DaemonToServer::GitRefsResult {
+                            request_id,
+                            branches: r.branches,
+                            remotes: r.remotes,
+                            tags: r.tags,
+                            recent: r.recent,
+                            error: None,
+                        },
+                        Err(e) => DaemonToServer::GitRefsResult {
+                            request_id,
+                            branches: vec![],
+                            remotes: vec![],
+                            tags: vec![],
+                            recent: vec![],
+                            error: Some(e),
+                        },
+                    });
                 });
             }
             ServerToDaemon::GitLog(req) => {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let out = out.clone();
                 tokio::spawn(async move {
-                    let (commits, has_more, error) =
-                        match git_ops::log(&dir, req.r#ref.as_deref(), req.skip, req.limit).await {
-                            Ok((c, more)) => (c, more, None),
-                            Err(e) => (vec![], false, Some(e)),
-                        };
+                    let log = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::log(&repo, req.r#ref.as_deref(), req.skip, req.limit, req.filter.as_ref()).await
+                    };
+                    let (commits, has_more, error) = match log.await {
+                        Ok((c, more)) => (c, more, None),
+                        Err(e) => (vec![], false, Some(e)),
+                    };
                     out.send(DaemonToServer::GitLogResult { request_id: req.request_id, commits, has_more, error });
+                });
+            }
+            ServerToDaemon::GitShow(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let show = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::show(&repo, &req.commit).await
+                    };
+                    let request_id = req.request_id;
+                    out.send(match show.await {
+                        Ok(s) => DaemonToServer::GitShowResult {
+                            request_id,
+                            commit: Some(s.commit),
+                            body: s.body,
+                            committer: s.committer,
+                            committer_email: s.committer_email,
+                            committed_at: s.committed_at,
+                            branches: s.branches,
+                            error: None,
+                        },
+                        Err(e) => DaemonToServer::GitShowResult {
+                            request_id,
+                            commit: None,
+                            body: String::new(),
+                            committer: String::new(),
+                            committer_email: String::new(),
+                            committed_at: String::new(),
+                            branches: vec![],
+                            error: Some(e),
+                        },
+                    });
+                });
+            }
+            ServerToDaemon::GitChanges(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let changes = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::changes(&repo).await
+                    };
+                    let request_id = req.request_id;
+                    out.send(match changes.await {
+                        Ok(c) => DaemonToServer::GitChangesResult {
+                            request_id,
+                            changes: c.changes,
+                            conflicts: c.conflicts,
+                            ongoing: c.ongoing,
+                            head: c.head,
+                            error: None,
+                        },
+                        Err(e) => DaemonToServer::GitChangesResult {
+                            request_id,
+                            changes: vec![],
+                            conflicts: vec![],
+                            ongoing: None,
+                            head: None,
+                            error: Some(e),
+                        },
+                    });
+                });
+            }
+            ServerToDaemon::GitBlame(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let blame = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::blame(&repo, req.r#ref.as_deref(), &req.path).await
+                    };
+                    let (ranges, commits, error) = match blame.await {
+                        Ok(b) => (b.ranges, b.commits, None),
+                        Err(e) => (vec![], vec![], Some(e)),
+                    };
+                    out.send(DaemonToServer::GitBlameResult { request_id: req.request_id, ranges, commits, error });
+                });
+            }
+            ServerToDaemon::GitStashes(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let stashes = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::stashes(&repo).await
+                    };
+                    let (stashes, error) = match stashes.await {
+                        Ok(s) => (s, None),
+                        Err(e) => (vec![], Some(e)),
+                    };
+                    out.send(DaemonToServer::GitStashesResult { request_id: req.request_id, stashes, error });
+                });
+            }
+            ServerToDaemon::GitConflict(req) => {
+                let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
+                let out = out.clone();
+                tokio::spawn(async move {
+                    let conflict = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::conflict(&repo, &req.path, req.max_bytes).await
+                    };
+                    let request_id = req.request_id;
+                    out.send(match conflict.await {
+                        Ok(c) => DaemonToServer::GitConflictResult {
+                            request_id,
+                            base: c.base,
+                            ours: c.ours,
+                            theirs: c.theirs,
+                            merged: c.merged,
+                            binary: c.binary,
+                            error: None,
+                        },
+                        Err(e) => DaemonToServer::GitConflictResult {
+                            request_id,
+                            base: None,
+                            ours: None,
+                            theirs: None,
+                            merged: None,
+                            binary: false,
+                            error: Some(e),
+                        },
+                    });
                 });
             }
             ServerToDaemon::GitTree(req) => {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let out = out.clone();
                 tokio::spawn(async move {
-                    let (entries, truncated, error) = match git_ops::tree(&dir, req.r#ref.as_deref(), &req.path).await {
+                    let tree = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::tree(&repo, req.r#ref.as_deref(), &req.path).await
+                    };
+                    let (entries, truncated, error) = match tree.await {
                         Ok((entries, truncated)) => (entries, truncated, None),
                         Err(e) => (vec![], false, Some(e)),
                     };
@@ -493,8 +621,12 @@ impl Handler for Engine {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let out = out.clone();
                 tokio::spawn(async move {
+                    let read = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::read(&repo, req.r#ref.as_deref(), &req.path, req.max_bytes).await
+                    };
                     let request_id = req.request_id;
-                    out.send(match git_ops::read(&dir, req.r#ref.as_deref(), &req.path, req.max_bytes).await {
+                    out.send(match read.await {
                         Ok(r) => DaemonToServer::GitReadResult {
                             request_id,
                             size: r.size,
@@ -518,7 +650,11 @@ impl Handler for Engine {
                 let dir = self.0.workspaces.dir(&req.group_id, &req.bot_id, &req.workspace);
                 let out = out.clone();
                 tokio::spawn(async move {
-                    let (changes, error) = match git_ops::compare(&dir, &req.from, req.to.as_deref()).await {
+                    let compare = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::compare(&repo, &req.from, req.to.as_deref()).await
+                    };
+                    let (changes, error) = match compare.await {
                         Ok(changes) => (changes, None),
                         Err(e) => (vec![], Some(e)),
                     };
@@ -530,11 +666,18 @@ impl Handler for Engine {
                 let out = out.clone();
                 tokio::spawn(async move {
                     let max = usize::try_from(req.max_bytes).unwrap_or(usize::MAX);
-                    let (patch, truncated, error) =
-                        match git_ops::diff(&dir, &req.from, req.to.as_deref(), req.path.as_deref(), max).await {
-                            Ok((patch, truncated)) => (Some(patch), truncated, None),
-                            Err(e) => (None, false, Some(e)),
-                        };
+                    let options = git_ops::DiffOptions {
+                        ignore_whitespace: req.ignore_whitespace == Some(true),
+                        context: req.context,
+                    };
+                    let diff = async {
+                        let repo = repo_in(&dir, &req.workspace, req.repo.as_deref())?;
+                        git_ops::diff(&repo, &req.from, req.to.as_deref(), req.path.as_deref(), max, options).await
+                    };
+                    let (patch, truncated, error) = match diff.await {
+                        Ok((patch, truncated)) => (Some(patch), truncated, None),
+                        Err(e) => (None, false, Some(e)),
+                    };
                     out.send(DaemonToServer::GitDiffResult { request_id: req.request_id, patch, truncated, error });
                 });
             }
@@ -567,8 +710,8 @@ impl Handler for Engine {
                 let out = out.clone();
                 tokio::spawn(async move {
                     // The run holds the workspace root; the action works in the chosen repo of it.
-                    let result = match git_ops::repo_path(&dir, &req.workspace.extra_dirs, req.repo.as_deref()) {
-                        Ok(repo) => git_action(&repo, &req).await,
+                    let result = match repo_in(&dir, &req.workspace, req.repo.as_deref()) {
+                        Ok(repo) => git_write::act(&repo, &req).await,
                         Err(e) => Err(e),
                     };
                     let (ok, output, error) = match result {

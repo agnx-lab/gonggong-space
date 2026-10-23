@@ -119,6 +119,27 @@ pub struct GitStatus {
     /// Submodules and nested repos (not the root), outermost first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repos: Vec<RepoStatus>,
+    /// The root repo's HEAD short hash; None on an unborn branch, or from older daemons (as the next three).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    /// What stopped midway; None when nothing is in progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ongoing: Option<GitOngoingKind>,
+    /// Unmerged paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflicts: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stashes: Option<u32>,
+}
+
+/// A merge, rebase, cherry-pick or revert that stopped midway (conflicts, or a commit left to make).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GitOngoingKind {
+    Merge,
+    Rebase,
+    CherryPick,
+    Revert,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -604,7 +625,7 @@ pub struct GitRefs {
     pub repo: Option<String>,
 }
 
-/// git.log: newest first from `ref` (None = HEAD).
+/// git.log: newest first from `ref` (None = HEAD; a range like `main..feat` too), narrowed by `filter`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitLog {
@@ -612,9 +633,63 @@ pub struct GitLog {
     pub group_id: String,
     pub bot_id: String,
     pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
     pub r#ref: Option<String>,
     pub skip: u32,
     pub limit: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<GitLogFilter>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GitLogOrder {
+    Date,
+    Topo,
+}
+
+/// git.log filters, all combined. `all`: every branch, remote branch and tag instead of `ref`; `text`: the message, a
+/// fixed string unless `regexp` (extended), case-insensitive unless `match_case`; `since`/`until`: ISO dates; `path`:
+/// work-tree-relative, a file's history following renames.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLogFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regexp: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_case: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_parent: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_merges: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<GitLogOrder>,
+}
+
+/// git.show: one commit's whole message, its committer and the branches containing it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitShow {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    pub commit: String,
 }
 
 /// git.tree: one directory of `ref`'s tree, the work tree untouched.
@@ -625,6 +700,8 @@ pub struct GitTree {
     pub group_id: String,
     pub bot_id: String,
     pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
     pub r#ref: Option<String>,
     pub path: String,
 }
@@ -637,6 +714,8 @@ pub struct GitRead {
     pub group_id: String,
     pub bot_id: String,
     pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
     pub r#ref: Option<String>,
     pub path: String,
     pub max_bytes: u64,
@@ -650,6 +729,8 @@ pub struct GitCompare {
     pub group_id: String,
     pub bot_id: String,
     pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
     pub from: String,
     pub to: Option<String>,
 }
@@ -663,9 +744,70 @@ pub struct GitDiff {
     pub group_id: String,
     pub bot_id: String,
     pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
     pub from: String,
     pub to: Option<String>,
     pub path: Option<String>,
+    pub max_bytes: u64,
+    /// `-w`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_whitespace: Option<bool>,
+    /// Context lines (`-U`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<u32>,
+}
+
+/// git.changes: the work tree against HEAD as a commit would take it, unmerged paths apart, what stopped midway and
+/// HEAD's commit. Never touches the index.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitChanges {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+}
+
+/// git.blame: who last changed each line of `path` at `ref` (None = the work tree, uncommitted lines included).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBlame {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    pub r#ref: Option<String>,
+    pub path: String,
+}
+
+/// git.stashes: the stash list, newest first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitStashes {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+}
+
+/// git.conflict: an unmerged path's base, ours and theirs (each up to `max_bytes`) and git's diff3 merge of them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConflictRead {
+    pub request_id: String,
+    pub group_id: String,
+    pub bot_id: String,
+    pub workspace: WorkspaceSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    pub path: String,
     pub max_bytes: u64,
 }
 
@@ -680,16 +822,89 @@ pub struct GitRefresh {
     pub fetch: bool,
 }
 
+/// All but the first four came with [`FEATURE_GIT_OPS3`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum GitActionKind {
     Checkout,
     Pull,
     Commit,
     Push,
+    BranchCreate,
+    BranchRename,
+    BranchDelete,
+    Merge,
+    Rebase,
+    CherryPick,
+    Revert,
+    Reset,
+    Discard,
+    Stash,
+    Unstash,
+    StashDrop,
+    TagCreate,
+    TagDelete,
+    TagPush,
+    Continue,
+    Abort,
+    Skip,
+    Resolve,
 }
 
-/// git.action: a manual write, refused (`busy`) while a turn holds the directory. Never forced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GitConflictPick {
+    Ours,
+    Theirs,
+}
+
+/// git.action parameters beyond branch/remote/message/paths; each action reads its own (see [`GitAction`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitActionArgs {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub onto: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commits: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detach: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amend: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_commit: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub untracked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stash: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pop: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<GitConflictPick>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+/// git.action: a manual write, refused (`busy`) while a turn holds the directory; commits are made as `identity`.
+/// What each action reads is spelled out on GitAction in packages/protocol (daemon.ts). Pushes are only ever forced
+/// with `args.force` (--force-with-lease).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitAction {
@@ -704,10 +919,12 @@ pub struct GitAction {
     pub branch: Option<String>,
     pub remote: Option<String>,
     pub message: Option<String>,
-    /// commit: only these work-tree-relative paths; None = every change. Older servers never send it.
+    /// commit, discard, stash: only these work-tree-relative paths; None = every change. Older servers never send it.
     #[serde(default)]
     pub paths: Option<Vec<String>>,
     pub identity: Option<GitIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<GitActionArgs>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -735,6 +952,16 @@ pub struct GitBranch {
 pub struct GitRemote {
     pub name: String,
     pub url: String,
+}
+
+/// `commit`: the commit it points at (an annotated tag peeled); `subject`/`at`: that commit's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitTag {
+    pub name: String,
+    pub commit: String,
+    pub annotated: bool,
+    pub subject: String,
+    pub at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -765,6 +992,86 @@ pub struct GitChange {
     pub path: String,
     pub change: GitChangeKind,
     pub old_path: Option<String>,
+}
+
+/// A change of the work tree against HEAD; `add`/`del` lines, None for binary files.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorkChange {
+    pub path: String,
+    pub change: GitChangeKind,
+    pub old_path: Option<String>,
+    /// Not tracked by git yet.
+    pub untracked: bool,
+    pub add: Option<u32>,
+    pub del: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GitConflictSide {
+    Modified,
+    Added,
+    Deleted,
+}
+
+/// An unmerged path and what each side did to it (`ours` = HEAD).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitConflict {
+    pub path: String,
+    pub ours: GitConflictSide,
+    pub theirs: GitConflictSide,
+}
+
+/// What stopped midway: `subject` is what is merged, picked or reverted, or the branch being rebased; `step` of
+/// `total` a rebase's progress; `message` the one git prepared for the commit that finishes it (MERGE_MSG).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitOngoing {
+    pub kind: GitOngoingKind,
+    pub subject: Option<String>,
+    pub step: Option<u32>,
+    pub total: Option<u32>,
+    pub message: Option<String>,
+}
+
+/// HEAD's commit, to amend; `pushed` = already on a remote-tracking branch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHeadCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub message: String,
+    pub pushed: bool,
+}
+
+/// Lines `start` (1-based) to `start + count - 1` were last changed by `commit` ('' = not committed yet).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitBlameRange {
+    pub start: u32,
+    pub count: u32,
+    pub commit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBlameCommit {
+    pub hash: String,
+    pub short_hash: String,
+    pub author: String,
+    pub email: String,
+    pub at: String,
+    pub subject: String,
+}
+
+/// `stash@{index}`; `branch` None when made on a detached HEAD; `untracked`: it holds untracked files too.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitStash {
+    pub index: u32,
+    pub hash: String,
+    pub message: String,
+    pub branch: Option<String>,
+    pub at: String,
+    pub untracked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1257,6 +1564,9 @@ pub const FEATURE_GIT_OPS: &str = "gitOps";
 pub const FEATURE_GIT_OPS2: &str = "gitOps2";
 /// `repo` of git.refs / git.action: without it a server's request would act on the root repo instead.
 pub const FEATURE_GIT_REPOS: &str = "gitRepos";
+/// git.changes / show / blame / stashes / conflict, `repo` on every git read, log filters, diff options, tags and
+/// recent branches in git.refs, the GitStatus extras, and the git.action kinds past push with their `args`.
+pub const FEATURE_GIT_OPS3: &str = "gitOps3";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolsSettings {
@@ -1635,9 +1945,62 @@ pub enum DaemonToServer {
         error: Option<String>,
     },
     #[serde(rename = "git.refs.result", rename_all = "camelCase")]
-    GitRefsResult { request_id: String, branches: Vec<GitBranch>, remotes: Vec<GitRemote>, error: Option<String> },
+    GitRefsResult {
+        request_id: String,
+        branches: Vec<GitBranch>,
+        remotes: Vec<GitRemote>,
+        /// Newest first.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tags: Vec<GitTag>,
+        /// Up to 5 local branches checked out lately, latest first.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        recent: Vec<String>,
+        error: Option<String>,
+    },
     #[serde(rename = "git.log.result", rename_all = "camelCase")]
     GitLogResult { request_id: String, commits: Vec<GitCommit>, has_more: bool, error: Option<String> },
+    #[serde(rename = "git.show.result", rename_all = "camelCase")]
+    GitShowResult {
+        request_id: String,
+        commit: Option<GitCommit>,
+        /// The whole message, subject included.
+        body: String,
+        committer: String,
+        committer_email: String,
+        committed_at: String,
+        /// Local and remote-tracking branches containing it, at most 100.
+        branches: Vec<String>,
+        error: Option<String>,
+    },
+    #[serde(rename = "git.changes.result", rename_all = "camelCase")]
+    GitChangesResult {
+        request_id: String,
+        changes: Vec<GitWorkChange>,
+        conflicts: Vec<GitConflict>,
+        ongoing: Option<GitOngoing>,
+        head: Option<GitHeadCommit>,
+        error: Option<String>,
+    },
+    #[serde(rename = "git.blame.result", rename_all = "camelCase")]
+    GitBlameResult {
+        request_id: String,
+        ranges: Vec<GitBlameRange>,
+        commits: Vec<GitBlameCommit>,
+        error: Option<String>,
+    },
+    #[serde(rename = "git.stashes.result", rename_all = "camelCase")]
+    GitStashesResult { request_id: String, stashes: Vec<GitStash>, error: Option<String> },
+    /// None = absent on that side, or binary; `merged` (diff3 markers) only when all three are text.
+    #[serde(rename = "git.conflict.result", rename_all = "camelCase")]
+    GitConflictResult {
+        request_id: String,
+        base: Option<String>,
+        ours: Option<String>,
+        theirs: Option<String>,
+        merged: Option<String>,
+        binary: bool,
+        error: Option<String>,
+    },
     #[serde(rename = "git.tree.result", rename_all = "camelCase")]
     GitTreeResult { request_id: String, entries: Vec<TreeEntry>, truncated: bool, error: Option<String> },
     #[serde(rename = "git.read.result", rename_all = "camelCase")]
@@ -1812,6 +2175,16 @@ pub enum ServerToDaemon {
     GitRefs(GitRefs),
     #[serde(rename = "git.log")]
     GitLog(GitLog),
+    #[serde(rename = "git.show")]
+    GitShow(GitShow),
+    #[serde(rename = "git.changes")]
+    GitChanges(GitChanges),
+    #[serde(rename = "git.blame")]
+    GitBlame(GitBlame),
+    #[serde(rename = "git.stashes")]
+    GitStashes(GitStashes),
+    #[serde(rename = "git.conflict")]
+    GitConflict(GitConflictRead),
     #[serde(rename = "git.tree")]
     GitTree(GitTree),
     #[serde(rename = "git.read")]
@@ -1823,7 +2196,7 @@ pub enum ServerToDaemon {
     #[serde(rename = "git.refresh")]
     GitRefresh(GitRefresh),
     #[serde(rename = "git.action")]
-    GitAction(GitAction),
+    GitAction(Box<GitAction>),
     #[serde(rename = "workspace.diff")]
     WorkspaceDiff(WorkspaceDiff),
     #[serde(rename = "dir.list", rename_all = "camelCase")]

@@ -13,7 +13,6 @@
     "dirtyCount": 3,
     "checkedAt": "2026-10-22T02:00:00.000Z",
     "workspace": "managed",
-    "repos": [],
     "head": "a1b2c3d",
     "ongoing": "rebase",
     "conflicts": 2,

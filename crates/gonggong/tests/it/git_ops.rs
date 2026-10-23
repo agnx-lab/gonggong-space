@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-fn sh(dir: &Path, args: &[&str]) -> String {
+pub(super) fn sh(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
         .args(args)
@@ -20,7 +20,7 @@ fn sh(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-fn commit(dir: &Path, file: &str, content: &str, msg: &str) {
+pub(super) fn commit(dir: &Path, file: &str, content: &str, msg: &str) {
     let path = dir.join(file);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, content).unwrap();
@@ -28,26 +28,26 @@ fn commit(dir: &Path, file: &str, content: &str, msg: &str) {
     sh(dir, &["commit", "-q", "-m", msg]);
 }
 
-const DOC: &str = "line one\nline two\nline three\nline four\nline five\n";
+pub(super) const DOC: &str = "line one\nline two\nline three\nline four\nline five\n";
 
-struct Rig {
-    engine: Engine,
-    out: Outbox,
-    rx: OutboxRx,
-    _home: tempfile::TempDir,
-    _tmp: tempfile::TempDir,
-    remote: PathBuf,
+pub(super) struct Rig {
+    pub(super) engine: Engine,
+    pub(super) out: Outbox,
+    pub(super) rx: OutboxRx,
+    pub(super) _home: tempfile::TempDir,
+    pub(super) _tmp: tempfile::TempDir,
+    pub(super) remote: PathBuf,
     /// The bot's /cd workspace: a clone of `remote` on main.
-    work: PathBuf,
+    pub(super) work: PathBuf,
     /// Someone else's clone, pushing to `remote`.
-    other: PathBuf,
+    pub(super) other: PathBuf,
     /// The workspace.state sent after the last action.
-    state: Option<WorkspaceState>,
+    pub(super) state: Option<WorkspaceState>,
 }
 
 /// remote.git: main (README.md, src/a.txt, docs/old.md, logo.png) and feat (a.txt changed, b.txt added, old.md
 /// renamed to new.md).
-fn rig() -> Rig {
+pub(super) fn rig() -> Rig {
     gonggong::i18n::set_locale(gonggong::i18n::Locale::Zh);
     let tmp = tempfile::tempdir().unwrap();
     let seed = tmp.path().join("seed");
@@ -100,7 +100,7 @@ fn rig() -> Rig {
 }
 
 impl Rig {
-    fn spec(&self) -> WorkspaceSpec {
+    pub(super) fn spec(&self) -> WorkspaceSpec {
         WorkspaceSpec {
             repo: None,
             cd_path: Some(self.work.to_string_lossy().into()),
@@ -109,11 +109,11 @@ impl Rig {
         }
     }
 
-    fn send(&self, msg: ServerToDaemon) {
+    pub(super) fn send(&self, msg: ServerToDaemon) {
         self.engine.handle(msg, &self.out);
     }
 
-    async fn next(&mut self) -> DaemonToServer {
+    pub(super) async fn next(&mut self) -> DaemonToServer {
         loop {
             let msg = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
                 .await
@@ -138,7 +138,7 @@ impl Rig {
         let req = GitRefs { request_id: "q".into(), group_id: "g1".into(), bot_id: "b1".into(), workspace, repo };
         self.send(ServerToDaemon::GitRefs(req));
         match self.next().await {
-            DaemonToServer::GitRefsResult { request_id, branches, remotes, error: None } if request_id == "q" => {
+            DaemonToServer::GitRefsResult { request_id, branches, remotes, error: None, .. } if request_id == "q" => {
                 Ok((branches, remotes))
             }
             DaemonToServer::GitRefsResult { error: Some(e), .. } => Err(e),
@@ -152,9 +152,11 @@ impl Rig {
             group_id: "g1".into(),
             bot_id: "b1".into(),
             workspace: self.spec(),
+            repo: None,
             r#ref: r#ref.map(String::from),
             skip,
             limit,
+            filter: None,
         };
         self.send(ServerToDaemon::GitLog(req));
         match self.next().await {
@@ -169,6 +171,7 @@ impl Rig {
             group_id: "g1".into(),
             bot_id: "b1".into(),
             workspace: self.spec(),
+            repo: None,
             r#ref: r#ref.map(String::from),
             path: path.into(),
         };
@@ -186,6 +189,7 @@ impl Rig {
             group_id: "g1".into(),
             bot_id: "b1".into(),
             workspace: self.spec(),
+            repo: None,
             r#ref: r#ref.map(String::from),
             path: path.into(),
             max_bytes,
@@ -204,6 +208,7 @@ impl Rig {
             group_id: "g1".into(),
             bot_id: "b1".into(),
             workspace: self.spec(),
+            repo: None,
             from: from.into(),
             to: to.map(String::from),
         };
@@ -230,10 +235,13 @@ impl Rig {
             group_id: "g1".into(),
             bot_id: "b1".into(),
             workspace: self.spec(),
+            repo: None,
             from: from.into(),
             to: to.map(String::from),
             path: path.map(String::from),
             max_bytes,
+            ignore_whitespace: None,
+            context: None,
         };
         self.send(ServerToDaemon::GitDiff(req));
         match self.next().await {
@@ -244,7 +252,7 @@ impl Rig {
     }
 
     /// The fresh status, then the refresh's own error.
-    async fn refresh(&mut self, fetch: bool) -> (GitStatus, Option<String>) {
+    pub(super) async fn refresh(&mut self, fetch: bool) -> (GitStatus, Option<String>) {
         let req = GitRefresh {
             request_id: "q".into(),
             group_id: "g1".into(),
@@ -270,7 +278,7 @@ impl Rig {
         }
     }
 
-    fn action_req(&self, action: GitActionKind) -> GitAction {
+    pub(super) fn action_req(&self, action: GitActionKind) -> GitAction {
         GitAction {
             request_id: "q".into(),
             group_id: "g1".into(),
@@ -283,12 +291,13 @@ impl Rig {
             message: None,
             paths: None,
             identity: None,
+            args: None,
         }
     }
 
     /// (ok, busy, output, error)
-    async fn act(&mut self, req: GitAction) -> (bool, bool, Option<String>, Option<String>) {
-        self.send(ServerToDaemon::GitAction(req));
+    pub(super) async fn act(&mut self, req: GitAction) -> (bool, bool, Option<String>, Option<String>) {
+        self.send(ServerToDaemon::GitAction(Box::new(req)));
         let result = match self.next().await {
             DaemonToServer::GitActionResult { ok, busy, output, error, .. } => (ok, busy, output, error),
             other => panic!("unexpected {other:?}"),
@@ -308,11 +317,11 @@ impl Rig {
         (ok, output, error)
     }
 
-    fn head(&self) -> String {
+    pub(super) fn head(&self) -> String {
         sh(&self.work, &["rev-parse", "HEAD"])
     }
 
-    fn current(&self) -> String {
+    pub(super) fn current(&self) -> String {
         sh(&self.work, &["branch", "--show-current"])
     }
 }
@@ -684,7 +693,7 @@ async fn push_sets_the_upstream_and_never_forces() {
 }
 
 /// A repo of its own with branches main and dev, `dev` holding a commit main lacks.
-fn side_repo(dir: &Path) {
+pub(super) fn side_repo(dir: &Path) {
     fs::create_dir_all(dir).unwrap();
     sh(dir, &["init", "-q", "-b", "main"]);
     commit(dir, "lib.txt", "1", "lib init");
@@ -771,7 +780,7 @@ async fn repos_outside_the_workspace_and_its_extra_dirs_are_refused() {
     assert_eq!(sh(&r.other, &["branch", "--show-current"]), "main");
 }
 
-fn slow_run(r: &Rig, run_id: &str, text: &str) -> RunStart {
+pub(super) fn slow_run(r: &Rig, run_id: &str, text: &str) -> RunStart {
     RunStart {
         run_id: run_id.into(),
         group_id: "g1".into(),
@@ -823,7 +832,7 @@ async fn actions_are_refused_while_a_turn_holds_the_directory() {
     fs::write(r.work.join("src/a.txt"), "changed\n").unwrap();
     let head = r.head();
     let req = GitAction { message: Some("m".into()), ..r.action_req(GitActionKind::Commit) };
-    r.send(ServerToDaemon::GitAction(req));
+    r.send(ServerToDaemon::GitAction(Box::new(req)));
     let result = loop {
         if let msg @ DaemonToServer::GitActionResult { .. } = r.next().await {
             break msg;
@@ -851,7 +860,7 @@ async fn a_turn_arriving_during_an_action_waits_for_it_without_asking() {
     commit(&r.work, "mine.txt", "x", "mine");
     let req =
         GitAction { branch: Some("main".into()), remote: Some("origin".into()), ..r.action_req(GitActionKind::Push) };
-    r.send(ServerToDaemon::GitAction(req));
+    r.send(ServerToDaemon::GitAction(Box::new(req)));
     r.send(ServerToDaemon::RunStart(Box::new(slow_run(&r, "r1", "mock:echo"))));
     let mut order = vec![];
     while order.len() < 2 {

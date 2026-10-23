@@ -142,12 +142,16 @@ fn clean(branch: &str, workspace: WorkspaceKind) -> Option<GitStatus> {
         checked_at,
         workspace,
         repos: vec![],
+        head: None,
+        ongoing: None,
+        conflicts: Some(0),
+        stashes: Some(0),
     })
 }
 
-/// The status without its timestamp, to compare.
+/// The status without its timestamp and HEAD's hash, to compare.
 fn unstamped(git: Option<GitStatus>) -> Option<GitStatus> {
-    git.map(|g| GitStatus { checked_at: None, ..g })
+    git.map(|g| GitStatus { checked_at: None, head: None, ..g })
 }
 
 #[test]
@@ -452,6 +456,10 @@ async fn git_status_tracks_ahead_behind_dirty_and_missing_upstream() {
             checked_at: None,
             workspace: WorkspaceKind::Managed,
             repos: vec![],
+            head: None,
+            ongoing: None,
+            conflicts: Some(0),
+            stashes: Some(0),
         }
     );
 

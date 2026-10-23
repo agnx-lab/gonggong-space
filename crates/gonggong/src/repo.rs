@@ -141,7 +141,17 @@ async fn batch_ssh() -> Option<&'static str> {
 /// Runs a git remote command non-interactively in the C locale, so failures classify the same on every machine.
 /// `limit` None = no time limit (clones of big repos).
 pub async fn remote_git(dir: &Path, args: &[&str], limit: Option<Duration>) -> Result<String, Failure> {
-    let out = remote_output(dir, args, limit).await?;
+    remote_git_with(dir, args, &[], limit).await
+}
+
+/// [`remote_git`] with `env` set too.
+pub(crate) async fn remote_git_with(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    limit: Option<Duration>,
+) -> Result<String, Failure> {
+    let out = remote_output_with(dir, args, env, limit).await?;
     match out.status.success() {
         true => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
         false => Err(classify(&String::from_utf8_lossy(&out.stderr))),
@@ -154,8 +164,18 @@ pub(crate) async fn remote_output(
     args: &[&str],
     limit: Option<Duration>,
 ) -> Result<std::process::Output, Failure> {
+    remote_output_with(dir, args, &[], limit).await
+}
+
+async fn remote_output_with(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    limit: Option<Duration>,
+) -> Result<std::process::Output, Failure> {
     let mut cmd = crate::proc::async_command("git");
     cmd.arg("-C").arg(dir).args(args).env("GIT_TERMINAL_PROMPT", "0").env("LC_ALL", "C").kill_on_drop(true);
+    cmd.envs(env.iter().copied());
     if let Some(ssh) = batch_ssh().await {
         cmd.env("GIT_SSH_COMMAND", ssh);
     }

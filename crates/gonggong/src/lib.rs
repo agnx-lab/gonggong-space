@@ -16,6 +16,7 @@ pub mod explorer;
 pub mod files;
 pub mod git;
 pub mod git_ops;
+pub mod git_write;
 pub mod hosted;
 pub mod i18n;
 pub mod inject;

@@ -511,8 +511,12 @@ async fn repo_workspace_is_left_alone_before_the_turn_and_reports_git_changes() 
         checked_at: None,
         workspace: WorkspaceKind::Managed,
         repos: vec![],
+        head: None,
+        ongoing: None,
+        conflicts: Some(0),
+        stashes: Some(0),
     };
-    let unstamped = |git: Option<GitStatus>| git.map(|g| GitStatus { checked_at: None, ..g });
+    let unstamped = |git: Option<GitStatus>| git.map(|g| GitStatus { checked_at: None, head: None, ..g });
     assert_eq!(unstamped(done.git.clone()), Some(clean.clone()));
     assert_eq!(done.files_changed, 0);
 
