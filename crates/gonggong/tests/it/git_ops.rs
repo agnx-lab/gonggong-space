@@ -81,6 +81,7 @@ fn rig() -> Rig {
         idle: Duration::from_secs(60),
         reap: Duration::from_secs(600),
         cancel_grace: Duration::from_secs(30),
+        continuation: Default::default(),
         api: None,
     });
     let (out, rx) = Outbox::channel();

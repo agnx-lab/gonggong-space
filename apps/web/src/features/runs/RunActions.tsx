@@ -24,7 +24,14 @@ function AppendAction({ run }: { run: RunDto }) {
   const bot = useWorkspace((s) => s.bots.find((b) => b.id === run.botId))
   const me = useSession((s) => s.user?.id)
   const start = useAppend((s) => s.start)
-  if (!APPENDABLE.includes(run.status) || !bot || (me !== run.originUserId && me !== bot.ownerId)) return null
+  // A continuation has no prompt to interrupt: a message for it starts the next turn.
+  if (
+    !APPENDABLE.includes(run.status) ||
+    run.continuationOf ||
+    !bot ||
+    (me !== run.originUserId && me !== bot.ownerId)
+  )
+    return null
   return (
     <Button
       size="small"

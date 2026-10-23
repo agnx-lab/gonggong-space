@@ -29,6 +29,7 @@ pub fn rig(idle: Duration) -> Rig {
         idle,
         reap: Duration::from_secs(600),
         cancel_grace: Duration::from_secs(30),
+        continuation: Default::default(),
         api: None,
     });
     let (out, rx) = Outbox::channel();

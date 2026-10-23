@@ -13,6 +13,8 @@
 //   "mock:ask <json>" call the injected gonggong MCP ask tool with <json> as arguments (after a permission request)
 //                     and reply with the tool's text result
 //   "mock:tool <name> <json>" the same for any gonggong tool
+//   "mock:later[-exec|-open]" start a background task and end the turn; once it finishes, go on by itself between
+//                prompts (-exec: asking permission; -open: never reporting the cycle's end)
 //   otherwise    text + thought + edit tool call (with permission request) + usage, then end_turn
 // Ids it hands out ("mock-*") resume in any process (like agents that persist sessions); others fail to resume.
 import { execSync } from 'node:child_process'
@@ -300,6 +302,64 @@ async function prompt({ sessionId, prompt: blocks }, client) {
     })
     tasks.set('bg2', update)
     await say('已在后台启动')
+    return { stopReason: 'end_turn' }
+  }
+  if (text.includes('mock:later')) {
+    // Like Claude Code after a background shell finishes: an autonomous cycle (task-notification) streams between
+    // prompts and ends with a usage_update carrying `_claude/origin`.
+    const exec = text.includes('mock:later-exec')
+    const open = text.includes('mock:later-open')
+    const origin = { _meta: { '_claude/origin': { kind: 'task-notification' } } }
+    await update({
+      sessionUpdate: 'async_task_spawned',
+      asyncTaskId: 'bg3',
+      name: 'sleep 1',
+      taskType: 'shell',
+      showInTranscript: false,
+      canStop: true,
+    })
+    await say('等它跑完我再继续')
+    setTimeout(async () => {
+      await update({ sessionUpdate: 'async_task_state_update', asyncTaskId: 'bg3', state: 'completed' })
+      // A placeholder result (num_turns 0) comes first and alone.
+      await update({ sessionUpdate: 'usage_update', used: 900, size: 200000, ...origin })
+      await say('后台任务跑完了，')
+      await update({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'read-9',
+        title: 'Read log.txt',
+        kind: 'read',
+        status: 'completed',
+      })
+      if (exec) {
+        const toolCall = {
+          toolCallId: 'exec-9',
+          title: 'rm -rf dist',
+          kind: 'execute',
+          status: 'pending',
+          rawInput: { command: 'rm -rf dist' },
+        }
+        await update({ sessionUpdate: 'tool_call', ...toolCall })
+        const res = await client.request(acp.methods.client.session.requestPermission, {
+          sessionId,
+          toolCall,
+          options: [
+            { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+            { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+          ],
+        })
+        const ran = res.outcome.outcome === 'selected' && res.outcome.optionId !== 'reject'
+        await say(ran ? 'ran' : 'denied')
+      } else await say('继续收尾。')
+      if (!open)
+        await update({
+          sessionUpdate: 'usage_update',
+          used: 1300,
+          size: 200000,
+          cost: { amount: 0.02, currency: 'USD' },
+          ...origin,
+        })
+    }, 300)
     return { stopReason: 'end_turn' }
   }
   if (text.includes('mock:crash')) {

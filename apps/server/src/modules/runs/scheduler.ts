@@ -78,10 +78,11 @@ export async function schedule(ctx: Ctx, botId: string) {
     // A daemon that cannot sync runs its turns unsynced; nothing of force sync holds them.
     const unsynced = syncOutdated(ctx, bot.machineId)
     const held = unsynced ? new Map() : await syncHeld(tx, botId)
+    // A continuation (the agent going on by itself after a turn) ends once the group's next turn reaches the daemon.
     const active = await tx
       .select({ groupId: runs.groupId })
       .from(runs)
-      .where(and(eq(runs.botId, botId), inArray(runs.status, ACTIVE)))
+      .where(and(eq(runs.botId, botId), inArray(runs.status, ACTIVE), isNull(runs.continuationOf)))
     const unready = await unreadyGroups(tx, botId)
     let busy = active.length
     // One conversation per (group, bot): a group's next turn waits for its previous one (spec §8.9).

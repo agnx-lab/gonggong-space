@@ -3,7 +3,7 @@ use crate::agent_settings;
 use crate::ask::{self, Asker};
 use crate::attachments;
 use crate::config::Config;
-use crate::engine::Inner;
+use crate::engine::{Continuation, Inner};
 use crate::git;
 use crate::hosted::Scope;
 use crate::inject;
@@ -40,6 +40,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::time::Instant;
 
 const ERROR_MAX: usize = 800;
 const RESUME_FAILED: &str = "resume_failed";
@@ -75,7 +76,14 @@ struct Planned {
 /// Makes `req` the active turn and decides its provider from the store as of now, so CLI / desktop edits apply from
 /// the next turn on. None: it will not run (cancelled while queued, or no provider to run with).
 async fn plan(engine: &Inner, shared: &Shared, mut req: TurnReq) -> Option<Planned> {
-    if !shared.begin(&mut req) {
+    // A continuation still running ends (completed) before the turn starts.
+    let begun = loop {
+        shared.close_continuation().await;
+        if let Some(begun) = shared.begin(&mut req) {
+            break begun;
+        }
+    };
+    if !begun {
         return None;
     }
     let (home, user_home) = (engine.config.home.clone(), engine.config.user_home.clone());
@@ -161,6 +169,63 @@ struct Active {
     sync: Option<SyncTurn>,
     /// The last prompt has ended: no more appends (spec §8.9) are taken.
     sealed: bool,
+    extras: Vec<PathBuf>,
+    kind: WorkspaceKind,
+    /// Set when this is the agent going on by itself between turns, not a prompt.
+    continuation: Option<Cont>,
+}
+
+/// A run the server opened for output between turns (a background task finished and the agent went on by itself).
+struct Cont {
+    session: SessionId,
+    /// When it last reported anything.
+    last: Instant,
+    /// Being ended by whoever set this.
+    concluding: bool,
+}
+
+/// The conversation's last run: output between turns continues it.
+struct Prev {
+    run_id: String,
+    cwd: PathBuf,
+    extras: Vec<PathBuf>,
+    kind: WorkspaceKind,
+    key: (String, String),
+    tier: Tier,
+    rules: Rules,
+    out: Outbox,
+    compact: Option<CompactPolicy>,
+    session: Option<SessionId>,
+}
+
+impl Prev {
+    fn of(a: &Active, session: Option<SessionId>) -> Self {
+        Prev {
+            run_id: a.run_id.clone(),
+            cwd: a.cwd.clone(),
+            extras: a.extras.clone(),
+            kind: a.kind,
+            key: a.key.clone(),
+            tier: a.tier,
+            rules: a.rules.clone(),
+            out: a.out.clone(),
+            compact: a.turn.compact,
+            session,
+        }
+    }
+}
+
+/// Output between turns held while the server opens a run for it (`run.continue`).
+struct Adopting {
+    request_id: String,
+    session: SessionId,
+    held: Vec<Held>,
+}
+
+enum Held {
+    Update(SessionNotification),
+    Ext(String, ExtUpdate),
+    Permission(RequestPermissionRequest, oneshot::Sender<Option<PermissionOptionId>>),
 }
 
 struct GitTurn {
@@ -173,7 +238,7 @@ struct GitTurn {
 /// State shared between the session task, ACP callbacks and the engine (for cancel).
 /// The notify wakes a turn waiting for its directory, which must not outlive its own cancel.
 #[derive(Default)]
-pub(crate) struct Shared(Mutex<State>, Notify);
+pub(crate) struct Shared(Mutex<State>, Notify, Continuation);
 
 #[derive(Default)]
 struct State {
@@ -197,6 +262,8 @@ struct State {
     appends: Vec<(String, Vec<Attachment>)>,
     /// Background tasks by id, reporting to the run that started them even after it ended.
     tasks: HashMap<String, Task>,
+    prev: Option<Prev>,
+    adopting: Option<Adopting>,
 }
 
 struct Task {
@@ -232,7 +299,7 @@ struct Approval {
 
 /// How to answer an agent's permission request.
 enum Permission {
-    Now(RequestPermissionResponse),
+    Now(Option<PermissionOptionId>),
     /// Resolves with the owner's choice; `None` (or a dropped sender) answers `cancelled`.
     Ask(oneshot::Receiver<Option<PermissionOptionId>>),
 }
@@ -245,6 +312,10 @@ fn permission_response(choice: Option<PermissionOptionId>) -> RequestPermissionR
 }
 
 impl Shared {
+    pub(crate) fn new(continuation: Continuation) -> Self {
+        Shared(Mutex::default(), Notify::new(), continuation)
+    }
+
     pub(crate) fn enqueue(&self, run_id: &str) {
         self.0.lock().unwrap().pending.insert(run_id.into());
     }
@@ -264,9 +335,17 @@ impl Shared {
             && s.approvals.is_empty()
             && s.questions.is_empty()
             && s.last.is_none()
+            && s.adopting.is_none()
     }
 
-    pub(crate) fn cancel(&self, run_id: &str) {
+    /// Something still comes from the adapter process between turns: a continuation, or a background task whose end
+    /// the agent may go on from.
+    pub(crate) fn holds_adapter(&self) -> bool {
+        let s = self.0.lock().unwrap();
+        s.active.is_some() || s.adopting.is_some() || s.tasks.values().any(|t| !t.snap.ended())
+    }
+
+    pub(crate) fn cancel(self: &Arc<Self>, run_id: &str) {
         let mut s = self.0.lock().unwrap();
         if !s.pending.contains(run_id) {
             return;
@@ -274,6 +353,11 @@ impl Shared {
         s.cancelled.insert(run_id.into());
         if s.active.as_ref().is_some_and(|a| a.run_id == run_id && a.streaming) {
             interrupt(&mut s);
+            // No prompt answers a continuation's cancel: it ends now.
+            if s.active.as_ref().is_some_and(|a| a.continuation.is_some()) {
+                let (shared, run_id) = (self.clone(), run_id.to_string());
+                tokio::spawn(async move { shared.conclude(&run_id, RunOutcome::Interrupted).await });
+            }
         }
         // A permit is kept if nobody waits yet, so a turn checking `is_cancelled` right before waiting still wakes.
         self.1.notify_one();
@@ -291,7 +375,9 @@ impl Shared {
     /// 打断并追加 (spec §8.9): cancels the current prompt; the turn then continues with `text` (see `take_append`).
     pub(crate) fn append(&self, run_id: &str, from: &str, text: &str, attachments: Vec<Attachment>) -> bool {
         let mut s = self.0.lock().unwrap();
-        let Some(a) = s.active.as_ref().filter(|a| a.run_id == run_id && !a.sealed) else { return false };
+        let Some(a) = s.active.as_ref().filter(|a| a.run_id == run_id && !a.sealed && a.continuation.is_none()) else {
+            return false;
+        };
         if s.cancelled.contains(run_id) {
             return false;
         }
@@ -462,14 +548,20 @@ impl Shared {
         true
     }
 
-    /// Makes `req` the active turn, or reports it interrupted if it was cancelled while queued.
-    fn begin(&self, req: &mut TurnReq) -> bool {
+    /// Makes `req` the active turn, or reports it interrupted if it was cancelled while queued. None: a continuation
+    /// is active, to be closed first.
+    fn begin(&self, req: &mut TurnReq) -> Option<bool> {
         let mut s = self.0.lock().unwrap();
+        if s.active.as_ref().is_some_and(|a| a.continuation.is_some()) {
+            return None;
+        }
+        // Output between turns from here on belongs to this turn.
+        s.adopting = None;
         let run_id = &req.start.run_id;
         if s.cancelled.remove(run_id) {
             s.pending.remove(run_id);
             req.out.send(done(run_id, RunOutcome::Interrupted, Turn::default(), None, None, None, None));
-            return false;
+            return Some(false);
         }
         s.last = None;
         // Ended tasks linger one turn: adapters may report a terminal edge twice (stopped, then completed).
@@ -486,6 +578,170 @@ impl Shared {
             git: None,
             sync: req.sync.take(),
             sealed: false,
+            extras: req.extras.clone(),
+            kind: if req.start.workspace.cd_path.is_none() { WorkspaceKind::Managed } else { WorkspaceKind::Cd },
+            continuation: None,
+        });
+        Some(true)
+    }
+
+    /// Ends the active continuation, if any (completed), and drops output held for one.
+    async fn close_continuation(&self) {
+        loop {
+            let open = {
+                let mut s = self.0.lock().unwrap();
+                s.adopting = None;
+                s.active.as_ref().and_then(|a| Some((a.run_id.clone(), a.continuation.as_ref()?.concluding)))
+            };
+            match open {
+                None => return,
+                Some((run_id, false)) => self.conclude(&run_id, RunOutcome::Completed).await,
+                // Being ended elsewhere.
+                Some((_, true)) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+            }
+        }
+    }
+
+    /// Ends the continuation `run_id` like a turn (its changes, reply and usage): `outcome` unless it was stopped or
+    /// failed. Only the first caller ends it.
+    async fn conclude(&self, run_id: &str, outcome: RunOutcome) {
+        let failure = {
+            let mut s = self.0.lock().unwrap();
+            let Some(a) = s.active.as_mut().filter(|a| a.run_id == run_id) else { return };
+            let Some(c) = a.continuation.as_mut().filter(|c| !c.concluding) else { return };
+            c.concluding = true;
+            a.turn.failure.clone()
+        };
+        let outcome = match (self.is_cancelled(run_id), &failure) {
+            (true, _) => RunOutcome::Interrupted,
+            (false, Some(_)) => RunOutcome::Failed,
+            (false, None) => outcome,
+        };
+        self.post_turn(outcome).await;
+        let mut s = self.0.lock().unwrap();
+        s.conn = None;
+        s.approvals.clear();
+        s.questions.clear();
+        let Some(a) = s.active.take() else { return };
+        s.pending.remove(&a.run_id);
+        s.cancelled.remove(&a.run_id);
+        let session = a.continuation.as_ref().map(|c| c.session.clone());
+        s.prev = Some(Prev::of(&a, session.clone()));
+        let error = failure.filter(|_| outcome == RunOutcome::Failed).map(|e| truncate(&e));
+        let session = session.map(|id| id.0.to_string());
+        a.out.send(done(&a.run_id, outcome, a.turn, None, session, None, error));
+    }
+
+    /// Output between turns: asks the server for a run of the conversation to report it under (`run.continue`),
+    /// holding it meanwhile. Needs `prev`.
+    fn adopt(self: &Arc<Self>, s: &mut State, session: SessionId, first: Held) {
+        let Some(prev) = s.prev.as_ref() else { return };
+        s.requests += 1;
+        let request_id = format!("{}/c{}", prev.run_id, s.requests);
+        let after = prev.run_id.clone();
+        prev.out.send(DaemonToServer::RunContinue { request_id: request_id.clone(), run_id: after.clone() });
+        s.adopting = Some(Adopting { request_id: request_id.clone(), session, held: vec![first] });
+        let (shared, wait) = (self.clone(), self.2.adopt_wait);
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            let mut s = shared.0.lock().unwrap();
+            if s.adopting.as_ref().is_some_and(|w| w.request_id == request_id) {
+                tracing::warn!("the server opened no run for what the agent did after run {after}: dropped");
+                s.adopting = None;
+                // Until the next turn: an older server would be asked again and again.
+                s.prev = None;
+            }
+        });
+    }
+
+    /// The server's answer to `run.continue` `request_id`: the held output goes to the run it opened. False: not
+    /// asked here, or no longer waited for (the caller ends the run).
+    pub(crate) fn adopted(self: &Arc<Self>, request_id: &str, run_id: Option<&str>) -> bool {
+        let mut guard = self.0.lock().unwrap();
+        let s = &mut *guard;
+        if s.active.is_some() || !s.adopting.as_ref().is_some_and(|w| w.request_id == request_id) {
+            return false;
+        }
+        let w = s.adopting.take().expect("checked above");
+        let Some(run_id) = run_id else {
+            tracing::warn!("the server opened no run for what the agent did between turns: dropped");
+            s.prev = None;
+            return true;
+        };
+        let (Some(prev), Some(agent)) = (s.prev.take(), s.agent.clone()) else { return false };
+        let session = prev.session.clone().unwrap_or(w.session);
+        s.pending.insert(run_id.into());
+        s.conn = Some((agent, session.clone()));
+        let mut turn = Turn::default();
+        turn.compact = prev.compact;
+        s.active = Some(Active {
+            run_id: run_id.into(),
+            cwd: prev.cwd.clone(),
+            key: prev.key,
+            tier: prev.tier,
+            rules: prev.rules,
+            out: prev.out,
+            turn,
+            streaming: true,
+            git: None,
+            sync: None,
+            sealed: false,
+            extras: prev.extras.clone(),
+            kind: prev.kind,
+            continuation: Some(Cont { session, last: Instant::now(), concluding: false }),
+        });
+        for held in w.held {
+            match held {
+                Held::Update(n) => self.update_in(s, n),
+                Held::Ext(session, ext) => ext_in(s, &session, ext),
+                Held::Permission(req, tx) => match permission_in(s, req) {
+                    Permission::Now(choice) => {
+                        let _ = tx.send(choice);
+                    }
+                    Permission::Ask(rx) => {
+                        tokio::spawn(async move {
+                            let _ = tx.send(rx.await.ok().flatten());
+                        });
+                    }
+                },
+            }
+        }
+        drop(guard);
+        let (shared, id, cwd, extras, kind) = (self.clone(), run_id.to_string(), prev.cwd, prev.extras, prev.kind);
+        tokio::spawn(async move {
+            let tracked = git::track(&cwd, &extras).await;
+            if tracked.is_empty() {
+                return;
+            }
+            let mut s = shared.0.lock().unwrap();
+            if let Some(a) = s.active.as_mut().filter(|a| a.run_id == id)
+                && a.continuation.as_ref().is_some_and(|c| !c.concluding)
+            {
+                a.git = Some(GitTurn { cwd, extras, kind, tracked });
+            }
+        });
+        let (shared, id, quiet) = (self.clone(), run_id.to_string(), self.2.quiet);
+        tokio::spawn(async move {
+            loop {
+                let left = {
+                    let mut guard = shared.0.lock().unwrap();
+                    let s = &mut *guard;
+                    let waiting = !s.approvals.is_empty() || !s.questions.is_empty();
+                    let Some(c) = s.active.as_mut().filter(|a| a.run_id == id).and_then(|a| a.continuation.as_mut())
+                    else {
+                        return;
+                    };
+                    // Waiting on people is not silence.
+                    if waiting {
+                        c.last = Instant::now();
+                    }
+                    quiet.saturating_sub(c.last.elapsed())
+                };
+                if left.is_zero() {
+                    return shared.conclude(&id, RunOutcome::Completed).await;
+                }
+                tokio::time::sleep(left).await;
+            }
         });
         true
     }
@@ -595,7 +851,7 @@ impl Shared {
     }
 
     /// `session/update` parsed by hand: the draft subagent / async-task updates are unknown to the schema crate.
-    fn on_raw(&self, params: serde_json::Value) {
+    fn on_raw(self: &Arc<Self>, params: serde_json::Value) {
         let session = params.get("sessionId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
         if let Some(update) = params.get("update")
             && update.get("sessionUpdate").and_then(|t| t.as_str()).is_some_and(ExtUpdate::is_ext)
@@ -612,36 +868,24 @@ impl Shared {
     fn on_ext(&self, session: &str, ext: ExtUpdate) {
         let mut guard = self.0.lock().unwrap();
         let s = &mut *guard;
-        let active = s.active.as_mut().filter(|a| a.streaming);
-        let patch = match ext {
-            ExtUpdate::AsyncTaskSpawned(p) | ExtUpdate::AsyncTaskProgress(p) | ExtUpdate::AsyncTaskStateUpdate(p) => p,
-            sub => {
-                if let Some(a) = active
-                    && let Some(event) = a.turn.subagent(session, sub)
-                {
-                    a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
-                }
-                return;
+        let known = match &ext {
+            ExtUpdate::AsyncTaskSpawned(p) | ExtUpdate::AsyncTaskProgress(p) | ExtUpdate::AsyncTaskStateUpdate(p) => {
+                s.tasks.contains_key(&p.async_task_id)
             }
+            _ => false,
         };
-        let id = patch.async_task_id.clone();
-        if !s.tasks.contains_key(&id) {
-            let Some(a) = active else { return };
-            let task = Task {
-                run_id: a.run_id.clone(),
-                out: a.out.clone(),
-                session: session.to_string(),
-                snap: TaskSnap::new(a.turn.agent_of(session)),
-            };
-            s.tasks.insert(id.clone(), task);
+        if s.active.is_none()
+            && !known
+            && let Some(w) = s.adopting.as_mut()
+        {
+            return w.held.push(Held::Ext(session.into(), ext));
         }
-        let t = s.tasks.get_mut(&id).unwrap();
-        let event = t.snap.patch(patch);
-        t.out.send(DaemonToServer::RunEvent { run_id: t.run_id.clone(), event });
+        ext_in(s, session, ext)
     }
 
-    fn on_update(&self, n: SessionNotification) {
-        let mut s = self.0.lock().unwrap();
+    fn on_update(self: &Arc<Self>, n: SessionNotification) {
+        let mut guard = self.0.lock().unwrap();
+        let s = &mut *guard;
         // Sent right after session creation (before streaming); feeds the / candidates.
         if let (SessionUpdate::AvailableCommandsUpdate(u), Some(a)) = (&n.update, s.active.as_ref()) {
             let commands = u
@@ -652,8 +896,24 @@ impl Shared {
             let (group_id, bot_id) = a.key.clone();
             return a.out.send(DaemonToServer::CommandsUpdate { group_id, bot_id, commands });
         }
+        if s.active.is_some() {
+            return self.update_in(s, n);
+        }
+        // Between turns: the agent went on by itself (Claude Code after a background task finished).
+        if let Some(w) = s.adopting.as_mut() {
+            w.held.push(Held::Update(n));
+        } else if continues(&n.update) {
+            self.adopt(s, n.session_id.clone(), Held::Update(n));
+        }
+    }
+
+    fn update_in(self: &Arc<Self>, s: &mut State, n: SessionNotification) {
         let Some(a) = s.active.as_mut().filter(|a| a.streaming) else { return };
         let review = auto_review_failure(&n.update);
+        let ended = a.continuation.as_mut().is_some_and(|c| {
+            c.last = Instant::now();
+            cycle_end(&n.update)
+        });
         if let Some(event) = a.turn.apply(&n.session_id.0, n.update) {
             a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
         }
@@ -663,59 +923,29 @@ impl Shared {
             let event = RunEvent::Status { status: RunStatus::Running, step };
             a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
         }
+        if ended {
+            let (shared, run_id) = (self.clone(), a.run_id.clone());
+            tokio::spawn(async move { shared.conclude(&run_id, RunOutcome::Completed).await });
+        }
     }
 
     /// Plan D15: `full` allows by itself, then the bot's rules (applied here); anything else goes to the bot owner.
-    fn on_permission(&self, req: RequestPermissionRequest) -> Permission {
+    fn on_permission(self: &Arc<Self>, req: RequestPermissionRequest) -> Permission {
         let mut guard = self.0.lock().unwrap();
         let s = &mut *guard;
-        s.requests += 1;
-        let n = s.requests;
-        let Some(a) = s.active.as_mut() else { return Permission::Now(permission_response(None)) };
-        // The built-in gonggong tools only ask or read the group: never an owner decision (spec §8.8).
-        if req.tool_call.fields.title.as_deref().is_some_and(ask::is_builtin) {
-            return Permission::Now(permission_response(auto_allow(&req.options)));
+        if s.active.is_some() {
+            return permission_in(s, req);
         }
-        let command = command_of(req.tool_call.fields.raw_input.as_ref());
-        let release = req
-            .tool_call
-            .fields
-            .title
-            .as_deref()
-            .and_then(|title| ask::release_approval(title, req.tool_call.fields.raw_input.as_ref(), &a.cwd));
-        let Some(RunEvent::Tool { title, tool_kind, detail, .. }) =
-            a.turn.apply(&req.session_id.0, SessionUpdate::ToolCallUpdate(req.tool_call))
-        else {
-            unreachable!("tool call updates always map to tool events")
-        };
-        let command = command.filter(|_| tool_kind == "execute");
-        match a.rules.decide(a.tier, command.as_deref(), &title, &a.cwd, &s.always) {
-            Decision::Full => return Permission::Now(permission_response(auto_allow(&req.options))),
-            Decision::Local if let Some(allow) = auto_allow(&req.options) => {
-                let step = t!("已按命令审批规则自动批准：{command}", command = command.unwrap_or(title));
-                let event = RunEvent::Status { status: RunStatus::Running, step };
-                a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
-                return Permission::Now(permission_response(Some(allow)));
-            }
-            _ => {}
+        if s.adopting.is_none() && s.prev.is_none() {
+            return Permission::Now(None);
         }
-        let (run_id, out) = (a.run_id.clone(), a.out.clone());
-        let event =
-            RunEvent::Status { status: RunStatus::AwaitingApproval, step: t!("等待审批：{title}", title = title) };
-        out.send(DaemonToServer::RunEvent { run_id: run_id.clone(), event });
-        let request_id = format!("{run_id}/{n}");
-        let remember = a.rules.remember(command.as_deref(), &title, &a.cwd);
-        out.send(DaemonToServer::ApprovalRequest(ApprovalRequest {
-            run_id,
-            request_id: request_id.clone(),
-            detail: release.or(detail).unwrap_or_else(|| title.clone()),
-            title: title.clone(),
-            tool_kind,
-            options: wire_options(&req.options),
-            remember: remember.clone(),
-        }));
+        // Between turns: decided once the run for it is open.
         let (tx, rx) = oneshot::channel();
-        s.approvals.insert(request_id, Approval { title, remember, options: req.options, tx });
+        let session = req.session_id.clone();
+        match s.adopting.as_mut() {
+            Some(w) => w.held.push(Held::Permission(req, tx)),
+            None => self.adopt(s, session, Held::Permission(req, tx)),
+        }
         Permission::Ask(rx)
     }
 
@@ -727,6 +957,7 @@ impl Shared {
         s.questions.clear();
         s.appends.clear();
         let Some(a) = s.active.take() else { return };
+        s.prev = Some(Prev::of(&a, session.cloned()));
         s.pending.remove(&a.run_id);
         let cancelled = s.cancelled.remove(&a.run_id);
         let session = session.map(|id| id.0.to_string());
@@ -767,6 +998,104 @@ impl Shared {
         };
         a.out.send(msg);
     }
+}
+
+/// Output that starts the agent's own work between turns; config, command and lone usage reports do not.
+fn continues(update: &SessionUpdate) -> bool {
+    matches!(
+        update,
+        SessionUpdate::AgentMessageChunk(_) | SessionUpdate::AgentThoughtChunk(_) | SessionUpdate::ToolCall(_)
+    )
+}
+
+/// Claude Code reports the end of a cycle it ran by itself (background task done, ...) with a usage update naming
+/// what started it.
+fn cycle_end(update: &SessionUpdate) -> bool {
+    matches!(update, SessionUpdate::UsageUpdate(u) if u.meta.as_ref().is_some_and(|m| m.contains_key("_claude/origin")))
+}
+
+fn ext_in(s: &mut State, session: &str, ext: ExtUpdate) {
+    let active = s.active.as_mut().filter(|a| a.streaming);
+    let patch = match ext {
+        ExtUpdate::AsyncTaskSpawned(p) | ExtUpdate::AsyncTaskProgress(p) | ExtUpdate::AsyncTaskStateUpdate(p) => p,
+        sub => {
+            if let Some(a) = active
+                && let Some(event) = a.turn.subagent(session, sub)
+            {
+                if let Some(c) = a.continuation.as_mut() {
+                    c.last = Instant::now();
+                }
+                a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
+            }
+            return;
+        }
+    };
+    let id = patch.async_task_id.clone();
+    if !s.tasks.contains_key(&id) {
+        let Some(a) = active else { return };
+        let task = Task {
+            run_id: a.run_id.clone(),
+            out: a.out.clone(),
+            session: session.to_string(),
+            snap: TaskSnap::new(a.turn.agent_of(session)),
+        };
+        s.tasks.insert(id.clone(), task);
+    }
+    let t = s.tasks.get_mut(&id).unwrap();
+    let event = t.snap.patch(patch);
+    t.out.send(DaemonToServer::RunEvent { run_id: t.run_id.clone(), event });
+}
+
+/// A permission request of the active turn.
+fn permission_in(s: &mut State, req: RequestPermissionRequest) -> Permission {
+    s.requests += 1;
+    let n = s.requests;
+    let Some(a) = s.active.as_mut() else { return Permission::Now(None) };
+    // The built-in gonggong tools only ask or read the group: never an owner decision (spec §8.8).
+    if req.tool_call.fields.title.as_deref().is_some_and(ask::is_builtin) {
+        return Permission::Now(auto_allow(&req.options));
+    }
+    let command = command_of(req.tool_call.fields.raw_input.as_ref());
+    let release = req
+        .tool_call
+        .fields
+        .title
+        .as_deref()
+        .and_then(|title| ask::release_approval(title, req.tool_call.fields.raw_input.as_ref(), &a.cwd));
+    let Some(RunEvent::Tool { title, tool_kind, detail, .. }) =
+        a.turn.apply(&req.session_id.0, SessionUpdate::ToolCallUpdate(req.tool_call))
+    else {
+        unreachable!("tool call updates always map to tool events")
+    };
+    let command = command.filter(|_| tool_kind == "execute");
+    match a.rules.decide(a.tier, command.as_deref(), &title, &a.cwd, &s.always) {
+        Decision::Full => return Permission::Now(auto_allow(&req.options)),
+        Decision::Local if let Some(allow) = auto_allow(&req.options) => {
+            let step = t!("已按命令审批规则自动批准：{command}", command = command.unwrap_or(title));
+            let event = RunEvent::Status { status: RunStatus::Running, step };
+            a.out.send(DaemonToServer::RunEvent { run_id: a.run_id.clone(), event });
+            return Permission::Now(Some(allow));
+        }
+        _ => {}
+    }
+    let (run_id, out) = (a.run_id.clone(), a.out.clone());
+    let event =
+        RunEvent::Status { status: RunStatus::AwaitingApproval, step: t!("等待审批：{title}", title = title) };
+    out.send(DaemonToServer::RunEvent { run_id: run_id.clone(), event });
+    let request_id = format!("{run_id}/{n}");
+    let remember = a.rules.remember(command.as_deref(), &title, &a.cwd);
+    out.send(DaemonToServer::ApprovalRequest(ApprovalRequest {
+        run_id,
+        request_id: request_id.clone(),
+        detail: release.or(detail).unwrap_or_else(|| title.clone()),
+        title: title.clone(),
+        tool_kind,
+        options: wire_options(&req.options),
+        remember: remember.clone(),
+    }));
+    let (tx, rx) = oneshot::channel();
+    s.approvals.insert(request_id, Approval { title, remember, options: req.options, tx });
+    Permission::Ask(rx)
 }
 
 /// Resolves `grace` after `run_id` is cancelled; never if it is not.
@@ -1023,6 +1352,7 @@ pub(crate) async fn run(
             let mut s = shared.0.lock().unwrap();
             s.agent = None;
             s.tasks.clear();
+            s.adopting = None;
         }
         // A turn still active here was cut short by the adapter exiting or failing to start.
         let error = match result {
@@ -1069,7 +1399,7 @@ async fn connect(
             async move |req: RequestPermissionRequest, responder, cx: ConnectionTo<Agent>| match on_permission
                 .on_permission(req)
             {
-                Permission::Now(res) => responder.respond(res),
+                Permission::Now(choice) => responder.respond(permission_response(choice)),
                 // Waiting for the owner must not block the dispatch loop (updates, cancel, the prompt reply).
                 Permission::Ask(rx) => {
                     cx.spawn(async move { responder.respond(permission_response(rx.await.ok().flatten())) })
@@ -1132,6 +1462,8 @@ async fn connect(
                             },
                             None => continue,
                         },
+                        // Kept while the agent may still go on by itself.
+                        Err(_) if shared.holds_adapter() => continue,
                         Ok(None) | Err(_) => return Ok(None),
                     }
                 };

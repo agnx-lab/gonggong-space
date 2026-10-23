@@ -3,6 +3,7 @@ import { and, desc, eq, getTableColumns, inArray, isNull, or, type SQL, sql } fr
 import type { Ctx } from '../../context.js'
 import type { DaemonHub } from '../../daemon/hub.js'
 import { bots, groupBots, messages, runEvents, runs } from '../../db/schema.js'
+import { isUuid } from '../../lib/ids.js'
 import { open, seal } from '../../lib/seal.js'
 import { onApprovalRequest, voidApprovals } from '../approvals/service.js'
 import { publishBot } from '../bots/dto.js'
@@ -93,6 +94,7 @@ export function startRunEngine(ctx: Ctx) {
     else if (msg.t === 'question.ask') run(() => onQuestionAsk(ctx, machineId, msg))
     else if (msg.t === 'question.withdraw') run(() => onQuestionWithdraw(ctx, machineId, msg))
     else if (msg.t === 'session.config') run(() => onSessionConfig(ctx, machineId, msg))
+    else if (msg.t === 'run.continue') run(() => onContinue(ctx, machineId, msg))
   }
   const onOnline = (machineId: string) =>
     enqueue(machineId, async () => {
@@ -283,6 +285,47 @@ async function pushDelta(ctx: Ctx, run: { id: string; groupId: string }, text: s
   if (!text) return
   ctx.bus.publish(await memberIds(ctx, run.groupId), { t: 'run.delta', runId: run.id, text }, run.groupId)
   mirrorDelta(ctx, run.id, text)
+}
+
+/**
+ * The agent went on by itself after `msg.runId` ended (a background task finished): a run of the same conversation,
+ * triggered like that one, reports it. Running at once; the daemon serializes it with the conversation's turns.
+ */
+async function onContinue(ctx: Ctx, machineId: string, msg: Extract<DaemonMsg, { t: 'run.continue' }>) {
+  const answer = (runId: string | null) => {
+    ctx.hub.send(machineId, { t: 'run.continued', requestId: msg.requestId, runId })
+  }
+  const [prev] = isUuid(msg.runId)
+    ? await ctx.db
+        .select({ run: runs })
+        .from(runs)
+        .innerJoin(bots, eq(bots.id, runs.botId))
+        .where(and(eq(runs.id, msg.runId), eq(bots.machineId, machineId), isNull(bots.deletedAt)))
+    : []
+  if (!prev) return answer(null)
+  const { run } = prev
+  const [row] = await ctx.db
+    .insert(runs)
+    .values({
+      groupId: run.groupId,
+      botId: run.botId,
+      triggerMessageId: run.triggerMessageId,
+      triggerUserId: run.triggerUserId,
+      originUserId: run.originUserId,
+      continuationOf: run.id,
+      status: 'running',
+      startedAt: ctx.now(),
+      model: run.model,
+      effort: run.effort,
+      settings: run.settings,
+      secrets: run.secrets,
+      plugins: run.plugins,
+    })
+    .returning()
+  if (!row) return answer(null)
+  answer(row.id)
+  await publishRun(ctx, row)
+  await publishBot(ctx, row.botId)
 }
 
 async function onSessionConfig(
