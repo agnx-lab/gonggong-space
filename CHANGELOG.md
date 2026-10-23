@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.9 — 2026-10-23
+
+- 后台任务跑完后 Bot 自主续跑单独开一轮运行（「后台任务完成后继续」），回复、审批、改动与用量照常记录，不再丢失或被自动拒绝；有后台任务时不再回收空闲的 agent 进程 / A Bot's own continuation after a background task runs as a new run ("Continued after background task") with its reply, approvals, changes and usage recorded instead of dropped or refused; idle agent processes are no longer recycled while background tasks run
+- 新增 Bot 工具 `plugin_catalog` 与 `creation_propose`：对话里的创作需求由 Bot 发「创作确认卡」，成员开始、改参数或不用了 / New Bot tools `plugin_catalog` and `creation_propose`: Bots answer creation requests in the chat with a proposal card members start, edit or dismiss
+
 ## v0.3.8 — 2026-10-22
 
 - 子仓库与嵌套仓库并入 Git 分支下拉，按「仓库 → 分支」两级树展示，可直接切换或拉取主仓库和子仓库分支；执行位置、Git 操作与文件入口合并到统一的工作区菜单 / Subrepositories and nested repositories join the Git branch picker as a two-level repository → branch tree; switch or pull branches in the main repository and subrepositories, and use one workspace menu for location, Git, and files
