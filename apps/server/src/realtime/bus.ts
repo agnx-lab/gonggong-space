@@ -10,16 +10,22 @@ type Sink = (event: WebEvent, json: () => string, group?: string) => void
 export class Bus {
   private sinks = new Map<string, Set<Sink>>()
   private closers = new Map<Sink, () => void>()
+  private readers = new Map<Sink, () => string | null>()
 
-  /** `close` ends the underlying connection when the user is disconnected (account disabled). */
-  attach(userId: string, sink: Sink, close?: () => void) {
+  /**
+   * `close` ends the underlying connection when the user is disconnected (account disabled); `reading` names the group
+   * the user is looking at through it right now, if any.
+   */
+  attach(userId: string, sink: Sink, close?: () => void, reading?: () => string | null) {
     const set = this.sinks.get(userId) ?? new Set()
     set.add(sink)
     this.sinks.set(userId, set)
     if (close) this.closers.set(sink, close)
+    if (reading) this.readers.set(sink, reading)
     return () => {
       set.delete(sink)
       this.closers.delete(sink)
+      this.readers.delete(sink)
       if (!set.size) this.sinks.delete(userId)
     }
   }
@@ -36,5 +42,9 @@ export class Bus {
 
   isConnected(userId: string) {
     return this.sinks.has(userId)
+  }
+
+  isReading(userId: string, groupId: string) {
+    return [...(this.sinks.get(userId) ?? [])].some((sink) => this.readers.get(sink)?.() === groupId)
   }
 }

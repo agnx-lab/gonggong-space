@@ -55,7 +55,9 @@ function FeishuNotifyRow() {
     <GroupRow
       label={t('飞书通知')}
       description={
-        identity ? t('需要你处理的通知同时以卡片发到飞书，由「共工」应用私聊你') : t('绑定飞书账号后可开启')
+        identity
+          ? t('需要你处理的通知同时以卡片发到飞书，由「共工」应用私聊你；正在查看的群不重复发')
+          : t('绑定飞书账号后可开启')
       }
     >
       <span className="gs-value-line">

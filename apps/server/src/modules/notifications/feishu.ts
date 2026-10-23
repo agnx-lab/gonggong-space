@@ -8,8 +8,12 @@ import { notificationCard } from '../feishu/cards.js'
 import { credsOf } from '../feishu/gateway.js'
 import { publicUrl } from '../feishu/identity.js'
 
-/** 飞书通知: the notification as a card in the user's DM with the main app (whose open_id we store). */
+/**
+ * 飞书通知: the notification as a card in the user's DM with the main app (whose open_id we store). Skipped while the
+ * user is reading its group in the app: they already see it there.
+ */
 export async function sendFeishuNotice(ctx: Ctx, userId: string, n: NotificationDto) {
+  if (n.payload.groupId && ctx.bus.isReading(userId, String(n.payload.groupId))) return
   const [identity] = await ctx.db
     .select({ openId: feishuIdentities.openId })
     .from(feishuIdentities)

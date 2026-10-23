@@ -22,6 +22,18 @@ export function createRealtime() {
       ws.send(JSON.stringify({ t: 'focus', groupId: focused } satisfies WebClientMsg))
   }
 
+  /** On screen and focused: with the focused group, the server holds back Feishu pings about it. */
+  const visibleNow = () => document.visibilityState === 'visible' && document.hasFocus()
+  let visible = false
+  const sendVisible = (ws: WebSocket) =>
+    ws.send(JSON.stringify({ t: 'visible', visible } satisfies WebClientMsg))
+  const onVisibility = () => {
+    if (visibleNow() === visible) return
+    visible = !visible
+    if (socket && status === 'open') sendVisible(socket)
+  }
+  const VISIBILITY_EVENTS = ['focus', 'blur', 'visibilitychange'] as const
+
   const setStatus = (s: RealtimeStatus) => {
     if (s === status) return
     status = s
@@ -36,6 +48,8 @@ export function createRealtime() {
     ws.onopen = () => {
       attempt = 0
       sendFocus(ws)
+      visible = visibleNow()
+      sendVisible(ws)
       setStatus('open')
     }
     ws.onmessage = (msg: MessageEvent) => {
@@ -69,10 +83,12 @@ export function createRealtime() {
       if (running) return
       running = true
       attempt = 0
+      for (const e of VISIBILITY_EVENTS) window.addEventListener(e, onVisibility)
       connect()
     },
     stop() {
       running = false
+      for (const e of VISIBILITY_EVENTS) window.removeEventListener(e, onVisibility)
       clearTimeout(timer)
       const ws = socket
       socket = null

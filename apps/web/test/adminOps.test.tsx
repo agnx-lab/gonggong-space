@@ -61,6 +61,7 @@ const PARAMS: SystemParams = {
 
 class NoopSocket {
   close() {}
+  send() {}
 }
 
 const renderAt = (path: string) =>
@@ -409,6 +410,7 @@ describe('机器与网络 · 实时', () => {
           sockets.push(this)
         }
         close() {}
+        send() {}
       },
     )
     const machine = {
@@ -470,6 +472,7 @@ describe('机器与网络 · 实时', () => {
           sockets.push(this)
         }
         close() {}
+        send() {}
       },
     )
     const calls = mockApi({

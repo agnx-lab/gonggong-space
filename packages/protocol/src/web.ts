@@ -2076,6 +2076,8 @@ export type WebEvent = z.infer<typeof WebEvent>
 export const WebClientMsg = z.discriminatedUnion('t', [
   /** The group this connection shows (null: none), sent on every (re)open and change; scopes run.delta / run.progress. */
   z.object({ t: z.literal('focus'), groupId: z.string().nullable() }),
+  /** Whether the page is on screen and focused; with focus it means the user is reading that group (no Feishu ping). */
+  z.object({ t: z.literal('visible'), visible: z.boolean() }),
 ])
 export type WebClientMsg = z.infer<typeof WebClientMsg>
 

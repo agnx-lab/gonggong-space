@@ -40,6 +40,14 @@
 .notif__foot .ui-btn {
   margin-left: calc(-1 * var(--space-8));
 }
+.notif__feishu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.notif__feishu .ui-btn {
+  margin-left: 0;
+}
 .notif__list {
   display: flex;
   flex-direction: column;

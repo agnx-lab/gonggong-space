@@ -18,6 +18,7 @@ export function startRealtime() {
         socket = this
       }
       close() {}
+      send() {}
     },
   )
   realtime.start()

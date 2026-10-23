@@ -6,6 +6,7 @@ import { AppRail } from '../src/app/AppRail'
 import { AppShell, ShellBar } from '../src/app/AppShell'
 import { useSession } from '../src/app/session'
 import { useWorkspace } from '../src/app/workspace'
+import { useSettings } from '../src/features/settings/store'
 import { realtime } from '../src/lib/realtime'
 import { listTime } from '../src/ui'
 import { apiError, mockApi } from './mockApi'
@@ -263,6 +264,31 @@ describe('notification center', () => {
     await screen.findByText('暂无通知')
     expect(screen.getByRole('button', { name: '全部标为已读' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button', { name: '清除已读' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('offers a shortcut to the 飞书通知 setting once Feishu is linked', async () => {
+    const identity = {
+      name: '王磊',
+      avatar: null,
+      email: null,
+      boundAt: '2026-10-01T00:00:00Z',
+      notify: false,
+    }
+    mockApi({ 'GET /notifications': [], 'GET /me/feishu': { identity } })
+    renderShell()
+    fireEvent.click(screen.getByRole('button', { name: /^通知/ }))
+    await screen.findByText('飞书通知未开启')
+    fireEvent.click(screen.getByRole('button', { name: '飞书通知设置' }))
+    expect(useSettings.getState().page).toBe('notifications')
+    act(() => useSettings.getState().close())
+  })
+
+  it('has no 飞书通知 shortcut without a linked Feishu account', async () => {
+    mockApi({ 'GET /notifications': [], 'GET /me/feishu': { identity: null } })
+    renderShell()
+    fireEvent.click(screen.getByRole('button', { name: /^通知/ }))
+    await screen.findByText('暂无通知')
+    expect(screen.queryByRole('button', { name: '飞书通知设置' })).toBeNull()
   })
 
   it('closes on Escape unless an IME is composing', async () => {

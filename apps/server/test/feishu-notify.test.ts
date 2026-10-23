@@ -4,7 +4,7 @@ import { feishuIdentities, systemParams } from '../src/db/schema.js'
 import { seal } from '../src/lib/seal.js'
 import { forgetSysParams } from '../src/modules/admin/params.js'
 import { notify } from '../src/modules/notifications/notify.js'
-import { createTestApp, type TestApp } from './support/app.js'
+import { createTestApp, inbox, type TestApp } from './support/app.js'
 import type { FakeUser } from './support/feishu.js'
 import { client } from './support/http.js'
 
@@ -86,5 +86,42 @@ describe('飞书通知', () => {
     await notify(t.ctx, other.id, 'chain_done', { groupId: group.id, hops: 1 })
     await settle()
     expect(t.feishu.sent).toEqual([])
+  })
+
+  it('skips the card while the user is reading that group on a visible, focused page', async () => {
+    const { user, group, http } = await setup()
+    await link(user.id)
+    await http.put('/api/me/feishu/notify', { notify: true })
+    const ws = t.ws('/ws/web', {
+      cookie: await t.seed.cookie(user.id),
+      origin: `http://${new URL(t.url('/')).host}`,
+    })
+    await inbox(ws).opened
+    await expect.poll(() => t.ctx.bus.isConnected(user.id)).toBe(true)
+    const say = async (msg: object) => {
+      ws.send(JSON.stringify(msg))
+      await new Promise((r) => {
+        ws.once('pong', r)
+        ws.ping()
+      })
+    }
+    const ask = () =>
+      notify(t.ctx, user.id, 'question', { groupId: group.id, runId: 'r1', botName: 'codex', count: 1 })
+
+    await say({ t: 'focus', groupId: group.id })
+    await say({ t: 'visible', visible: true })
+    await ask()
+    await settle()
+    expect(t.feishu.sent).toEqual([])
+
+    await say({ t: 'visible', visible: false })
+    await ask()
+    await vi.waitFor(() => expect(t.feishu.sent).toHaveLength(1))
+
+    await say({ t: 'visible', visible: true })
+    await say({ t: 'focus', groupId: 'other' })
+    await ask()
+    await vi.waitFor(() => expect(t.feishu.sent).toHaveLength(2))
+    ws.close()
   })
 })

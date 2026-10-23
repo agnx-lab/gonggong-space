@@ -16,6 +16,7 @@ class FakeSocket {
     FakeSocket.last = this
   }
   close() {}
+  send() {}
 }
 MotionGlobalConfig.skipAnimations = true
 

@@ -10,8 +10,11 @@ export default {
   通知: 'Notifications',
   浏览器通知: 'Browser notifications',
   飞书通知: 'Feishu notifications',
-  '需要你处理的通知同时以卡片发到飞书，由「共工」应用私聊你':
-    'Notifications that need you also arrive as cards in your Feishu chat with the Gonggong app',
+  '需要你处理的通知同时以卡片发到飞书，由「共工」应用私聊你；正在查看的群不重复发':
+    "Notifications that need you also arrive as cards in your Feishu chat with the Gonggong app, except for the group you're viewing",
+  飞书通知已开启: 'Feishu notifications are on',
+  飞书通知未开启: 'Feishu notifications are off',
+  飞书通知设置: 'Feishu notification settings',
   绑定飞书账号后可开启: 'Link your Feishu account to turn this on',
   全部标为已读: 'Mark all as read',
   清除已读: 'Clear read',

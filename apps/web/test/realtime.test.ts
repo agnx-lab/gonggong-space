@@ -30,6 +30,9 @@ class FakeSocket {
 }
 
 const last = () => FakeSocket.all.at(-1) as FakeSocket
+const sentOf = (t: string) => (last().sent as { t: string }[]).filter((m) => m.t === t)
+const focuses = () => sentOf('focus')
+const visibility = () => sentOf('visible').map((m) => (m as unknown as { visible: boolean }).visible)
 
 beforeEach(() => {
   FakeSocket.all = []
@@ -132,11 +135,11 @@ describe('realtime client', () => {
     const rt = createRealtime()
     rt.start()
     last().open()
-    expect(last().sent).toEqual([])
+    expect(focuses()).toEqual([])
 
     rt.focus('g1')
     rt.focus(null)
-    expect(last().sent).toEqual([
+    expect(focuses()).toEqual([
       { t: 'focus', groupId: 'g1' },
       { t: 'focus', groupId: null },
     ])
@@ -144,9 +147,9 @@ describe('realtime client', () => {
     rt.focus('g2')
     last().drop()
     vi.advanceTimersByTime(500)
-    expect(last().sent).toEqual([])
+    expect(focuses()).toEqual([])
     last().open()
-    expect(last().sent).toEqual([{ t: 'focus', groupId: 'g2' }])
+    expect(focuses()).toEqual([{ t: 'focus', groupId: 'g2' }])
     rt.stop()
   })
 
@@ -154,10 +157,27 @@ describe('realtime client', () => {
     const rt = createRealtime()
     rt.focus('g1')
     rt.start()
-    expect(last().sent).toEqual([])
+    expect(focuses()).toEqual([])
     last().open()
-    expect(last().sent).toEqual([{ t: 'focus', groupId: 'g1' }])
+    expect(focuses()).toEqual([{ t: 'focus', groupId: 'g1' }])
     rt.stop()
+  })
+
+  it('tells the server whether the page is on screen and focused, on open and on every change', () => {
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    const rt = createRealtime()
+    rt.start()
+    last().open()
+    expect(visibility()).toEqual([true])
+    hasFocus.mockReturnValue(false)
+    window.dispatchEvent(new Event('blur'))
+    hasFocus.mockReturnValue(true)
+    window.dispatchEvent(new Event('focus'))
+    expect(visibility()).toEqual([true, false, true])
+    rt.stop()
+    window.dispatchEvent(new Event('blur'))
+    expect(visibility()).toEqual([true, false, true])
+    hasFocus.mockRestore()
   })
 
   it('stops without reconnecting and unsubscribes', () => {

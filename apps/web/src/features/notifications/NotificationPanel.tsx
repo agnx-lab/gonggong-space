@@ -1,4 +1,9 @@
-import { type NotificationDto, notificationView, type PermissionOption } from '@gonggong/protocol'
+import {
+  type FeishuIdentityView,
+  type NotificationDto,
+  notificationView,
+  type PermissionOption,
+} from '@gonggong/protocol'
 import { type AnimationEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useWorkspace } from '../../app/workspace'
@@ -6,6 +11,7 @@ import { api } from '../../lib/api'
 import { cx } from '../../lib/cx'
 import { toastError } from '../../lib/errors'
 import { realtime } from '../../lib/realtime'
+import { useGet } from '../../lib/useGet'
 import {
   Button,
   EmptyState,
@@ -20,6 +26,7 @@ import {
   useEscape,
   usePresence,
 } from '../../ui'
+import { useSettings } from '../settings/store'
 import { otherTeam } from '../teams/store'
 import { PushAction } from './NotificationSettings'
 import './notifications.css'
@@ -40,6 +47,29 @@ const ICON: Record<NotificationDto['type'], { icon: IconName; color: string }> =
   bot_share_request: { icon: 'person-add', color: 'var(--system-orange)' },
   bot_share_decided: { icon: 'bot', color: 'var(--system-blue)' },
   git_operation_request: { icon: 'git-branch', color: 'var(--system-orange)' },
+}
+
+/** Whether 飞书通知 is on, and a way to its setting; only once the account is linked to Feishu. */
+function FeishuNotifyShortcut({ onClose }: { onClose: () => void }) {
+  const { data } = useGet<FeishuIdentityView>('/me/feishu')
+  const openSettings = useSettings((s) => s.open)
+  const identity = data?.identity
+  if (!identity) return null
+  return (
+    <div className="notif__feishu">
+      <span>{identity.notify ? t('飞书通知已开启') : t('飞书通知未开启')}</span>
+      <Button
+        size="small"
+        variant="plain"
+        onClick={() => {
+          onClose()
+          openSettings('notifications')
+        }}
+      >
+        {t('飞书通知设置')}
+      </Button>
+    </div>
+  )
 }
 
 /** 同意 / 拒绝 of a 申请共享 right in the notification; the settled notification arrives over realtime. */
@@ -302,6 +332,7 @@ function Panel({
         <div className="notif__foot">
           {t('只推送需要你操作的事项；模式切换、机器落后等群级事件只在群内显示。')}
           <PushAction />
+          <FeishuNotifyShortcut onClose={onClose} />
         </div>
       </div>
     </>

@@ -71,6 +71,7 @@ class FakeSocket {
     FakeSocket.last = this
   }
   close() {}
+  send() {}
 }
 
 function Where() {
