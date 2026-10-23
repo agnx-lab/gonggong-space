@@ -1,0 +1,64 @@
+{
+  "t": "git.changes.result",
+  "requestId": "q1",
+  "changes": [
+    {
+      "path": "src/refund.ts",
+      "change": "modified",
+      "oldPath": null,
+      "untracked": false,
+      "add": 12,
+      "del": 3
+    },
+    {
+      "path": "src/fee.ts",
+      "change": "renamed",
+      "oldPath": "src/charge.ts",
+      "untracked": false,
+      "add": 0,
+      "del": 0
+    },
+    {
+      "path": "notes/todo.md",
+      "change": "added",
+      "oldPath": null,
+      "untracked": true,
+      "add": 4,
+      "del": 0
+    },
+    {
+      "path": "assets/logo.png",
+      "change": "modified",
+      "oldPath": null,
+      "untracked": false,
+      "add": null,
+      "del": null
+    }
+  ],
+  "conflicts": [
+    {
+      "path": "src/order.ts",
+      "ours": "modified",
+      "theirs": "modified"
+    },
+    {
+      "path": "src/legacy.ts",
+      "ours": "modified",
+      "theirs": "deleted"
+    }
+  ],
+  "ongoing": {
+    "kind": "merge",
+    "subject": "feat/refund",
+    "step": null,
+    "total": null,
+    "message": "Merge branch 'feat/refund'"
+  },
+  "head": {
+    "hash": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "shortHash": "a1b2c3d",
+    "message": "修复退款金额\n\n退款按原路返回。",
+    "pushed": false
+  },
+  "error": null
+}

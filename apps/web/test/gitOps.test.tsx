@@ -93,6 +93,8 @@ const REFS: GitRefsDto = {
     branch('origin/feat/pay', { kind: 'remote' }),
   ],
   remotes: [{ name: 'origin', url: 'git@git.corp:pay/refund.git' }],
+  tags: [],
+  recent: [],
 }
 
 const CHANGES: GitCompareDto = {
@@ -113,6 +115,7 @@ const op = (o: Partial<GitOperationDto> = {}): GitOperationDto => ({
   remote: 'origin',
   message: null,
   paths: null,
+  args: null,
   pushesBase: true,
   status: 'pending_approval',
   requestedBy: { id: 'u2', name: '老李' },

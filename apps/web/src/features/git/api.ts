@@ -1,4 +1,4 @@
-import type { GitActionReq, GitOperationDto, GitRefsDto } from '@gonggong/protocol'
+import type { GitActionInput, GitOperationDto, GitRefsDto } from '@gonggong/protocol'
 import { useEffect, useState } from 'react'
 import { putGitOperation, useWorkspace } from '../../app/workspace'
 import { t } from '../../i18n'
@@ -61,7 +61,7 @@ export function useGitRefs(groupId: string, botId: string, repo?: string) {
 export async function runGitAction(
   groupId: string,
   botId: string,
-  req: GitActionReq,
+  req: GitActionInput,
 ): Promise<GitOperationDto | null> {
   try {
     const op = await api.post<GitOperationDto>(`${gitBase(groupId, botId)}/actions`, req)

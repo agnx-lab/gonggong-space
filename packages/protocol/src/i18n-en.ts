@@ -88,6 +88,9 @@ export const protocolEn = {
     '{user} committed the changes of {repo} of {bot}: {subject}{approval}',
   '{user} 将 {bot} 的 {repo} 的 {branch} 推送到 {remote}{approval}':
     '{user} pushed {branch} of {repo} of {bot} to {remote}{approval}',
+  '{user} 在 {bot} 的工作区执行了 {summary}{approval}':
+    '{user} ran {summary} in the workspace of {bot}{approval}',
+  '{user} 在 {bot} 的 {repo} 执行了 {summary}{approval}': '{user} ran {summary} in {repo} of {bot}{approval}',
   '（{owner} 批准）': ' (approved by {owner})',
   正在压缩上下文: 'Compacting context',
   '/cd 仅分区模式可用；强制同步群里非托管工作区的 Bot 为「不参与」':

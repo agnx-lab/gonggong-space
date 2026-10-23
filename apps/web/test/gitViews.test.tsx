@@ -53,6 +53,8 @@ const REFS: GitRefsDto = {
     },
   ],
   remotes: [],
+  tags: [],
+  recent: [],
 }
 
 let calls: string[]

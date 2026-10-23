@@ -208,7 +208,7 @@ describe('git reads', () => {
     }
     const remotes = [{ name: 'origin', url: 'git@git.corp:pay/pay.git' }]
     d.send({ t: 'git.refs.result', requestId: r1.requestId, branches: [branch], remotes, error: null })
-    expect(await refs).toEqual({ status: 200, body: { branches: [branch], remotes } })
+    expect(await refs).toEqual({ status: 200, body: { branches: [branch], remotes, tags: [], recent: [] } })
 
     const log = w.members.get<GitLogDto>(`${w.base}/log?ref=feat%2Fx&skip=50`)
     const r2 = await d.next('git.log')
@@ -288,7 +288,7 @@ describe('git reads', () => {
     const r1 = await d.next('git.refs')
     expect(r1).toMatchObject({ repo: 'libs/core', workspace: { extraDirs: ['/x/shared'] } })
     d.send({ t: 'git.refs.result', requestId: r1.requestId, branches: [], remotes: [], error: null })
-    expect(await refs).toEqual({ status: 200, body: { branches: [], remotes: [] } })
+    expect(await refs).toEqual({ status: 200, body: { branches: [], remotes: [], tags: [], recent: [] } })
   })
 
   it('refuses outsiders, groups without a repo or not in partition mode, and offline bots', async () => {

@@ -1,0 +1,28 @@
+{
+  "t": "git.action",
+  "requestId": "q1",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": {
+    "repo": {
+      "id": "r_pay",
+      "url": "git@git.corp:pay/pay-server.git",
+      "branch": "main",
+      "protocol": "auto"
+    },
+    "cdPath": null
+  },
+  "action": "merge",
+  "branch": "feat/refund",
+  "remote": null,
+  "message": "合并退款功能",
+  "paths": null,
+  "identity": {
+    "name": "共字君",
+    "email": "bot@gonggong.local"
+  },
+  "args": {
+    "mode": "no-ff",
+    "noCommit": false
+  }
+}

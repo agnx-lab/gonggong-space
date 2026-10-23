@@ -1,0 +1,17 @@
+{
+  "t": "git.conflict",
+  "requestId": "q1",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": {
+    "repo": {
+      "id": "r_pay",
+      "url": "git@git.corp:pay/pay-server.git",
+      "branch": "main",
+      "protocol": "auto"
+    },
+    "cdPath": null
+  },
+  "path": "src/order.ts",
+  "maxBytes": 2097152
+}

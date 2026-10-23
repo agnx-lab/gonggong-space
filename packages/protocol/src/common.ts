@@ -81,8 +81,13 @@ export const DiffRepo = z.object({
 })
 export type DiffRepo = z.infer<typeof DiffRepo>
 
+/** A merge, rebase, cherry-pick or revert that stopped midway (conflicts, or a commit left to make). */
+export const GitOngoingKind = z.enum(['merge', 'rebase', 'cherry-pick', 'revert'])
+export type GitOngoingKind = z.infer<typeof GitOngoingKind>
+
 /** Partition-mode git state of one (group, bot) workspace, refreshed after every turn (spec §5.3). */
 export const GitStatus = z.object({
+  /** null when detached (see `head`) or when the root is not a repo. */
   branch: z.string().nullable(),
   /** null when the branch has no upstream. */
   ahead: z.number().int().nullable(),
@@ -95,6 +100,14 @@ export const GitStatus = z.object({
   workspace: z.enum(['managed', 'cd']),
   /** Submodules and nested repos (not the root), outermost first; the root fields are null/false when the root is not a repo. */
   repos: z.array(RepoStatus).default([]),
+  // The root repo's, from daemons with gitOps3 (absent otherwise):
+  /** HEAD's short hash; absent on an unborn branch. */
+  head: z.string().optional(),
+  /** What stopped midway; absent when nothing is in progress. */
+  ongoing: GitOngoingKind.optional(),
+  /** Unmerged paths. */
+  conflicts: z.number().int().optional(),
+  stashes: z.number().int().optional(),
 })
 export type GitStatus = z.infer<typeof GitStatus>
 

@@ -112,7 +112,7 @@ export function gitRoutes(ctx: Ctx) {
       const { repo } = GitRefsQuery.parse(req.query)
       const { target } = await member(req, repo ? 'gitRepos' : 'gitOps')
       const res = await ask(target, { t: 'git.refs', ...(repo && { repo }) }, 'git.refs.result')
-      return { branches: res.branches, remotes: res.remotes }
+      return { branches: res.branches, remotes: res.remotes, tags: res.tags, recent: res.recent }
     })
 
     app.get('/api/groups/:id/bots/:botId/git/log', async (req: Req): Promise<GitLogDto> => {

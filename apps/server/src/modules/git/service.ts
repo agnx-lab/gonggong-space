@@ -150,6 +150,7 @@ export async function operationDtos(ctx: Ctx, rows: GitOperation[]): Promise<Git
     remote: r.remote,
     message: r.message,
     paths: r.paths,
+    args: r.args,
     pushesBase: r.pushesBase,
     status: r.status as GitOperationStatus,
     requestedBy: who(r.requestedBy),

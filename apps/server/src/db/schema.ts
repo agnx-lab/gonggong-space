@@ -1,6 +1,7 @@
 import {
   type AgentSettingValues,
   type DiffRepo,
+  type GitActionArgs,
   type GroupTabTarget,
   type I18nText,
   LIVE_RUN_STATUSES,
@@ -278,13 +279,15 @@ export const gitOperations = pgTable(
       .references(() => bots.id, { onDelete: 'cascade' }),
     /** The workspace's sub-repo acted on (see GitActionReq); null = the root repo. */
     repo: text('repo'),
-    /** 'checkout' | 'pull' | 'commit' | 'push' */
+    /** GitActionKind */
     action: text('action').notNull(),
     branch: text('branch'),
     remote: text('remote'),
     message: text('message'),
-    /** A commit of these work-tree paths only; null = every change. */
+    /** A commit (discard, stash) of these work-tree paths only; null = every change. */
     paths: jsonb('paths').$type<string[]>(),
+    /** The action's other parameters (GitActionArgs); null when it has none. */
+    args: jsonb('args').$type<GitActionArgs>(),
     /** A push of the group's protected base branch. */
     pushesBase: boolean('pushes_base').notNull().default(false),
     /** GitOperationStatus */

@@ -1,0 +1,23 @@
+{
+  "t": "workspace.state",
+  "groupId": "g1",
+  "botId": "b1",
+  "requestId": null,
+  "state": "ready",
+  "path": "/Users/w/.gonggong/workspaces/g1/b1/r_pay",
+  "git": {
+    "branch": null,
+    "ahead": null,
+    "behind": null,
+    "dirty": true,
+    "dirtyCount": 3,
+    "checkedAt": "2026-10-22T02:00:00.000Z",
+    "workspace": "managed",
+    "repos": [],
+    "head": "a1b2c3d",
+    "ongoing": "rebase",
+    "conflicts": 2,
+    "stashes": 1
+  },
+  "error": null
+}

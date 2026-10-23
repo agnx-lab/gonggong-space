@@ -1,0 +1,40 @@
+{
+  "t": "git.blame.result",
+  "requestId": "q1",
+  "ranges": [
+    {
+      "start": 1,
+      "count": 10,
+      "commit": "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
+    },
+    {
+      "start": 11,
+      "count": 2,
+      "commit": ""
+    },
+    {
+      "start": 13,
+      "count": 5,
+      "commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    }
+  ],
+  "commits": [
+    {
+      "hash": "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
+      "shortHash": "9f8e7d6",
+      "author": "王五",
+      "email": "wang@corp.com",
+      "at": "2026-10-20T08:00:00+08:00",
+      "subject": "发布 v1.2"
+    },
+    {
+      "hash": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "shortHash": "a1b2c3d",
+      "author": "张三",
+      "email": "zhang@corp.com",
+      "at": "2026-10-21T08:00:00+08:00",
+      "subject": "修复退款金额"
+    }
+  ],
+  "error": null
+}

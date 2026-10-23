@@ -27,12 +27,22 @@ import {
   CcSwitchCandidate,
   DiffScope,
   FileTreeEntry,
+  GitActionArgs,
   GitActionKind,
+  GitBlameCommit,
+  GitBlameRange,
   GitBranch,
   GitChange,
   GitCommit,
+  GitConflict,
+  GitConflictPick,
+  GitHeadCommit,
+  GitOngoing,
   GitProtocol,
   GitRemote,
+  GitStash,
+  GitTag,
+  GitWorkChange,
   MachineInfo,
   McpServer,
   OfficialInput,
@@ -460,41 +470,125 @@ export const FileTextDto = z.object({
   text: z.string().nullable(),
 })
 export type FileTextDto = z.infer<typeof FileTextDto>
-// ── Manual git (plan Git增强) ────────────────────────────────────────────────────────────────────────────────
-// Reads (any member): GET /api/groups/:id/bots/:botId/git/{refs,log,tree,text,compare}.
-// Writes: POST …/git/actions — the bot owner's run at once; anyone else's wait for the owner's approval.
-// Partition groups with a repo only; refused with 409 while a run of the bot (or of a bot sharing its directory) is live.
-/** Which repo of the workspace (see GitStatus.repos `path`); omitted = the root repo. Refs and actions only. */
+// ── Manual git (plan Git增强, docs/plan/Git管理-IDEA对标-开发计划.md) ─────────────────────────────────────────────
+// Reads (any member): GET /api/groups/:id/bots/:botId/git/{refs,log,show,tree,text,compare,diff,changes,blame,stashes,
+// conflict}. Writes: POST …/git/actions — the bot owner's run at once; anyone else's wait for the owner's approval.
+// Partition groups with a repo only; writes are refused with 409 while a run of the bot (or of a bot sharing its
+// directory) is live. Anything beyond what a daemon supports (see DaemonFeature gitOps3) is refused with 409.
+/** Which repo of the workspace (see GitStatus.repos `path`); omitted = the root repo. */
 const gitRepoPath = z.string().min(1).max(4096).optional()
+/** A query flag: 1 / true. */
+const queryFlag = z
+  .enum(['0', '1', 'false', 'true'])
+  .transform((v) => v === '1' || v === 'true')
+  .optional()
+/** A branch, tag, commit or rev expression (`main..feat`, `stash@{0}^1`). */
+const gitRev = z.string().trim().min(1).max(255)
 /** GET …/git/refs?repo= */
 export const GitRefsQuery = z.object({ repo: gitRepoPath })
-/** GET …/git/refs */
-export const GitRefsDto = z.object({ branches: z.array(GitBranch), remotes: z.array(GitRemote) })
+/** GET …/git/refs — `tags` and `recent` stay empty from daemons without gitOps3. */
+export const GitRefsDto = z.object({
+  branches: z.array(GitBranch),
+  remotes: z.array(GitRemote),
+  tags: z.array(GitTag),
+  recent: z.array(z.string()),
+})
 export type GitRefsDto = z.infer<typeof GitRefsDto>
-/** GET …/git/log?ref=&skip= */
+/** GET …/git/log?ref=&skip=&repo= plus the filters of GitLogFilter (flags as 1). */
 export const GitLogQuery = z.object({
+  repo: gitRepoPath,
   ref: z.string().min(1).max(255).optional(),
   skip: z.coerce.number().int().min(0).default(0),
+  all: queryFlag,
+  author: z.string().trim().min(1).max(255).optional(),
+  text: z.string().trim().min(1).max(255).optional(),
+  regexp: queryFlag,
+  matchCase: queryFlag,
+  since: z.iso.date().optional(),
+  until: z.iso.date().optional(),
+  path: z.string().min(1).max(4096).optional(),
+  firstParent: queryFlag,
+  noMerges: queryFlag,
+  order: z.enum(['date', 'topo']).optional(),
 })
+export type GitLogQuery = z.infer<typeof GitLogQuery>
 export const GitLogDto = z.object({ commits: z.array(GitCommit), hasMore: z.boolean() })
 export type GitLogDto = z.infer<typeof GitLogDto>
-/** GET …/git/tree?ref=&path= answers FilesTreeDto; GET …/git/text?ref=&path= answers FileTextDto. */
-export const GitRefPathQuery = z.object({ ref: z.string().min(1).max(255), path: z.string().default('') })
-/** GET …/git/compare?from=&to= — `to` omitted = the work tree. */
+/** GET …/git/show?commit=&repo= */
+export const GitShowQuery = z.object({ repo: gitRepoPath, commit: gitRev })
+export const GitShowDto = z.object({
+  commit: GitCommit,
+  body: z.string(),
+  committer: z.string(),
+  committerEmail: z.string(),
+  committedAt: z.string(),
+  branches: z.array(z.string()),
+})
+export type GitShowDto = z.infer<typeof GitShowDto>
+/** GET …/git/tree?ref=&path=&repo= answers FilesTreeDto; GET …/git/text?ref=&path=&repo= answers FileTextDto. */
+export const GitRefPathQuery = z.object({
+  repo: gitRepoPath,
+  ref: z.string().min(1).max(255),
+  path: z.string().default(''),
+})
+/** GET …/git/compare?from=&to=&repo= — `to` omitted = the work tree. */
 export const GitCompareQuery = z.object({
+  repo: gitRepoPath,
   from: z.string().min(1).max(255),
   to: z.string().min(1).max(255).optional(),
 })
 export const GitCompareDto = z.object({ changes: z.array(GitChange) })
 export type GitCompareDto = z.infer<typeof GitCompareDto>
-/** GET …/git/diff?from=&to=&path= — the unified patch (see GitDiff); `to` omitted = the work tree, `path` = one file. */
+/**
+ * GET …/git/diff?from=&to=&path=&repo=&ignoreWhitespace=&context= — the unified patch (see GitDiff); `to` omitted =
+ * the work tree, `path` = one file.
+ */
 export const GitDiffQuery = z.object({
+  repo: gitRepoPath,
   from: z.string().min(1).max(255),
   to: z.string().min(1).max(255).optional(),
   path: z.string().min(1).max(4096).optional(),
+  ignoreWhitespace: queryFlag,
+  context: z.coerce.number().int().min(0).max(1_000_000).optional(),
 })
 export const GitDiffDto = z.object({ patch: z.string().nullable(), truncated: z.boolean() })
 export type GitDiffDto = z.infer<typeof GitDiffDto>
+/** GET …/git/changes?repo= */
+export const GitChangesQuery = z.object({ repo: gitRepoPath })
+/**
+ * The work tree's changes for the commit view. `limited`: the daemon predates gitOps3, so this is its plain compare
+ * against HEAD (no untracked flags, line counts, conflicts or HEAD commit).
+ */
+export const GitChangesDto = z.object({
+  changes: z.array(GitWorkChange),
+  conflicts: z.array(GitConflict),
+  ongoing: GitOngoing.nullable(),
+  head: GitHeadCommit.nullable(),
+  limited: z.boolean(),
+})
+export type GitChangesDto = z.infer<typeof GitChangesDto>
+/** GET …/git/blame?path=&ref=&repo= — `ref` omitted = the work tree. */
+export const GitBlameQuery = z.object({
+  repo: gitRepoPath,
+  ref: z.string().min(1).max(255).optional(),
+  path: z.string().min(1).max(4096),
+})
+export const GitBlameDto = z.object({ ranges: z.array(GitBlameRange), commits: z.array(GitBlameCommit) })
+export type GitBlameDto = z.infer<typeof GitBlameDto>
+/** GET …/git/stashes?repo= */
+export const GitStashesQuery = z.object({ repo: gitRepoPath })
+export const GitStashesDto = z.object({ stashes: z.array(GitStash) })
+export type GitStashesDto = z.infer<typeof GitStashesDto>
+/** GET …/git/conflict?path=&repo= */
+export const GitConflictQuery = z.object({ repo: gitRepoPath, path: z.string().min(1).max(4096) })
+export const GitConflictDto = z.object({
+  base: z.string().nullable(),
+  ours: z.string().nullable(),
+  theirs: z.string().nullable(),
+  merged: z.string().nullable(),
+  binary: z.boolean(),
+})
+export type GitConflictDto = z.infer<typeof GitConflictDto>
 /**
  * POST …/git/refresh — any member: re-reads the bot's git status (pushed as a bot state update); `fetch` fetches the
  * remotes first. Not refused while a run is live (it never touches the work tree). Answers 204.
@@ -503,16 +597,38 @@ export const GitRefreshReq = z.object({ fetch: z.boolean().default(false) })
 export type GitRefreshReq = z.infer<typeof GitRefreshReq>
 
 const gitBranchName = z.string().trim().min(1).max(255)
-/** POST …/git/actions. `confirmBase`: the owner's second confirmation to push the protected base branch. */
+const gitPaths = z.array(z.string().min(1).max(4096)).max(5000)
+const gitMessage = z.string().trim().min(1).max(10_000)
+/** Conflict resolutions are written into the work tree as is. */
+export const GIT_RESOLVE_MAX_BYTES = 2 * 1024 * 1024
+/**
+ * POST …/git/actions (see GitAction in the daemon protocol for what each does). `confirmBase`: the owner's second
+ * confirmation to push the protected base branch, which is never force-pushed nor deleted on the remote.
+ */
 export const GitActionReq = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('checkout'), repo: gitRepoPath, branch: gitBranchName }),
-  z.object({ action: z.literal('pull'), repo: gitRepoPath }),
+  z.object({
+    action: z.literal('checkout'),
+    repo: gitRepoPath,
+    branch: gitBranchName,
+    /** A commit or tag: detached HEAD. */
+    detach: z.boolean().default(false),
+    /** With changes in the way: keep them (git refuses to overwrite), smart (stash and restore) or force (discard). */
+    mode: z.enum(['keep', 'smart', 'force']).default('keep'),
+  }),
+  z.object({
+    action: z.literal('pull'),
+    repo: gitRepoPath,
+    mode: z.enum(['ff-only', 'merge', 'rebase']).default('ff-only'),
+    /** A local branch other than the current one: fast-forwarded from its upstream. */
+    branch: gitBranchName.optional(),
+  }),
   z.object({
     action: z.literal('commit'),
     repo: gitRepoPath,
     message: z.string().trim().min(1, '请填写提交说明').max(10_000),
-    /** Work-tree-relative paths to commit (as listed by compare from HEAD); omitted = every change. */
-    paths: z.array(z.string().min(1).max(4096)).min(1).max(5000).optional(),
+    /** Work-tree-relative paths to commit (as listed by git changes); omitted = every change; [] = none (amend only). */
+    paths: gitPaths.optional(),
+    amend: z.boolean().default(false),
   }),
   z.object({
     action: z.literal('push'),
@@ -520,9 +636,112 @@ export const GitActionReq = z.discriminatedUnion('action', [
     remote: gitBranchName.default('origin'),
     branch: gitBranchName,
     confirmBase: z.boolean().default(false),
+    /** --force-with-lease; refused for the protected base branch. */
+    force: z.boolean().default(false),
+    tags: z.boolean().default(false),
+  }),
+  z.object({
+    action: z.literal('branch-create'),
+    repo: gitRepoPath,
+    name: gitBranchName,
+    from: gitRev.optional(),
+    checkout: z.boolean().default(true),
+  }),
+  z.object({
+    action: z.literal('branch-rename'),
+    repo: gitRepoPath,
+    branch: gitBranchName,
+    name: gitBranchName,
+  }),
+  z.object({
+    action: z.literal('branch-delete'),
+    repo: gitRepoPath,
+    /** A remote-tracking `origin/x` deletes x on that remote. */
+    branch: gitBranchName,
+    force: z.boolean().default(false),
+  }),
+  z.object({
+    action: z.literal('merge'),
+    repo: gitRepoPath,
+    branch: gitRev,
+    mode: z.enum(['default', 'no-ff', 'ff-only', 'squash']).default('default'),
+    noCommit: z.boolean().default(false),
+    message: gitMessage.optional(),
+  }),
+  z.object({
+    action: z.literal('rebase'),
+    repo: gitRepoPath,
+    onto: gitRev,
+    /** Rebase this branch (switched to first) instead of the current one. */
+    branch: gitBranchName.optional(),
+  }),
+  z.object({ action: z.literal('cherry-pick'), repo: gitRepoPath, commits: z.array(gitRev).min(1).max(100) }),
+  z.object({ action: z.literal('revert'), repo: gitRepoPath, commits: z.array(gitRev).min(1).max(100) }),
+  z.object({
+    action: z.literal('reset'),
+    repo: gitRepoPath,
+    commit: gitRev,
+    mode: z.enum(['soft', 'mixed', 'hard', 'keep']).default('mixed'),
+  }),
+  z.object({ action: z.literal('discard'), repo: gitRepoPath, paths: gitPaths.min(1) }),
+  z.object({
+    action: z.literal('stash'),
+    repo: gitRepoPath,
+    message: z.string().trim().min(1).max(1000).optional(),
+    untracked: z.boolean().default(false),
+    paths: gitPaths.min(1).optional(),
+  }),
+  z.object({
+    action: z.literal('unstash'),
+    repo: gitRepoPath,
+    stash: z.number().int().min(0),
+    pop: z.boolean().default(false),
+    index: z.boolean().default(false),
+    /** Restore it as this new branch (made at the stash's base) instead. */
+    branch: gitBranchName.optional(),
+  }),
+  z.object({
+    action: z.literal('stash-drop'),
+    repo: gitRepoPath,
+    /** Omitted = every stash. */
+    stash: z.number().int().min(0).optional(),
+  }),
+  z.object({
+    action: z.literal('tag-create'),
+    repo: gitRepoPath,
+    name: gitBranchName,
+    commit: gitRev.optional(),
+    /** Makes it an annotated tag. */
+    message: gitMessage.optional(),
+  }),
+  z.object({
+    action: z.literal('tag-delete'),
+    repo: gitRepoPath,
+    name: gitBranchName,
+    /** Deletes it on this remote too. */
+    remote: gitBranchName.optional(),
+  }),
+  z.object({
+    action: z.literal('tag-push'),
+    repo: gitRepoPath,
+    name: gitBranchName,
+    remote: gitBranchName.default('origin'),
+  }),
+  z.object({ action: z.literal('continue'), repo: gitRepoPath, message: gitMessage.optional() }),
+  z.object({ action: z.literal('abort'), repo: gitRepoPath }),
+  z.object({ action: z.literal('skip'), repo: gitRepoPath }),
+  z.object({
+    action: z.literal('resolve'),
+    repo: gitRepoPath,
+    path: z.string().min(1).max(4096),
+    /** Take one side as is, or write `content`. */
+    side: GitConflictPick.optional(),
+    content: z.string().max(GIT_RESOLVE_MAX_BYTES).optional(),
   }),
 ])
 export type GitActionReq = z.infer<typeof GitActionReq>
+/** What a client sends: the defaults may be left out. */
+export type GitActionInput = z.input<typeof GitActionReq>
 export const GitOperationStatus = z.enum([
   'pending_approval',
   'running',
@@ -542,8 +761,10 @@ export const GitOperationDto = z.object({
   branch: z.string().nullable(),
   remote: z.string().nullable(),
   message: z.string().nullable(),
-  /** A commit of these paths only; null = every change. */
+  /** A commit (discard, stash) of these paths only; null = every change. */
   paths: z.array(z.string()).nullable(),
+  /** The action's other parameters (see GitActionArgs); null when it has none. */
+  args: GitActionArgs.nullable(),
   /** A push of the protected base branch: approving it is the owner's second confirmation. */
   pushesBase: z.boolean(),
   status: GitOperationStatus,

@@ -1,0 +1,32 @@
+{
+  "t": "git.log",
+  "requestId": "q1",
+  "groupId": "g1",
+  "botId": "b1",
+  "workspace": {
+    "repo": {
+      "id": "r_pay",
+      "url": "git@git.corp:pay/pay-server.git",
+      "branch": "main",
+      "protocol": "auto"
+    },
+    "cdPath": null
+  },
+  "repo": "libs/core",
+  "ref": null,
+  "skip": 50,
+  "limit": 100,
+  "filter": {
+    "all": true,
+    "author": "张三",
+    "text": "退款",
+    "regexp": false,
+    "matchCase": false,
+    "since": "2026-10-01",
+    "until": "2026-10-31",
+    "path": "src/refund.ts",
+    "firstParent": false,
+    "noMerges": true,
+    "order": "topo"
+  }
+}

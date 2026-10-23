@@ -1,0 +1,10 @@
+{
+  "t": "git.conflict.result",
+  "requestId": "q1",
+  "base": "const fee = 1\n",
+  "ours": "const fee = 2\n",
+  "theirs": "const fee = 3\n",
+  "merged": "<<<<<<< ours\nconst fee = 2\n||||||| base\nconst fee = 1\n=======\nconst fee = 3\n>>>>>>> theirs\n",
+  "binary": false,
+  "error": null
+}
