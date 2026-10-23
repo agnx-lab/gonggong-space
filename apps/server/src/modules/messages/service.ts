@@ -13,7 +13,7 @@ import type {
   SecretCard,
   SyncDecision,
 } from '@gonggong/protocol'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { Ctx } from '../../context.js'
 import { bots, groupMembers, messages, users } from '../../db/schema.js'
 import { zh } from '../../i18n/index.js'
@@ -26,6 +26,8 @@ export type MessageRow = typeof messages.$inferSelect
  */
 export type MessageMeta = {
   mentions?: string[]
+  /** Came in from the bound Feishu chat; `name` is the sender's Feishu name when they have no 共工 author. */
+  feishu?: { name?: string }
   /** Members it @s (被 @ notifications). */
   userMentions?: string[]
   clientId?: string
@@ -61,6 +63,9 @@ export type MessageMeta = {
   actions?: Record<string, ActionAnswer>
 }
 
+/** A user message's author name, a Feishu sender's when they have no 共工 account; needs `users` left-joined. */
+export const userAuthorName = sql<string | null>`coalesce(${users.name}, ${messages.meta}->'feishu'->>'name')`
+
 /** A recalled message keeps only its envelope (its body, attachments and quote are already erased). */
 export const messageDto = (m: MessageRow, authorName: string, reactions: ReactionDto[] = []): MessageDto => {
   const recalled = m.recalledAt !== null
@@ -70,7 +75,7 @@ export const messageDto = (m: MessageRow, authorName: string, reactions: Reactio
     groupId: m.groupId,
     kind: m.kind as MessageDto['kind'],
     authorId: m.authorUserId ?? m.authorBotId,
-    authorName,
+    authorName: authorName || ((m.meta as MessageMeta).feishu?.name ?? ''),
     body: m.body,
     mentions: recalled ? [] : ((m.meta as MessageMeta).mentions ?? []),
     userMentions: recalled ? [] : ((m.meta as MessageMeta).userMentions ?? []),
@@ -81,6 +86,7 @@ export const messageDto = (m: MessageRow, authorName: string, reactions: Reactio
     reactions: recalled ? [] : reactions,
     recalled,
     editedAt: m.editedAt?.toISOString() ?? null,
+    ...((m.meta as MessageMeta).feishu && { fromFeishu: true }),
     ...((m.meta as MessageMeta).preview && { previewId: (m.meta as MessageMeta).preview }),
     ...((m.meta as MessageMeta).schedule && { scheduleId: (m.meta as MessageMeta).schedule }),
     ...((m.meta as MessageMeta).scheduleOf && { scheduledBy: (m.meta as MessageMeta).scheduleOf }),

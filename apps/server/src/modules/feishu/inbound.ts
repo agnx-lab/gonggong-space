@@ -28,15 +28,21 @@ import { dmsOf, isSharedWith } from '../bots/shares.js'
 import { createGroup } from '../groups/create.js'
 import { activeBots } from '../groups/service.js'
 import { resolveQuote } from '../messages/quote.js'
-import { recallMessage } from '../messages/recall.js'
-import { type MessageMeta, type MessageRow, messageDto, publishMessage } from '../messages/service.js'
+import { eraseMessage, recallMessage } from '../messages/recall.js'
+import {
+  type MessageMeta,
+  type MessageRow,
+  messageDto,
+  postEvent,
+  publishMessage,
+} from '../messages/service.js'
 import { answerQuestions } from '../questions/service.js'
 import { rerunFor, triggerRuns } from '../runs/trigger.js'
 import { groupRedactor } from '../secrets/resolve.js'
 import { approvalCard, type CardValue, formAnswers, noticeCard, questionCard } from './cards.js'
 import { credsOf, type FeishuAppRow, type FeishuInbound, onFeishu } from './gateway.js'
 import { publicUrl } from './identity.js'
-import { boundChat, linkOf, markBound, markRendered, userOfFeishu } from './mirror.js'
+import { boundChat, enqueue, linkOf, markBound, markRendered, userOfFeishu } from './mirror.js'
 
 const zt = translator('zh')
 
@@ -277,12 +283,123 @@ async function singleChatTarget(ctx: Ctx, app: FeishuAppRow, ev: Receive): Promi
   return { groupId: await dmOf(ctx, user, bot, ev.message.chat_id), botId: bot.id, user }
 }
 
+const SYNC_ALL_NOTICE = '飞书群里的消息现在会全部同步到本群（不触发 Bot），群管理员可在「群设置 · 飞书」关闭'
+
+/**
+ * 同步全部飞书消息: a user message of a bound chat, as the main app gets them all, is stored without running any bot.
+ * One that @-s a bot is also delivered by that bot's app: whichever comes second finds the link (the bot's then
+ * adds its mention and runs it). Queued behind the group's Feishu sends so 共工's own messages are known by then.
+ */
+async function syncChatMessage(ctx: Ctx, app: FeishuAppRow, ev: Receive) {
+  const [chat] = await ctx.db
+    .select()
+    .from(feishuChats)
+    .where(and(eq(feishuChats.chatId, ev.message.chat_id), isNull(feishuChats.unboundAt)))
+  if (!chat?.syncAll) return
+  enqueue(ctx, chat.groupId, () => storeChatMessage(ctx, app, ev, chat))
+}
+
+async function storeChatMessage(
+  ctx: Ctx,
+  app: FeishuAppRow,
+  ev: Receive,
+  chat: typeof feishuChats.$inferSelect,
+) {
+  const msg = ev.message
+  if (await linkOf(ctx, msg.message_id)) return
+  const { groupId } = chat
+  const unionId = ev.sender.sender_id?.union_id
+  const user = await userOfFeishu(ctx, unionId)
+  const [member] = user
+    ? await ctx.db
+        .select()
+        .from(groupMembers)
+        .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, user.id)))
+    : []
+  const author = member ? user : undefined
+  const name = author
+    ? undefined
+    : ((unionId && (await ctx.feishu.api.chatMemberNames(credsOf(app), msg.chat_id)).get(unionId)) ??
+      '飞书用户')
+  const mentions = (msg.mentions ?? []).map((m) => ({ key: m.key, name: m.name }))
+  const { body, files } = parseContent(msg.message_type, msg.content, mentions)
+  // Files of a sender without a 共工 account are kept under whoever bound the chat.
+  const uploads = await fetchFiles(ctx, app, msg.message_id, files, {
+    uploaderId: author?.id ?? chat.boundBy,
+    groupId,
+  })
+  const quote = await quoteOf(ctx, groupId, msg.parent_id)
+  // On by default, also for chats bound before it existed: the group learns why Feishu chatter shows up now.
+  const [noticed] = await ctx.db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.groupId, groupId),
+        eq(messages.kind, 'event'),
+        sql`${messages.meta}->'i18n'->>'key' = ${SYNC_ALL_NOTICE}`,
+      ),
+    )
+    .limit(1)
+  if (!noticed) await postEvent(ctx, groupId, SYNC_ALL_NOTICE)
+  const row = await ctx.db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`feishu:${msg.message_id}`}))`)
+    const [link] = await tx
+      .select()
+      .from(feishuMessageLinks)
+      .where(eq(feishuMessageLinks.feishuMessageId, msg.message_id))
+    if (link) return undefined
+    const id = randomUUID()
+    const meta: MessageMeta = {
+      mentions: [],
+      feishu: name === undefined ? {} : { name },
+      ...(uploads.length && { attachments: uploads.map((a) => ({ ...a, messageId: id })) }),
+      ...(quote && { quote }),
+    }
+    const [m] = (await tx
+      .insert(messages)
+      .values({ id, groupId, kind: 'user', authorUserId: author?.id ?? null, body, meta })
+      .returning()) as [MessageRow]
+    if (uploads.length)
+      await tx
+        .update(attachments)
+        .set({ messageId: id })
+        .where(
+          inArray(
+            attachments.id,
+            uploads.map((a) => a.id),
+          ),
+        )
+    await tx.insert(feishuMessageLinks).values({
+      feishuMessageId: msg.message_id,
+      chatId: msg.chat_id,
+      appId: app.appId,
+      direction: 'in',
+      kind: 'message',
+      messageId: id,
+    })
+    return m
+  })
+  if (!row) {
+    if (uploads.length)
+      await ctx.db.delete(attachments).where(
+        inArray(
+          attachments.id,
+          uploads.map((a) => a.id),
+        ),
+      )
+    return
+  }
+  await publishMessage(ctx, messageDto(row, author?.name ?? ''))
+}
+
 /**
  * A Feishu user @-ed a bot through its own app in a bound chat, or wrote to it in a single chat: store the message
  * as theirs and run the bot (plan §2.1).
  */
 async function onReceive(ctx: Ctx, app: FeishuAppRow, ev: Receive) {
   if (ev.sender.sender_type !== 'user') return
+  if (app.kind === 'main') return ev.message.chat_type === 'group' ? syncChatMessage(ctx, app, ev) : undefined
   const msg = ev.message
   const known = await linkOf(ctx, msg.message_id)
   if (known?.direction === 'out') return
@@ -319,6 +436,7 @@ async function onReceive(ctx: Ctx, app: FeishuAppRow, ev: Receive) {
       mentions: [botId],
       ...(uploads.length && { attachments: uploads.map((a) => ({ ...a, messageId: id })) }),
       ...(quote && { quote }),
+      feishu: {},
     }
     const [m] = (await tx
       .insert(messages)
@@ -362,7 +480,11 @@ async function onRecalled(ctx: Ctx, ev: FeishuInbound['im.message.recalled_v1'])
   const link = ev.message_id ? await linkOf(ctx, ev.message_id) : undefined
   if (link?.direction !== 'in' || !link.messageId) return
   const [m] = await ctx.db.select().from(messages).where(eq(messages.id, link.messageId))
-  if (!m?.authorUserId || m.recalledAt) return
+  if (!m || m.recalledAt) return
+  if (!m.authorUserId) {
+    if ((m.meta as MessageMeta).feishu) await eraseMessage(ctx, m)
+    return
+  }
   const user = { id: m.authorUserId, name: '' }
   await recallMessage(ctx, user, m.id).catch((err) => {
     if (!(err instanceof HttpError)) throw err

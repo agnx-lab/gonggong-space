@@ -547,6 +547,13 @@
       "when": 1792722071709,
       "tag": "0077_same_marten_broadcloak",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792729657186,
+      "tag": "0078_elite_trish_tilby",
+      "breakpoints": true
     }
   ]
 }

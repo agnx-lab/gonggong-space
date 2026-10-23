@@ -151,6 +151,7 @@ async function view(ctx: Ctx, groupId: string, userId: string, added?: string): 
           name: chat.name,
           boundAt: chat.createdAt.toISOString(),
           syncOutbound: chat.syncOutbound,
+          syncAll: chat.syncAll,
         }
       : null,
     chats,
@@ -259,16 +260,17 @@ export function feishuChatRoutes(ctx: Ctx) {
 
     app.patch<Params>('/api/groups/:id/feishu', async (req) => {
       const { user, group } = await admin(req, req.params.id)
-      const { syncOutbound } = UpdateFeishuChatReq.parse(req.body)
+      const sync = UpdateFeishuChatReq.parse(req.body)
       const chat = (await boundChat(ctx.db, group.id)) ?? fail('invalid', '该群尚未绑定飞书群')
-      await ctx.db.update(feishuChats).set({ syncOutbound }).where(eq(feishuChats.id, chat.id))
+      if (Object.keys(sync).length)
+        await ctx.db.update(feishuChats).set(sync).where(eq(feishuChats.id, chat.id))
       await audit(ctx, {
         category: 'admin',
         actorUserId: user.id,
         teamId: group.teamId,
         groupId: group.id,
         action: 'feishu.chat.sync',
-        detail: { chatId: chat.chatId, syncOutbound },
+        detail: { chatId: chat.chatId, ...sync },
       })
       return view(ctx, group.id, user.id)
     })

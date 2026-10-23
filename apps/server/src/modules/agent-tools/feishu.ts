@@ -15,9 +15,11 @@ type Args = z.infer<(typeof GONGGONG_TOOLS)['list_feishu_messages']['input']>
 
 const BODY_MAX = 2000
 const time = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ')
-/** Appended to the bot's instructions in groups bound to a Feishu chat (plan §2.6). */
-export const FEISHU_HINT =
-  '本群已绑定飞书群，飞书里只有与 Bot 交互的消息会同步过来；需要了解飞书群里此前的讨论时，用 gonggong 的 list_feishu_messages 读取，不要猜。'
+/** Appended to the bot's instructions in groups bound to a Feishu chat (plan §2.6), by whether 同步全部飞书消息 is on. */
+export const feishuHint = (syncAll: boolean) =>
+  syncAll
+    ? '本群已绑定飞书群，飞书群里成员的消息都会同步过来（绑定或开启同步之前的除外）；需要更早的讨论时，用 gonggong 的 list_feishu_messages 读取，不要猜。'
+    : '本群已绑定飞书群，飞书里只有与 Bot 交互的消息会同步过来；需要了解飞书群里此前的讨论时，用 gonggong 的 list_feishu_messages 读取，不要猜。'
 
 const clip = (s: string) =>
   s.length > BODY_MAX ? `${s.slice(0, BODY_MAX)}…（已截断，共 ${s.length} 字）` : s

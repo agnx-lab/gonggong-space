@@ -1477,6 +1477,8 @@ export const feishuChats = pgTable(
     name: text('name').notNull().default(''),
     /** Off: web messages are not sent to the chat; Feishu messages still come in and get their run cards. */
     syncOutbound: boolean('sync_outbound').notNull().default(true),
+    /** On: every user message of the chat comes in (stored without running bots), not only those @-ing a bot. */
+    syncAll: boolean('sync_all').notNull().default(true),
     boundBy: uuid('bound_by')
       .notNull()
       .references(() => users.id),

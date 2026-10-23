@@ -1,0 +1,1 @@
+ALTER TABLE "feishu_chats" ADD COLUMN "sync_all" boolean DEFAULT true NOT NULL;

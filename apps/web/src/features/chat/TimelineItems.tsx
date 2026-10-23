@@ -106,10 +106,13 @@ function Time({
   iso,
   edited,
   pin,
+  feishu,
 }: {
   iso: string
   edited?: string | null
   pin?: Pick<MessageDto, 'id' | 'groupId'>
+  /** Came in from the bound Feishu chat. */
+  feishu?: boolean
 }) {
   return (
     <>
@@ -121,6 +124,7 @@ function Time({
           {t('已编辑')}
         </span>
       ) : null}
+      {feishu ? <span className="tl-edited">{t('来自飞书')}</span> : null}
       {pin ? <PinMark message={pin} /> : null}
     </>
   )
@@ -287,7 +291,9 @@ const messageTarget = (
 
 /** Another member: avatar and name open their user card. */
 function person(m: MessageDto, avatar?: string): MessageAuthor {
-  const id = m.authorId ?? ''
+  // A Feishu sender without a 共工 account has no user card.
+  if (!m.authorId) return { name: m.authorName, avatar }
+  const id = m.authorId
   return {
     name: m.authorName,
     avatarNode: (
@@ -378,7 +384,7 @@ export const UserMessage = memo(function UserMessage({
           author={mine ? { name: m.authorName, avatar: avatar ?? undefined } : person(m, avatar ?? undefined)}
           self={mine}
           continued={compact}
-          time={<Time iso={m.createdAt} edited={m.editedAt} pin={m} />}
+          time={<Time iso={m.createdAt} edited={m.editedAt} pin={m} feishu={m.fromFeishu} />}
           meta={
             m.scheduledBy ? (
               <Tag tone="gray" icon="clock">

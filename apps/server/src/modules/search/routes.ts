@@ -12,6 +12,7 @@ import { pick } from '../candidates/match.js'
 import type { Mirrors } from '../candidates/mirror.js'
 import { groupTitle } from '../groups/title.js'
 import { notHiddenBy } from '../messages/recall.js'
+import { userAuthorName } from '../messages/service.js'
 import { runMatches } from '../runs/search-text.js'
 import { currentTeam } from '../teams/service.js'
 
@@ -42,7 +43,7 @@ export function searchRoutes(ctx: Ctx, mirrors: Mirrors) {
 
   async function searchMessages(userId: string, teamId: string, q: string): Promise<SearchResultDto[]> {
     const rows = await ctx.db
-      .select({ m: messages, author: users.name, bot: bots.name, group: groupTitle })
+      .select({ m: messages, author: userAuthorName, bot: bots.name, group: groupTitle })
       .from(messages)
       .innerJoin(groups, eq(groups.id, messages.groupId))
       .leftJoin(users, eq(users.id, messages.authorUserId))

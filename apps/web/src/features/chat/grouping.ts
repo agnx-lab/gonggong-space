@@ -13,6 +13,8 @@ export function continues(prev: MessageDto | undefined, m: MessageDto) {
     prev.kind !== 'event' &&
     m.kind === prev.kind &&
     m.authorId === prev.authorId &&
+    // Feishu senders without a 共工 account have no id: their name tells them apart.
+    (m.authorId !== null || m.authorName === prev.authorName) &&
     sameDay(prev.createdAt, m.createdAt) &&
     Date.parse(m.createdAt) - Date.parse(prev.createdAt) <= MERGE_MS
   )

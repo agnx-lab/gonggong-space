@@ -208,6 +208,13 @@ describe('grouping rule', () => {
     expect(continues(undefined, a)).toBe(false)
   })
 
+  it('merges Feishu senders without a 共工 account only under the same name', () => {
+    const ext = (seq: number, authorName: string) =>
+      msg({ seq, authorId: null, authorName, fromFeishu: true })
+    expect(continues(ext(1, '外部同事'), ext(2, '外部同事'))).toBe(true)
+    expect(continues(ext(1, '外部同事'), ext(2, '另一位'))).toBe(false)
+  })
+
   it('never merges across midnight', () => {
     const late = msg({ seq: 1, createdAt: new Date(2026, 8, 23, 23, 59).toISOString() })
     expect(continues(late, msg({ seq: 2, createdAt: new Date(2026, 8, 24, 0, 1).toISOString() }))).toBe(false)

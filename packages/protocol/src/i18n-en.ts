@@ -20,6 +20,8 @@ export const protocolEn = {
   '{user} 将 {member} 移出群': '{user} removed {member} from the group',
   '{member} 随飞书群加入群': '{member} joined along with the Feishu chat',
   '{member} 已退出飞书群，移出群': '{member} left the Feishu chat and was removed from the group',
+  '飞书群里的消息现在会全部同步到本群（不触发 Bot），群管理员可在「群设置 · 飞书」关闭':
+    'All messages of the Feishu chat now come into this group (without running bots); group admins can turn this off in Group settings · Feishu',
   '未能将 {member} 拉入飞书群：{reason}': 'Could not add {member} to the Feishu chat: {reason}',
   '{owner} 作为 {bot} 的主人一并加入群': "{owner} joined the group as {bot}'s owner",
   '{bot} 被移出 · 工作区保留': '{bot} was removed · workspace kept',

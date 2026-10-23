@@ -30,6 +30,7 @@ describe('群设置 · 飞书', () => {
             name: '飞书研发群',
             boundAt: '2026-10-01T00:00:00Z',
             syncOutbound: true,
+            syncAll: true,
           },
           bots: [
             { botId: 'b1', name: 'codex', appId: 'cli_b1', inChat: false },
@@ -80,6 +81,7 @@ describe('群设置 · 飞书', () => {
             name: '研发群',
             boundAt: '2026-10-14T00:00:00Z',
             syncOutbound: true,
+            syncAll: true,
           },
         }
         return view
@@ -105,6 +107,7 @@ describe('群设置 · 飞书', () => {
         name: '飞书研发群',
         boundAt: '2026-10-01T00:00:00Z',
         syncOutbound: true,
+        syncAll: true,
       },
     }
     const calls = mockApi({ 'GET /groups/g1/feishu': bound, 'PATCH /groups/g1': group })
@@ -125,6 +128,7 @@ describe('群设置 · 飞书', () => {
         name: '研发群',
         boundAt: '2026-10-01T00:00:00Z',
         syncOutbound: true,
+        syncAll: true,
       },
     }
     const calls = mockApi({
@@ -151,6 +155,7 @@ describe('群设置 · 飞书', () => {
         name: '研发群',
         boundAt: '2026-10-01T00:00:00Z',
         syncOutbound: true,
+        syncAll: true,
       },
     }
     const calls = mockApi({
@@ -174,6 +179,39 @@ describe('群设置 · 飞书', () => {
     )
   })
 
+  it('turns off 同步全部飞书消息, warning that senders outside 共工 are stored too', async () => {
+    let view: GroupFeishuView = {
+      ...unbound,
+      chats: [],
+      chat: {
+        groupId: 'g1',
+        chatId: 'oc_1',
+        name: '研发群',
+        boundAt: '2026-10-01T00:00:00Z',
+        syncOutbound: true,
+        syncAll: true,
+      },
+    }
+    const calls = mockApi({
+      'GET /groups/g1/feishu': () => view,
+      'PATCH /groups/g1/feishu': (body: unknown) => {
+        view = { ...view, chat: view.chat && { ...view.chat, ...(body as { syncAll: boolean }) } }
+        return view
+      },
+    })
+    render(<GroupFeishuTab group={group} />)
+    const toggle = await screen.findByRole('switch', { name: '同步全部飞书消息' })
+    expect(screen.getByText(/没有共工账号的人发言也会保存到本群/)).toBeTruthy()
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(toggle)
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ syncAll: false }))
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: '同步全部飞书消息' }).getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    )
+  })
+
   it('explains that the main app must be configured first', async () => {
     mockApi({ 'GET /groups/g1/feishu': { available: false, chat: null, chats: [], bots: [], members: [] } })
     render(<GroupFeishuTab group={group} />)
@@ -190,6 +228,7 @@ describe('群设置 · 飞书', () => {
         name: '飞书研发群',
         boundAt: '2026-10-01T00:00:00Z',
         syncOutbound: true,
+        syncAll: true,
       },
     }
     mockApi({

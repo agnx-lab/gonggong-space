@@ -28,7 +28,7 @@ import { zhText } from '../../i18n/index.js'
 import { fail } from '../../lib/errors.js'
 import { isUuid } from '../../lib/ids.js'
 import { summarizeBlocks } from '../../lib/text.js'
-import { forgetMembers, type MessageMeta, memberIds, postEvent } from '../messages/service.js'
+import { forgetMembers, type MessageMeta, memberIds, postEvent, userAuthorName } from '../messages/service.js'
 import { LIVE } from '../runs/dto.js'
 import { stopRuns } from '../runs/stop.js'
 import { avatarUrl } from '../users/dto.js'
@@ -186,7 +186,7 @@ async function groupViews(ctx: Ctx, userIds: string[], where?: SQL) {
             groupId: messages.groupId,
             kind: messages.kind,
             body: messages.body,
-            userName: users.name,
+            userName: userAuthorName,
             botName: bots.name,
             authorUserId: messages.authorUserId,
             recalledAt: messages.recalledAt,

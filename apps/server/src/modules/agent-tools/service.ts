@@ -25,7 +25,7 @@ import { open } from '../../lib/seal.js'
 import { likePattern, patchPaths, snippet } from '../../lib/text.js'
 import { groupParams } from '../groups/params.js'
 import { activeBots } from '../groups/service.js'
-import type { MessageMeta } from '../messages/service.js'
+import { type MessageMeta, userAuthorName } from '../messages/service.js'
 import { closeOwnPreview, exposeGui, exposePreview } from '../previews/service.js'
 import { answerText } from '../questions/dto.js'
 import { redactDeep } from '../runs/redact.js'
@@ -136,7 +136,7 @@ function messageRows(
       body: messages.body,
       meta: messages.meta,
       at: messages.createdAt,
-      author: sql<string>`coalesce(${users.name}, ${bots.name}, '')`,
+      author: sql<string>`coalesce(${userAuthorName}, ${bots.name}, '')`,
     })
     .from(messages)
     .leftJoin(users, eq(users.id, messages.authorUserId))

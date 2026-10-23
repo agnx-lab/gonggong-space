@@ -85,6 +85,8 @@ export class FakeFeishu {
   readonly chats = new Map<string, FeishuChat[]>()
   /** Union ids of the users in each chat (bots excluded, as Feishu does). */
   readonly members = new Map<string, string[]>()
+  /** Names of the users made by `user`, by union id. */
+  readonly names = new Map<string, string>()
   /** Chat history by chat id, oldest first (read by `listMessages`). */
   readonly history = new Map<string, FeishuHistoryItem[]>()
   /** Attachments by file key. */
@@ -109,7 +111,7 @@ export class FakeFeishu {
   /** A tenant user; pass the result to `authorize` / `message`. */
   user(o: Partial<FakeUser> = {}): FakeUser {
     const k = ++this.n
-    return {
+    const u = {
       unionId: `on_${k}`,
       openId: `ou_${k}`,
       userId: `uid_${k}`,
@@ -118,6 +120,8 @@ export class FakeFeishu {
       avatar: null,
       ...o,
     }
+    this.names.set(u.unionId, u.name)
+    return u
   }
 
   /** The `code` the authorization page would redirect back with after `user` consents. */
@@ -454,6 +458,10 @@ export class FakeFeishu {
     chatMembers: async (app, chatId) => {
       this.check(app.appId)
       return this.members.get(chatId) ?? []
+    },
+    chatMemberNames: async (app, chatId) => {
+      this.check(app.appId)
+      return new Map((this.members.get(chatId) ?? []).map((id) => [id, this.names.get(id) ?? '']))
     },
     listMessages: async (app, chatId, userToken, { before, limit }) => {
       this.check(app.appId)

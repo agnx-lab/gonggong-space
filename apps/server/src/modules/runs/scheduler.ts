@@ -21,7 +21,7 @@ import {
   teams,
   users,
 } from '../../db/schema.js'
-import { FEISHU_HINT } from '../agent-tools/feishu.js'
+import { feishuHint } from '../agent-tools/feishu.js'
 import { pluginHint } from '../agent-tools/plugins.js'
 import { botCatalog, resolveConfig } from '../bots/config.js'
 import { publishBot } from '../bots/dto.js'
@@ -32,7 +32,7 @@ import { effectiveParams } from '../groups/params.js'
 import { knowledgeContext } from '../knowledge/context.js'
 import { substitute } from '../mcp/secrets.js'
 import { enabledMcpServers } from '../mcp/service.js'
-import type { MessageMeta } from '../messages/service.js'
+import { type MessageMeta, userAuthorName } from '../messages/service.js'
 import { runPlugins } from '../plugins/service.js'
 import { resolveSecrets } from '../secrets/resolve.js'
 import { enabledSkills } from '../skills/service.js'
@@ -222,7 +222,7 @@ export async function buildRunStart(
           body: messages.body,
           meta: messages.meta,
           at: messages.createdAt,
-          author: users.name,
+          author: userAuthorName,
           bot: bots.name,
         })
         .from(messages)
@@ -307,7 +307,7 @@ export async function buildRunStart(
       name: bot.name,
       agentKind: bot.agentKind as AgentKind,
       systemPrompt: [
-        ...(feishu ? [FEISHU_HINT] : []),
+        ...(feishu ? [feishuHint(feishu.syncAll)] : []),
         ...(protectBase && repo ? [branchHint(repo.baseBranch)] : []),
         ...(command ? [] : [UI_BLOCKS_GUIDE]),
         ...(command || !plugins.length ? [] : [pluginHint(plugins.map((p) => p.name))]),
@@ -432,7 +432,7 @@ async function contextPage(tx: Tx, where: SQL | undefined): Promise<ContextMessa
       body: messages.body,
       meta: messages.meta,
       at: messages.createdAt,
-      user: users.name,
+      user: userAuthorName,
       bot: bots.name,
     })
     .from(messages)

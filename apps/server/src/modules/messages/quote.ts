@@ -4,6 +4,7 @@ import type { Ctx } from '../../context.js'
 import { bots, messages, runs, users } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { idParam } from '../../lib/ids.js'
+import { userAuthorName } from './service.js'
 
 /** Quoted text sent to the agent is capped; the UI shows one line of it anyway. */
 export const QUOTE_MAX = 2000
@@ -18,7 +19,7 @@ export async function resolveQuote(ctx: Ctx, groupId: string, q: { kind: 'messag
       .select({
         body: messages.body,
         bot: bots.name,
-        user: users.name,
+        user: userAuthorName,
         recalledAt: messages.recalledAt,
       })
       .from(messages)

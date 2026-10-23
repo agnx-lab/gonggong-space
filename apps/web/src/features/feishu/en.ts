@@ -63,8 +63,8 @@ export default {
   // 群设置 · 飞书
   '系统管理员尚未配置飞书主应用，暂不能绑定飞书群。':
     "The system admin hasn't configured the Feishu main app yet, so Feishu chats can't be bound.",
-  '绑定后，成员在飞书群里 @Bot 即可使用；只同步发给 Bot 的消息和 Bot 的回复。':
-    "Once bound, members can @ bots in the Feishu chat; only messages to bots and the bots' replies are mirrored.",
+  '绑定后，成员在飞书群里 @Bot 即可使用；Bot 的回复会发回飞书群。':
+    "Once bound, members can @ bots in the Feishu chat; the bots' replies go back to the chat.",
   '成员自动同步：飞书群里已绑定飞书账号的团队成员会加入本群，退出飞书群即移出本群；在本群添加的成员也会被拉进飞书群。':
     'Members sync automatically: team members in the Feishu chat who linked Feishu join this group and leave it when they leave the chat; members added here are added to the Feishu chat too.',
   飞书群: 'Feishu chat',
@@ -113,6 +113,11 @@ export default {
   已改为飞书群名称: 'Renamed after the Feishu chat',
   同步飞书群成员: 'Sync Feishu chat members',
   网页消息同步到飞书群: 'Sync web messages to the Feishu chat',
+  同步全部飞书消息: 'Sync all Feishu messages',
+  '开启后，飞书群里的普通消息也会同步到本群（只进不出，不触发 Bot）；没有共工账号的人发言也会保存到本群，以飞书昵称显示。关闭后只同步 @Bot 的消息':
+    'When on, ordinary messages in the Feishu chat also come into this group (one way, without running bots); messages from people without a Gonggong account are stored too, under their Feishu name. When off, only messages that @ a bot come in',
+  已开启同步全部飞书消息: 'Syncing all Feishu messages turned on',
+  已关闭同步全部飞书消息: 'Syncing all Feishu messages turned off',
   '关闭后，网页上发的消息、定时任务消息及其 Bot 回复和预览卡片不再发到飞书群；飞书群里的消息照常同步到本群':
     'When off, messages sent on the web and by schedules, their bot replies and preview cards no longer go to the Feishu chat; Feishu chat messages still sync to this group',
   已开启同步到飞书群: 'Syncing to the Feishu chat turned on',

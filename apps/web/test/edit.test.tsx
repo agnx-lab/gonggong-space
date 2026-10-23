@@ -153,6 +153,13 @@ describe('edit (编辑)', () => {
     expect(screen.getByRole('textbox', { name: '编辑消息' })).toBeTruthy()
   })
 
+  it('marks messages that came in from Feishu', async () => {
+    renderChat([msg({ seq: 1, authorId: null, authorName: '外部同事', body: '接口好了', fromFeishu: true })])
+    await screen.findByText('接口好了')
+    expect(screen.getByText('外部同事')).toBeTruthy()
+    expect(screen.getByText('来自飞书')).toBeTruthy()
+  })
+
   it('offers no 编辑 past 24 hours or on commands', async () => {
     renderChat([
       msg({ seq: 1, body: '旧消息', createdAt: new Date(Date.now() - 25 * HOUR).toISOString() }),

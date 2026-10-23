@@ -5,7 +5,7 @@ import type { Ctx } from '../../context.js'
 import { bots, groupPinnedMessages, messages, users } from '../../db/schema.js'
 import { fail } from '../../lib/errors.js'
 import { summarizeBlocks } from '../../lib/text.js'
-import { type MessageMeta, memberIds, postEvent } from '../messages/service.js'
+import { type MessageMeta, memberIds, postEvent, userAuthorName } from '../messages/service.js'
 
 const SNIPPET = 120
 const pinner = alias(users, 'pinner')
@@ -14,7 +14,7 @@ const snippet = (body: string) => summarizeBlocks(body).replace(/\s+/g, ' ').tri
 /** The group's pins, newest first. */
 export async function groupPins(ctx: Ctx, groupId: string): Promise<GroupPinsDto> {
   const rows = await ctx.db
-    .select({ pin: groupPinnedMessages, m: messages, user: users.name, bot: bots.name, by: pinner.name })
+    .select({ pin: groupPinnedMessages, m: messages, user: userAuthorName, bot: bots.name, by: pinner.name })
     .from(groupPinnedMessages)
     .innerJoin(messages, eq(messages.id, groupPinnedMessages.messageId))
     .innerJoin(pinner, eq(pinner.id, groupPinnedMessages.pinnedBy))

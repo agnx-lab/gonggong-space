@@ -33,6 +33,11 @@ export async function recallMessage(ctx: Ctx, user: { id: string; name: string }
   if (m.recalledAt) return messageDto(m, user.name)
   if (ctx.now().getTime() - m.createdAt.getTime() > RECALL_WINDOW_MS)
     return fail('recall_expired', '超过 24 小时，无法撤回')
+  return messageDto(await eraseMessage(ctx, m), user.name)
+}
+
+/** Erases `m` everywhere and voids its unstarted runs; the caller checked who may. */
+export async function eraseMessage(ctx: Ctx, m: MessageRow) {
   const row = await ctx.db.transaction(async (tx) => {
     const [row] = (await tx
       .update(messages)
@@ -74,7 +79,7 @@ export async function recallMessage(ctx: Ctx, user: { id: string; name: string }
     groupId: m.groupId,
     messageId: m.id,
   })
-  return messageDto(row, user.name)
+  return row
 }
 
 /** 删除: hidden from the author's own timeline and search only; no time limit, others are unaffected. */

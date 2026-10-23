@@ -110,6 +110,7 @@ export default {
   运行失败: 'Run failed',
   正在编辑: 'Editing',
   已编辑: 'Edited',
+  来自飞书: 'From Feishu',
   编辑失败: 'Edit failed',
   正在删除: 'Deleting',
   已删除: 'Deleted',

@@ -81,9 +81,7 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
 
   return (
     <>
-      <div className="gs-note">
-        {t('绑定后，成员在飞书群里 @Bot 即可使用；只同步发给 Bot 的消息和 Bot 的回复。')}
-      </div>
+      <div className="gs-note">{t('绑定后，成员在飞书群里 @Bot 即可使用；Bot 的回复会发回飞书群。')}</div>
       <div className="gs-note">
         {t(
           '成员自动同步：飞书群里已绑定飞书账号的团队成员会加入本群，退出飞书群即移出本群；在本群添加的成员也会被拉进飞书群。',
@@ -112,6 +110,24 @@ export function GroupFeishuTab({ group }: { group: GroupDto }) {
                   void run(
                     () => api.patch(path, { syncOutbound }),
                     syncOutbound ? t('已开启同步到飞书群') : t('已关闭同步到飞书群'),
+                  )
+                }
+              />
+            </GroupRow>
+            <GroupRow
+              label={t('同步全部飞书消息')}
+              description={t(
+                '开启后，飞书群里的普通消息也会同步到本群（只进不出，不触发 Bot）；没有共工账号的人发言也会保存到本群，以飞书昵称显示。关闭后只同步 @Bot 的消息',
+              )}
+            >
+              <Switch
+                ariaLabel={t('同步全部飞书消息')}
+                checked={data.chat.syncAll}
+                disabled={busy}
+                onChange={(syncAll) =>
+                  void run(
+                    () => api.patch(path, { syncAll }),
+                    syncAll ? t('已开启同步全部飞书消息') : t('已关闭同步全部飞书消息'),
                   )
                 }
               />

@@ -49,10 +49,12 @@ export const BOT_TENANT_SCOPES = [
 ]
 export const BOT_EVENTS = ['im.message.receive_v1', 'im.message.recalled_v1']
 /**
- * The main app follows who joins and leaves the chats it is in (a bound chat's members mirror the group), and being
- * added to a chat (it offers to create the matching group).
+ * The main app gets the user messages of the chats it is in (同步全部飞书消息), follows who joins and leaves them (a
+ * bound chat's members mirror the group), and being added to a chat (it offers to create the matching group).
  */
 export const MAIN_EVENTS = [
+  'im.message.receive_v1',
+  'im.message.recalled_v1',
   'im.chat.member.user.added_v1',
   'im.chat.member.user.deleted_v1',
   'im.chat.member.user.withdrawn_v1',
@@ -183,6 +185,8 @@ export interface FeishuApi {
   listChats(app: FeishuCreds): Promise<FeishuChat[]>
   /** Union ids of the chat's users (Feishu leaves bots out); the calling app must be in it. */
   chatMembers(app: FeishuCreds, chatId: string): Promise<string[]>
+  /** Names of the chat's users by union id; the calling app must be in it. */
+  chatMemberNames(app: FeishuCreds, chatId: string): Promise<Map<string, string>>
   /** Recent messages of a chat read as the user, oldest first, ending before `before` when given. */
   listMessages(
     app: FeishuCreds,
@@ -441,6 +445,21 @@ export function larkApi(): FeishuApi {
           params: { member_id_type: 'union_id', page_size: 100 },
         }))
           for (const m of page?.items ?? []) if (m.member_id) out.push(m.member_id)
+      } catch (err) {
+        if (err instanceof FeishuError) throw err
+        throw new FeishuError(0, (err as Error).message)
+      }
+      return out
+    },
+
+    async chatMemberNames(app, chatId) {
+      const out = new Map<string, string>()
+      try {
+        for await (const page of await client(app).im.v1.chatMembers.getWithIterator({
+          path: { chat_id: chatId },
+          params: { member_id_type: 'union_id', page_size: 100 },
+        }))
+          for (const m of page?.items ?? []) if (m.member_id) out.set(m.member_id, m.name ?? '')
       } catch (err) {
         if (err instanceof FeishuError) throw err
         throw new FeishuError(0, (err as Error).message)

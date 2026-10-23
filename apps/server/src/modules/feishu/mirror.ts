@@ -119,8 +119,11 @@ function state(ctx: Ctx) {
   return m
 }
 
-/** Feishu is best effort: a failed call is logged and never fails the 共工 side. */
-function enqueue(ctx: Ctx, groupId: string, task: () => Promise<void>) {
+/**
+ * Feishu is best effort: a failed call is logged and never fails the 共工 side. Tasks of a group run in order, so one
+ * queued after a send sees that send's link.
+ */
+export function enqueue(ctx: Ctx, groupId: string, task: () => Promise<void>) {
   const { queues } = state(ctx)
   const next = (queues.get(groupId) ?? Promise.resolve()).then(task).catch((err) => {
     console.error('feishu mirror:', err instanceof FeishuError ? `${err.code} ${err.message}` : err)

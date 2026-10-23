@@ -994,6 +994,8 @@ export const MessageDto = z.object({
   reactions: z.array(ReactionDto).optional(),
   /** Recalled by its author: body, attachments, quote, mentions and reactions are blanked. Always sent by the server. */
   recalled: z.boolean().optional(),
+  /** Came in from the bound Feishu chat; `authorId` is null when the sender has no 共工 account in the group. */
+  fromFeishu: z.boolean().optional(),
   /** Last edit by its author; null/absent when never edited. */
   editedAt: z.string().nullable().optional(),
   /** A bot's preview card; its live state is in the group's preview list (group.previews). */
