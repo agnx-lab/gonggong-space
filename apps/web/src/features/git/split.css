@@ -1,0 +1,55 @@
+.gsplit {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.gsplit[data-dir="column"] {
+  flex-direction: column;
+}
+.gsplit__first {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.gsplit__second {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.gsplit__handle {
+  position: relative;
+  flex: none;
+  width: 1px;
+  background: var(--separator);
+  cursor: col-resize;
+  touch-action: none;
+}
+.gsplit[data-dir="column"] > .gsplit__handle {
+  width: auto;
+  height: 1px;
+  cursor: row-resize;
+}
+.gsplit__handle::before {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+  z-index: 2;
+}
+.gsplit[data-dir="column"] > .gsplit__handle::before {
+  inset: -4px 0;
+}
+.gsplit__handle:hover,
+.gsplit__handle:focus-visible {
+  outline: none;
+  background: var(--accent);
+}
+[data-resizing="row"],
+[data-resizing="row"] * {
+  /* biome-ignore lint/complexity/noImportantStyles: must beat every control's own cursor while dragging */
+  cursor: row-resize !important;
+}

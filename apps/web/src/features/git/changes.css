@@ -1,0 +1,142 @@
+/* IDEA's change tree (features/git/ChangeTree.tsx): status colours as in IntelliJ's VCS file status. */
+.gt {
+  --gt-modified: var(--tint-blue-text);
+  --gt-added: var(--tint-green-text);
+  --gt-deleted: var(--label-tertiary);
+  --gt-renamed: var(--tint-blue-text);
+  --gt-untracked: var(--tint-red-text);
+  --gt-conflict: var(--tint-red-text);
+  font-size: var(--text-subheadline-size);
+}
+.gt:focus-within {
+  outline: none;
+}
+.gt-group + .gt-group {
+  margin-top: 2px;
+}
+.gt-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gt-row {
+  --gt-indent: calc(var(--depth, 0) * 14px);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding-left: calc(6px + var(--gt-indent));
+  padding-right: 6px;
+}
+.gt-row .ui-check {
+  flex: none;
+}
+.gt-file,
+.gt-folder {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.gt-file:hover,
+.gt-folder:hover {
+  background: var(--quote-fill);
+}
+.gt-file:focus-visible,
+.gt-folder:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.gt-file[aria-current="true"] {
+  background: var(--selection-fill);
+}
+.gt-folder .ui-disclosure {
+  display: inline-flex;
+  color: var(--label-tertiary);
+}
+.gt-folder--group {
+  font-weight: 600;
+}
+.gt-group__label {
+  color: var(--label);
+}
+.gt-folder__count {
+  margin-left: 2px;
+  color: var(--label-tertiary);
+  font-size: var(--text-caption-size);
+  font-weight: 400;
+}
+.gt-file__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gt-file__dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--label-tertiary);
+  font-size: var(--text-caption-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gt-file__stat {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption-size);
+}
+.gt-file__add {
+  color: var(--tint-green-text);
+}
+.gt-file__del {
+  color: var(--tint-red-text);
+}
+.gt-file__mark {
+  flex: none;
+  width: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption-size);
+  font-weight: 600;
+  text-align: center;
+}
+.gt-file--modified .gt-file__name,
+.gt-file--modified .gt-file__mark {
+  color: var(--gt-modified);
+}
+.gt-file--added .gt-file__name,
+.gt-file--added .gt-file__mark {
+  color: var(--gt-added);
+}
+.gt-file--deleted .gt-file__name {
+  color: var(--gt-deleted);
+  text-decoration: line-through;
+}
+.gt-file--deleted .gt-file__mark {
+  color: var(--gt-deleted);
+}
+.gt-file--renamed .gt-file__name,
+.gt-file--renamed .gt-file__mark {
+  color: var(--gt-renamed);
+}
+.gt-file--untracked .gt-file__name,
+.gt-file--untracked .gt-file__mark {
+  color: var(--gt-untracked);
+}
+.gt-file--conflict .gt-file__name,
+.gt-file--conflict .gt-file__mark {
+  color: var(--gt-conflict);
+  font-weight: 600;
+}

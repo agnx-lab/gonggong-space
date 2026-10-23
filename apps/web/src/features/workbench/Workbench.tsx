@@ -11,6 +11,7 @@ import {
 } from '../../app/workbench'
 import { t } from '../../i18n'
 import { EmptyState, Icon, Popover, Tooltip } from '../../ui'
+import { GitDialogHost } from '../git/dialogs/GitDialogHost'
 import { NewTabMenu } from './NewTabMenu'
 import { TabBar } from './TabBar'
 import { TabContent, TabLabel } from './TabContent'
@@ -161,7 +162,12 @@ function PhoneWorkbench() {
  * the chat page re-renders with every message, the tabs only follow their own stores.
  */
 export const Workbench = memo(function Workbench() {
-  return useIsMobile() ? <PhoneWorkbench /> : <DesktopWorkbench />
+  return (
+    <>
+      {useIsMobile() ? <PhoneWorkbench /> : <DesktopWorkbench />}
+      <GitDialogHost />
+    </>
+  )
 })
 
 function DesktopWorkbench() {

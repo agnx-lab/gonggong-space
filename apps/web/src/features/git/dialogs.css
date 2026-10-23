@@ -1,0 +1,80 @@
+/* Git dialogs (features/git/dialogs): radio choices with explanations, hints, the push dialog's commit list. */
+.git-form {
+  gap: var(--space-12);
+}
+.git-form__hint {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+  line-height: 1.45;
+}
+.git-form__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.git-form__list {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.git-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.git-choice__title {
+  color: var(--label);
+}
+.git-choice__title[data-danger] {
+  color: var(--tint-red-text);
+}
+.git-choice__detail {
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+}
+
+.git-push__commits {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-field);
+  background: var(--quote-fill);
+}
+.git-push__list {
+  margin: 0;
+  padding: var(--space-4) 0;
+  list-style: none;
+}
+.git-push__commit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--space-8);
+  padding: 3px var(--space-12);
+  font-size: var(--text-subheadline-size);
+}
+.git-push__commit:hover {
+  background: var(--selection-fill);
+}
+.git-push__subject {
+  overflow: hidden;
+  color: var(--label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-push__meta {
+  color: var(--label-secondary);
+  white-space: nowrap;
+}
+.git-push__hash {
+  color: var(--label-tertiary);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+.git-push__empty,
+.git-push__more {
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+}

@@ -3,7 +3,9 @@ import { tabKey, type WorkbenchTab } from '../../app/workbench'
 import { DiffTab, useDiffTabMeta } from './tabs/DiffTab'
 import { FilesTab, useFilesTabMeta } from './tabs/FilesTab'
 import { FileTab, useFileTabMeta } from './tabs/FileTab'
+import { GitCompareTab, useGitCompareTabMeta } from './tabs/GitCompareTab'
 import { GitLogTab, useGitLogTabMeta } from './tabs/GitLogTab'
+import { GitMergeTab, useGitMergeTabMeta } from './tabs/GitMergeTab'
 import { GitTab, useGitTabMeta } from './tabs/GitTab'
 import { KnowledgeTab, useKnowledgeTabMeta } from './tabs/KnowledgeTab'
 import { LinkTab, useLinkTabMeta } from './tabs/LinkTab'
@@ -35,6 +37,10 @@ export const TabContent = memo(function TabContent({ tab, active }: { tab: Workb
       return <GitLogTab tab={tab} tabKey={key} active={active} />
     case 'git':
       return <GitTab tab={tab} tabKey={key} active={active} />
+    case 'git-compare':
+      return <GitCompareTab tab={tab} tabKey={key} active={active} />
+    case 'git-merge':
+      return <GitMergeTab tab={tab} tabKey={key} active={active} />
     case 'link':
       return <LinkTab tab={tab} tabKey={key} active={active} />
     case 'knowledge':
@@ -65,6 +71,10 @@ export function TabLabel({ tab, children }: { tab: WorkbenchTab; children: Rende
       return <GitLogMeta tab={tab}>{children}</GitLogMeta>
     case 'git':
       return <GitMeta tab={tab}>{children}</GitMeta>
+    case 'git-compare':
+      return <GitCompareMeta tab={tab}>{children}</GitCompareMeta>
+    case 'git-merge':
+      return <GitMergeMeta tab={tab}>{children}</GitMergeMeta>
     case 'link':
       return <LinkMeta tab={tab}>{children}</LinkMeta>
     case 'knowledge':
@@ -82,5 +92,7 @@ const FilesMeta = ({ tab, children }: MetaProps<'files'>) => children(useFilesTa
 const FileMeta = ({ tab, children }: MetaProps<'file'>) => children(useFileTabMeta(tab))
 const GitLogMeta = ({ tab, children }: MetaProps<'git-log'>) => children(useGitLogTabMeta(tab))
 const GitMeta = ({ tab, children }: MetaProps<'git'>) => children(useGitTabMeta(tab))
+const GitCompareMeta = ({ tab, children }: MetaProps<'git-compare'>) => children(useGitCompareTabMeta(tab))
+const GitMergeMeta = ({ tab, children }: MetaProps<'git-merge'>) => children(useGitMergeTabMeta(tab))
 const LinkMeta = ({ tab, children }: MetaProps<'link'>) => children(useLinkTabMeta(tab))
 const KnowledgeMeta = ({ tab, children }: MetaProps<'knowledge'>) => children(useKnowledgeTabMeta(tab))

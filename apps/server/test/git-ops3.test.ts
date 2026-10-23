@@ -680,7 +680,9 @@ describe('gitOps3 actions', () => {
     })
     const req = await d.act()
     expect(req.args).toEqual({ path: 'src/order.ts', content })
-    expect((await res).body).toMatchObject({ status: 'succeeded', args: { path: 'src/order.ts' } })
+    const done = (await res).body
+    expect(done).toMatchObject({ status: 'succeeded', args: { path: 'src/order.ts' } })
+    expect(done.args).not.toHaveProperty('content')
     const [log] = await t.db.select().from(auditLogs)
     expect(log!.detail).toMatchObject({ action: 'resolve', args: { path: 'src/order.ts' } })
     expect(JSON.stringify(log!.detail)).not.toContain('const fee')

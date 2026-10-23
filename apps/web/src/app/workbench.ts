@@ -31,13 +31,62 @@ export type WorkbenchTab =
         | { botId: string; path: string; line?: LineRange; rev?: string }
         | { attachment: Attachment; from: string }
     }
-  /** A bot workspace's commit history; `ref` null = HEAD, `commit` the one opened, `file` its file shown (null = first). */
-  | { kind: 'git-log'; botId: string; ref: string | null; commit: string | null; file?: string | null }
-  /** A bot workspace's source control: branch, sync, commit, operation log; `file` the change shown, `focus` an operation. */
-  | { kind: 'git'; botId: string; file?: string | null; focus?: string | null }
+  /**
+   * A bot workspace's commit history (IDEA's Git Log): `ref` null = HEAD, `commit` the one opened, `file` its file shown
+   * (null = first); `repo` a sub-repo; `path` a file's or folder's history; `filter` the log filters set.
+   */
+  | {
+      kind: 'git-log'
+      botId: string
+      ref: string | null
+      commit: string | null
+      file?: string | null
+      repo?: string | null
+      path?: string | null
+      filter?: GitLogTabFilter | null
+    }
+  /**
+   * A bot workspace's source control (IDEA's Commit window): `view` the pane shown, `file` the change shown, `focus` an
+   * operation; `repo` a sub-repo.
+   */
+  | {
+      kind: 'git'
+      botId: string
+      file?: string | null
+      focus?: string | null
+      repo?: string | null
+      view?: GitTabView | null
+    }
+  /** Two versions of a bot's repo side by side: commits on either side and the files that differ; `to` null = the work tree. */
+  | {
+      kind: 'git-compare'
+      botId: string
+      repo?: string | null
+      from: string
+      to: string | null
+      file?: string | null
+    }
+  /** The three-way merge of one conflicted file. */
+  | { kind: 'git-merge'; botId: string; repo?: string | null; path: string }
   /** A third-party page pinned in the group's tab bar (群标签栏). */
   | { kind: 'link'; url: string; title: string }
   | { kind: 'knowledge'; knowledgeId: string; title: string }
+
+export type GitTabView = 'commit' | 'stash' | 'ops'
+
+/** What the Git Log tab filters by (all combined); dates are ISO days. */
+export interface GitLogTabFilter {
+  all?: boolean
+  author?: string
+  text?: string
+  regexp?: boolean
+  matchCase?: boolean
+  since?: string
+  until?: string
+  firstParent?: boolean
+  noMerges?: boolean
+  order?: 'date' | 'topo'
+}
 
 export type WorkbenchMode = 'split' | 'focus' | 'full'
 
@@ -95,6 +144,10 @@ export function tabKey(t: WorkbenchTab): string {
       return `git-log:${t.botId}`
     case 'git':
       return `git:${t.botId}`
+    case 'git-compare':
+      return `git-compare:${t.botId}`
+    case 'git-merge':
+      return `git-merge:${t.botId}:${t.repo ?? ''}:${t.path}`
     case 'link':
       return `link:${t.url}`
     case 'knowledge':

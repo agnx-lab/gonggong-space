@@ -11,6 +11,7 @@ import diff from '../features/diff/en'
 import feishu from '../features/feishu/en'
 import files from '../features/files/en'
 import git from '../features/git/en'
+import gitLog from '../features/git/log-en'
 import groupTabs from '../features/group-tabs/en'
 import groups from '../features/groups/en'
 import knowledge from '../features/knowledge/en'
@@ -51,6 +52,7 @@ export const en = {
   ...feishu,
   ...files,
   ...git,
+  ...gitLog,
   ...groupTabs,
   ...groups,
   ...knowledge,

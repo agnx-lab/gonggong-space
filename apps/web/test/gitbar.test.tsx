@@ -5,7 +5,6 @@ import { useSession } from '../src/app/session'
 import { useWorkbench } from '../src/app/workbench'
 import { loadBotStates, useWorkspace } from '../src/app/workspace'
 import { GitBar } from '../src/features/chat/GitBar'
-import { BranchPicker } from '../src/features/git/GitControls'
 import { mockApi } from './mockApi'
 import { startRealtime } from './socket'
 
@@ -342,7 +341,7 @@ describe('git status bar', () => {
     expect(calls.filter((c) => c.path.endsWith('/git/refresh'))).toEqual([])
   })
 
-  it('sums sub-repos up in the bar; the branch picker is a tree of repos, each unfolding its branches to switch or pull', async () => {
+  it('sums sub-repos up in the bar', async () => {
     const sub = (path: string, o: Partial<RepoStatus> = {}): RepoStatus => ({
       path,
       kind: 'submodule',
@@ -352,32 +351,7 @@ describe('git status bar', () => {
       dirty: false,
       ...o,
     })
-    const refs = {
-      branches: [
-        {
-          name: 'main',
-          kind: 'local',
-          current: true,
-          upstream: null,
-          ahead: 0,
-          behind: 0,
-          subject: null,
-          at: null,
-        },
-        {
-          name: 'feat/a',
-          kind: 'local',
-          current: false,
-          upstream: null,
-          ahead: 0,
-          behind: 0,
-          subject: null,
-          at: null,
-        },
-      ],
-      remotes: [],
-    }
-    const calls = mockApi({
+    mockApi({
       'GET /groups/g1/bot-states': [
         state('b1', {
           git: git({
@@ -396,8 +370,6 @@ describe('git status bar', () => {
       ],
       'GET /groups/g1/git/operations': { operations: [] },
       'POST /groups/g1/bots/b1/git/refresh': undefined,
-      'GET /groups/g1/bots/b1/git/refs?repo=vendor%2Fx': refs,
-      'POST /groups/g1/bots/b1/git/actions': { id: 'op1', status: 'succeeded', action: 'checkout' },
     })
     useSession.setState({ user: { id: 'u1' } as UserDto })
     useWorkspace.setState({
@@ -408,7 +380,7 @@ describe('git status bar', () => {
       ],
     })
     useWorkbench.setState({ groupId: 'g1', benches: {} })
-    const { unmount } = render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
+    render(<GitBar group={group({ botIds: ['b1', 'b2', 'b3'] })} />)
     expect((await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' })).textContent).toBe(
       'main · 2 个子仓库有改动',
     )
@@ -416,50 +388,6 @@ describe('git status bar', () => {
       'main · 1 个子仓库',
     )
     expect(screen.getByTestId('git-b3').textContent).toBe('阿杰的 Claude1 个子仓库')
-    const b1 = useWorkspace.getState().botStates.g1?.b1?.git
-    unmount()
-
-    // The Git tab's branch picker: a tree of the repos.
-    if (!b1) throw new Error('no git status')
-    render(<BranchPicker groupId="g1" botId="b1" name="小王的 Claude" git={b1} />)
-    const picker = screen.getByRole('button', { name: '切换 小王的 Claude 的分支' })
-    expect(picker.textContent).toBe('main · 2 个子仓库有改动')
-
-    fireEvent.click(picker)
-    const pop = await screen.findByRole('dialog', { name: '小王的 Claude 的分支' })
-    const rows = within(pop).getAllByRole('button', { expanded: false })
-    expect(rows.map((r) => r.getAttribute('aria-label'))).toEqual([
-      '主仓库',
-      'lib',
-      'vendor/x',
-      '/Users/w/sdk',
-    ])
-    expect(rows[1]?.textContent).toBe('libmain未提交')
-    expect(rows[2]?.textContent).toBe('vendor/x游离12')
-    expect(rows[3]?.textContent).toBe('/Users/w/sdk附加目录main')
-
-    // A changed sub-repo opens its diff; a behind one pulls.
-    fireEvent.click(within(pop).getByRole('button', { name: '查看 lib 的改动' }))
-    const tabs = () => useWorkbench.getState().benches.g1?.tabs
-    expect(tabs()).toEqual([{ kind: 'diff', botId: 'b1', scope: 'uncommitted', file: null, repo: 'lib' }])
-    fireEvent.click(picker)
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '拉取 vendor/x' }))
-    await waitFor(() =>
-      expect(calls.filter((c) => c.path.endsWith('/git/actions')).map((c) => c.body)).toEqual([
-        { action: 'pull', repo: 'vendor/x' },
-      ]),
-    )
-
-    // Unfolding a sub-repo lists its own branches; picking one switches that repo.
-    fireEvent.click(picker)
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'vendor/x' }))
-    fireEvent.click(await screen.findByRole('button', { name: /^feat\/a/ }))
-    await waitFor(() =>
-      expect(calls.filter((c) => c.path.endsWith('/git/actions')).map((c) => c.body)).toEqual([
-        { action: 'pull', repo: 'vendor/x' },
-        { action: 'checkout', branch: 'feat/a', repo: 'vendor/x' },
-      ]),
-    )
   })
 
   it('outside partition groups shows every bot with its menu; the context meter appears once known', async () => {
