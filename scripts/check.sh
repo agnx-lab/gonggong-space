@@ -34,7 +34,8 @@ $protocol && run pnpm --filter @gonggong/protocol test
 $desktop && run pnpm --filter @gonggong/desktop test
 $web && run pnpm --filter @gonggong/web test
 $server && run pnpm --filter @gonggong/server test
-# Bot shells export git identity and proxies, which the daemon's git and TLS tests must not see.
-$cargo && run env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+# Bot shells export provider config, git identity and proxies, which the daemon's tests must not see.
+$cargo && run env -u CODEX_CONFIG -u MODEL_PROVIDER -u GG_PROVIDER_KEY \
+  -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
   -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy cargo test --workspace
 echo "✓ check passed"
