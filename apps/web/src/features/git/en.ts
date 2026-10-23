@@ -378,4 +378,6 @@ export default {
   重新读取冲突: 'Read the conflict again',
   隐藏基准: 'Hide base',
   '（删除了这几行）': '(these lines were deleted)',
+  '{op}中': '{op} in progress',
+  '{n} 个冲突': '{n} {n:conflict|conflicts}',
 } satisfies Record<string, string>

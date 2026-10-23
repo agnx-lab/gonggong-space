@@ -1,10 +1,19 @@
-import type { GitActionInput, GitOperationDto } from '@gonggong/protocol'
+import type { GitActionInput, GitChangesDto, GitOperationDto } from '@gonggong/protocol'
 import { useState } from 'react'
 import { useWorkspace } from '../../../app/workspace'
 import { t } from '../../../i18n'
+import { api } from '../../../lib/api'
 import { Alert, ComboBox } from '../../../ui'
 import { useGitStamp } from '../../diff/useWorkspaceDiff'
-import { type GitTarget, gitActionTaken, repoStatus, runGitAction, useGitRefs } from '../api'
+import {
+  type GitTarget,
+  gitActionTaken,
+  gitBase,
+  gitUrls,
+  repoStatus,
+  runGitAction,
+  useGitRefs,
+} from '../api'
 import { inTarget } from '../commands'
 import { useOwner } from '../owner'
 
@@ -22,6 +31,9 @@ export function useGitRun(target: GitTarget, onClose: () => void) {
     if (op && gitActionTaken(op)) {
       await after?.(op)
       onClose()
+    } else if (op && (await stoppedOnConflicts(target))) {
+      // A merge, rebase, pick or unstash that stopped on conflicts goes on in the Git tab's banner.
+      onClose()
     } else {
       setBusy(false)
       setError(op?.error ?? null)
@@ -29,6 +41,17 @@ export function useGitRun(target: GitTarget, onClose: () => void) {
     return op
   }
   return { busy, error, submit }
+}
+
+async function stoppedOnConflicts(target: GitTarget) {
+  try {
+    const c = await api.get<GitChangesDto>(
+      gitUrls.changes(gitBase(target.groupId, target.botId), target.repo),
+    )
+    return !!c.ongoing || c.conflicts.length > 0
+  } catch {
+    return false
+  }
 }
 
 /** The primary button: the owner runs it, anyone else asks for it. */

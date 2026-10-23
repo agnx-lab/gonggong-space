@@ -1,9 +1,11 @@
-import { FILE_TEXT_MAX_BYTES, type FileTextDto } from '@gonggong/protocol'
+import { FILE_TEXT_MAX_BYTES, type FileTextDto, type GitBlameDto } from '@gonggong/protocol'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type LineRange, useWorkbench } from '../../app/workbench'
-import { api } from '../../lib/api'
+import { useWorkspace } from '../../app/workspace'
+import { api, errorText } from '../../lib/api'
 import { copyWithToast } from '../../lib/clipboard'
 import { cx } from '../../lib/cx'
+import { ago, fullTime } from '../../lib/time'
 import {
   Button,
   EmptyState,
@@ -25,6 +27,8 @@ import {
 import { fmtSize } from '../attachments/api'
 import { citeInChat } from '../chat/cite'
 import { Markdown } from '../chat/Markdown'
+import { gitBase, gitUrls } from '../git/api'
+import { gitCommands } from '../git/commands'
 import './files.css'
 import { t } from '../../i18n'
 
@@ -77,16 +81,43 @@ const TEXTUAL: ViewKind[] = ['md', 'html', 'text', 'unknown']
 const level = (line: string) => (/ERROR|FAIL/.test(line) ? 'error' : /WARN/.test(line) ? 'warn' : null)
 
 /** Memoized: a file can hold up to 2 MB of text, split, highlighted and drawn line by line. */
+/** One line's annotation: its commit (null = not committed yet), whether it starts a run, the run's band. */
+interface BlameLine {
+  hash: string
+  label: string
+  title: string
+  first: boolean
+  band: number
+}
+
+/** Git blame per line: runs of lines from one commit, labelled on their first line, banded alternately. */
+function blameLines(b: GitBlameDto): BlameLine[] {
+  const commits = new Map(b.commits.map((c) => [c.hash, c]))
+  const out: BlameLine[] = []
+  b.ranges.forEach((r, band) => {
+    const c = commits.get(r.commit)
+    const label = c ? `${c.shortHash} ${c.author} ${ago(c.at)}` : t('未提交')
+    const title = c ? `${c.subject}\n${c.author} · ${fullTime(c.at)}\n${c.hash}` : t('尚未提交的改动')
+    for (let i = 0; i < r.count; i++)
+      out[r.start - 1 + i] = { hash: r.commit, label, title, first: i === 0, band }
+  })
+  return out
+}
+
 const Lines = memo(function Lines({
   text,
   colored,
   lang,
   line,
+  blame,
+  onCommit,
 }: {
   text: string
   colored: boolean
   lang: Lang | null
   line?: LineRange
+  blame?: BlameLine[]
+  onCommit?: (hash: string) => void
 }) {
   const { count, shown, code } = useMemo(() => {
     const lines = text.replace(/\n$/, '').split('\n')
@@ -115,6 +146,7 @@ const Lines = memo(function Lines({
               ref={hit && i + 1 === from ? first : undefined}
               className={hit ? 'pv-line pv-line--hit' : 'pv-line'}
             >
+              {blame ? <BlameCell b={blame[i]} onCommit={onCommit} /> : null}
               <span className="pv-line__n">{i + 1}</span>
               <span className={lv ? `pv-line__t pv-line--${lv}` : 'pv-line__t'}>
                 {lineTokens?.length ? <Tokens tokens={lineTokens} /> : l || ' '}
@@ -131,6 +163,30 @@ const Lines = memo(function Lines({
     </>
   )
 })
+
+function BlameCell({ b, onCommit }: { b: BlameLine | undefined; onCommit?: (hash: string) => void }) {
+  if (!b) return <span className="pv-line__blame" />
+  return (
+    <span className="pv-line__blame" data-band={b.band % 2} data-mine={!b.hash || undefined} title={b.title}>
+      {b.first ? (
+        b.hash ? (
+          <button type="button" className="pv-blame__btn" onClick={() => onCommit?.(b.hash)}>
+            {b.label}
+          </button>
+        ) : (
+          b.label
+        )
+      ) : null}
+    </span>
+  )
+}
+
+/** Git for a bot's file: who changed each line (IDEA's Annotate) and the file's history. */
+export interface FileGit {
+  blame: () => Promise<GitBlameDto>
+  onCommit: (hash: string) => void
+  onHistory: () => void
+}
 
 function Download({ url, name, message }: { url?: string; name: string; message: string }) {
   return (
@@ -160,6 +216,8 @@ export interface FileViewerProps {
   line?: LineRange
   onOpenTab?: () => void
   onCite?: () => void
+  /** A bot's file in a repo: annotate and history in the bar. */
+  git?: FileGit
 }
 
 /** One file by type (design §4.6): shared by the files tab, file tabs and attachments. */
@@ -173,8 +231,18 @@ export function FileViewer({
   line,
   onOpenTab,
   onCite,
+  git,
 }: FileViewerProps) {
   const textual = TEXTUAL.includes(kind)
+  const [annotate, setAnnotate] = useState<{ lines: BlameLine[] | null; error: string | null } | null>(null)
+  const toggleAnnotate = () => {
+    if (annotate || !git) return setAnnotate(null)
+    setAnnotate({ lines: null, error: null })
+    git.blame().then(
+      (b) => setAnnotate((a) => a && { lines: blameLines(b), error: null }),
+      (e: unknown) => setAnnotate((a) => a && { lines: null, error: errorText(e) }),
+    )
+  }
   const [text, setText] = useState<TextRead | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -272,8 +340,23 @@ export function FileViewer({
           <Markdown text={text.text} />
         </div>
       )
-    return <Lines text={text.text} colored={fileType(name) === 'text'} lang={langOf(name)} line={line} />
+    return (
+      <>
+        {annotate?.error ? (
+          <div className="fv__note">{t('无法读取注解：{error}', { error: annotate.error })}</div>
+        ) : null}
+        <Lines
+          text={text.text}
+          colored={fileType(name) === 'text'}
+          lang={langOf(name)}
+          line={line}
+          blame={annotate?.lines ?? undefined}
+          onCommit={git?.onCommit}
+        />
+      </>
+    )
   })()
+  const source = textual && text?.text != null && !(kind === 'md' && md === 'preview')
 
   const rows =
     details && dim
@@ -308,6 +391,29 @@ export function FileViewer({
               { value: 'fit', label: t('适应') },
               { value: 'actual', label: '1:1' },
             ]}
+          />
+        ) : null}
+        {git && source ? (
+          <Button
+            size="small"
+            variant="plain"
+            icon="person"
+            aria-label={t('注解（Git Blame）')}
+            aria-pressed={!!annotate}
+            title={t('注解（Git Blame）')}
+            onClick={toggleAnnotate}
+          >
+            {annotate && !annotate.lines && !annotate.error ? <Spinner size={12} /> : null}
+          </Button>
+        ) : null}
+        {git ? (
+          <Button
+            size="small"
+            variant="plain"
+            icon="clock"
+            aria-label={t('显示历史')}
+            title={t('显示历史')}
+            onClick={git.onHistory}
           />
         ) : null}
         <Button
@@ -384,6 +490,7 @@ export function BotFileViewer({
   onOpenTab?: () => void
 }) {
   const groupId = useWorkbench((s) => s.groupId) ?? ''
+  const status = useWorkspace((s) => s.botStates[groupId]?.[botId]?.git ?? null)
   const base = `/groups/${groupId}/bots/${botId}`
   const query = rev
     ? `?ref=${encodeURIComponent(rev)}&path=${encodeURIComponent(path)}`
@@ -391,6 +498,22 @@ export function BotFileViewer({
   const text = `${base}/${rev ? 'git' : 'files'}/text${query}`
   const read = useCallback(() => api.get<FileTextDto>(text), [text])
   const kind = viewKind(path)
+  // The repo holding the file: the deepest sub-repo it sits in, else the root (when that is one).
+  const sub = status?.repos
+    .filter((r) => r.kind !== 'extra' && path.startsWith(`${r.path}/`))
+    .sort((a, b) => b.path.length - a.path.length)[0]
+  const inRepo = !!status && (!!sub || status.branch != null || status.head != null)
+  const repo = sub?.path ?? null
+  const rel = sub ? path.slice(sub.path.length + 1) : path
+  const git = useMemo<FileGit | undefined>(() => {
+    if (!inRepo) return undefined
+    const target = { groupId, botId, repo }
+    return {
+      blame: () => api.get<GitBlameDto>(gitUrls.blame(gitBase(groupId, botId), rel, rev ?? null, repo)),
+      onCommit: (hash) => gitCommands(target).openLog({ commit: hash, ref: rev ?? null }),
+      onHistory: () => gitCommands(target).openLog({ path: rel, ref: rev ?? null }),
+    }
+  }, [inRepo, groupId, botId, repo, rel, rev])
   return (
     <FileViewer
       name={baseName(path)}
@@ -401,6 +524,7 @@ export function BotFileViewer({
       line={line}
       onOpenTab={onOpenTab}
       onCite={() => citeInChat(groupId, `@${path}`)}
+      git={git}
     />
   )
 }

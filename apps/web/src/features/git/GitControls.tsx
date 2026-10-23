@@ -17,7 +17,7 @@ export function BranchLabel({ git }: { git: GitStatus }) {
   const label = changed ? t('{n} 个子仓库有改动', { n: changed }) : t('{n} 个子仓库', { n: subs.length })
   return (
     <>
-      {git.branch ?? (subs.length ? null : '—')}
+      {git.branch ?? (git.head ? t('{hash}（游离）', { hash: git.head }) : subs.length ? null : '—')}
       {subs.length ? (
         <span className="git-bar__subs" data-changed={changed > 0}>
           {git.branch ? ` · ${label}` : label}

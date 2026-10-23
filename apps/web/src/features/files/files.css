@@ -132,6 +132,39 @@
 .pv-line__t {
   white-space: pre;
 }
+/* Git blame (IDEA's Annotate): a band per run of lines from one commit, its hash, author and age on the first. */
+.pv-line__blame {
+  flex: none;
+  width: 220px;
+  margin: 0 calc(var(--space-12) * -1 + 2px) 0 calc(var(--space-12) * -1);
+  padding: 0 8px 0 12px;
+  overflow: hidden;
+  border-right: 1px solid var(--separator);
+  color: var(--label-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+.pv-line__blame[data-band="1"] {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.pv-line__blame[data-mine] {
+  color: var(--tint-orange-text);
+}
+.pv-blame__btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pv-blame__btn:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
 .pv-line--hit {
   background: var(--accent-fill);
 }

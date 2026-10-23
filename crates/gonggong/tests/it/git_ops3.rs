@@ -1349,3 +1349,26 @@ async fn new_actions_are_refused_while_a_turn_holds_the_directory() {
     assert_eq!(r.head(), head);
     r.send(ServerToDaemon::RunCancel { run_id: "r1".into() });
 }
+
+#[tokio::test]
+async fn a_write_waits_out_another_git_holding_the_index() {
+    let mut r = rig();
+    let w = r.work.clone();
+    write(&w, "busy.txt", "x\n");
+    // Another git (an IDE's status, the agent's own) holds the index for a moment.
+    let lock = w.join(".git/index.lock");
+    fs::write(&lock, "").unwrap();
+    let release = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        fs::remove_file(lock).unwrap();
+    });
+    let out = r
+        .git(GitActionKind::Commit, |q| {
+            q.message = Some("waited".into());
+            q.paths = Some(vec!["busy.txt".into()]);
+        })
+        .await;
+    release.await.unwrap();
+    assert!(out.unwrap().contains("waited"));
+    assert_eq!(subjects(&w, "-1"), ["waited"]);
+}

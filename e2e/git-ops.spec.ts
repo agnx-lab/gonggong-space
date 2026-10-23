@@ -79,8 +79,9 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
     await test.step('the owner switches to a remote branch from the Git tab', async () => {
       await item.getByRole('button', { name: `打开 ${botName} 的 Git` }).click()
       await git.getByRole('button', { name: `切换 ${botName} 的分支` }).click()
-      // A clean work tree switches without asking.
-      await page.getByRole('button', { name: /origin\/feat\/x/ }).click()
+      // The branch popup lists a branch's actions; a clean work tree checks out without asking.
+      await page.getByTitle('origin/feat/x').click()
+      await page.getByRole('button', { name: '检出', exact: true }).click()
       await expect(item).toContainText('feat/x', { timeout: 30_000 })
     })
 
@@ -99,7 +100,7 @@ test('manual git: the owner switches branch, sees its tree, commits and pushes; 
       await expect(git).toContainText('已选 2 / 2 个文件', { timeout: 30_000 })
       await git.locator('label', { hasText: 'later.txt' }).click()
       await expect(git).toContainText('已选 1 / 2 个文件')
-      await git.getByLabel('提交说明').fill('add hello')
+      await git.getByRole('textbox', { name: '提交说明' }).fill('add hello')
       await git.getByRole('button', { name: '提交', exact: true }).click()
       // What was left out stays, picked for the next commit.
       await expect(git).toContainText('已选 1 / 1 个文件', { timeout: 30_000 })

@@ -17,4 +17,7 @@ export default {
   复制路径: 'Copy path',
   在新标签页打开: 'Open in new tab',
   在聊天中引用: 'Cite in chat',
+  尚未提交的改动: 'Not committed yet',
+  '无法读取注解：{error}': "Couldn't read the annotations: {error}",
+  '注解（Git Blame）': 'Annotate (Git Blame)',
 } satisfies Record<string, string>

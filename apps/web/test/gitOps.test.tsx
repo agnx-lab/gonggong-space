@@ -399,6 +399,32 @@ describe('branch popup', () => {
     )
   })
 
+  it('closes the merge dialog when the merge stops on conflicts, leaving them to the banner', async () => {
+    mockApi(
+      routes({
+        [`POST ${BASE}/actions`]: op({
+          id: 'op-conflict',
+          action: 'merge',
+          status: 'failed',
+          error: '有 1 个冲突待解决：README.md',
+          requestedBy: { id: 'u1', name: '小王' },
+        }),
+        [`GET ${BASE}/changes`]: {
+          ...CHANGES_EMPTY,
+          conflicts: [{ path: 'README.md', ours: 'modified', theirs: 'modified' }],
+          ongoing: { kind: 'merge', subject: 'main', step: null, total: null, message: null },
+        },
+      }),
+    )
+    render(<Page />)
+    const pop = await popup()
+    fireEvent.click(pop.getAllByRole('button', { name: /^main/ })[0] as HTMLElement)
+    fireEvent.click(pop.getByRole('button', { name: '将 main 合并到 feat/refund-v2' }))
+    fireEvent.click((await dialog('合并到 feat/refund-v2')).getByRole('button', { name: '合并' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '合并到 feat/refund-v2' })).toBeNull())
+    expect(toasts()).toContain('有 1 个冲突待解决：README.md')
+  })
+
   it('rebases the current branch, or checks a branch out and rebases it onto the current one', async () => {
     const calls = mockApi(routes({ [`POST ${BASE}/actions`]: done }))
     render(<Page />)

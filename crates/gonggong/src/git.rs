@@ -32,6 +32,9 @@ pub fn is_repo(dir: &Path) -> bool {
 
 /// Git escapes non-ASCII paths as octal (`\345\233...`) by default; keep them readable in patches and listings.
 const UNQUOTED: [&str; 2] = ["-c", "core.quotePath=false"];
+/// Never prompt; and no optional locks: a read like `git status` would otherwise refresh the index under
+/// `.git/index.lock`, failing a manual write (or the agent's own git) that runs at the same moment.
+const QUIET: [(&str, &str); 2] = [("GIT_TERMINAL_PROMPT", "0"), ("GIT_OPTIONAL_LOCKS", "0")];
 
 pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     run_git(dir, args, None).await
@@ -71,35 +74,14 @@ async fn run_git(dir: &Path, args: &[&str], index: Option<&Path>) -> Result<Stri
 }
 
 async fn run_git_raw(dir: &Path, args: &[&str], index: Option<&Path>) -> Result<Vec<u8>, String> {
-    let mut cmd = crate::proc::async_command("git");
-    cmd.arg("-C").arg(dir).args(UNQUOTED).args(args).env("GIT_TERMINAL_PROMPT", "0").kill_on_drop(true);
-    if let Some(index) = index {
-        cmd.env("GIT_INDEX_FILE", index);
-    }
-    let out = cmd.output().await.map_err(|e| t!("无法执行 git：{e}", e = e))?;
+    let env: Vec<(&str, &Path)> = index.map(|i| ("GIT_INDEX_FILE", i)).into_iter().collect();
+    let out = output(dir, args, &env, None).await?;
     if out.status.success() { Ok(out.stdout) } else { Err(failure(&out.stderr)) }
 }
 
 /// Like [`git`], with `input` on stdin (path lists too long for a command line).
 pub(crate) async fn git_input(dir: &Path, args: &[&str], input: &[u8]) -> Result<String, String> {
-    let mut child = crate::proc::async_command("git")
-        .arg("-C")
-        .arg(dir)
-        .args(UNQUOTED)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| t!("无法执行 git：{e}", e = e))?;
-    let mut stdin = child.stdin.take().expect("piped");
-    let input = input.to_vec();
-    // Written aside so a child filling its stdout before reading all of stdin cannot deadlock.
-    let writer = tokio::spawn(async move { tokio::io::AsyncWriteExt::write_all(&mut stdin, &input).await });
-    let out = child.wait_with_output().await.map_err(|e| t!("无法执行 git：{e}", e = e))?;
-    let _ = writer.await;
+    let out = output::<&str>(dir, args, &[], Some(input)).await?;
     if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).into_owned()) } else { Err(failure(&out.stderr)) }
 }
 
@@ -111,19 +93,51 @@ pub(crate) async fn git_output(
     env: &[(&str, &str)],
     input: Option<&[u8]>,
 ) -> Result<std::process::Output, String> {
+    output(dir, args, env, input).await
+}
+
+/// Waits before trying again when another git holds the index: it fails at once with `index.lock`, before changing
+/// anything, and such holds (an IDE's status, the agent's own git) last moments.
+const LOCK_WAITS_MS: [u64; 4] = [100, 250, 500, 1000];
+
+async fn output<V: AsRef<std::ffi::OsStr>>(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, V)],
+    input: Option<&[u8]>,
+) -> Result<std::process::Output, String> {
+    let mut waits = LOCK_WAITS_MS.iter();
+    loop {
+        let out = spawn(dir, args, env, input).await?;
+        match waits.next() {
+            Some(ms) if !out.status.success() && String::from_utf8_lossy(&out.stderr).contains("index.lock") => {
+                tokio::time::sleep(std::time::Duration::from_millis(*ms)).await
+            }
+            _ => return Ok(out),
+        }
+    }
+}
+
+async fn spawn<V: AsRef<std::ffi::OsStr>>(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, V)],
+    input: Option<&[u8]>,
+) -> Result<std::process::Output, String> {
     let mut child = crate::proc::async_command("git")
         .arg("-C")
         .arg(dir)
         .args(UNQUOTED)
         .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .envs(env.iter().copied())
+        .envs(QUIET)
+        .envs(env.iter().map(|(k, v)| (k, v)))
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| t!("无法执行 git：{e}", e = e))?;
+    // Written aside so a child filling its stdout before reading all of stdin cannot deadlock.
     let writer = child.stdin.take().zip(input).map(|(mut stdin, input)| {
         let input = input.to_vec();
         tokio::spawn(async move { tokio::io::AsyncWriteExt::write_all(&mut stdin, &input).await })
@@ -151,7 +165,7 @@ pub(crate) async fn git_capped_bytes(dir: &Path, args: &[&str], limit: usize) ->
         .arg(dir)
         .args(UNQUOTED)
         .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
+        .envs(QUIET)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

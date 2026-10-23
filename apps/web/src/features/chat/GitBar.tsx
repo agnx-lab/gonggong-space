@@ -7,6 +7,7 @@ import { copyWithToast } from '../../lib/clipboard'
 import { realtime } from '../../lib/realtime'
 import { Icon, type IconName } from '../../ui'
 import { refreshGitQuietly } from '../git/api'
+import { ongoingLabel } from '../git/commands'
 import { BranchLabel, WorkspaceMenu } from '../git/GitControls'
 import { PendingBadge } from '../git/GitOperations'
 import { openTab } from '../workbench/open'
@@ -150,6 +151,17 @@ function Item({
                 <Commits icon="arrow-up" name={t('领先 {n} 个提交', { n: git.ahead })} n={git.ahead} />
               ) : null}
               {git?.dirty ? <span className="git-bar__dirty">{t('未提交')}</span> : null}
+              {git?.ongoing || git?.conflicts ? (
+                <button
+                  type="button"
+                  className="git-bar__ongoing"
+                  onClick={() => openTab({ kind: 'git', botId: s.botId, view: 'commit' })}
+                >
+                  {git.ongoing ? t('{op}中', { op: ongoingLabel(git.ongoing) }) : null}
+                  {git.ongoing && git.conflicts ? ' · ' : null}
+                  {git.conflicts ? t('{n} 个冲突', { n: git.conflicts }) : null}
+                </button>
+              ) : null}
             </>
           )}
           <PendingBadge groupId={groupId} botId={s.botId} />

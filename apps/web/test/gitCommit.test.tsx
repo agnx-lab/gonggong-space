@@ -505,3 +505,23 @@ describe('merge tool', () => {
     expect(await screen.findByText('x.ts 的冲突已解决')).toBeTruthy()
   })
 })
+
+describe('status bar', () => {
+  it('flags a merge in progress and its conflicts, opening the Git tab', async () => {
+    const { GitBar } = await import('../src/features/chat/GitBar')
+    const { group } = await import('./gitFixtures')
+    mockApi(
+      routes({
+        'GET /groups/g1/bot-states': [
+          state({ git: status({ ongoing: 'merge', conflicts: 2, branch: null }) }),
+        ],
+      }),
+    )
+    render(<GitBar group={group()} />)
+    expect((await screen.findByRole('button', { name: '打开 小王的 Claude 的 Git' })).textContent).toBe(
+      'a1b2c3d（游离）',
+    )
+    fireEvent.click(screen.getByRole('button', { name: '合并中 · 2 个冲突' }))
+    expect(benchTabs()).toEqual([{ kind: 'git', botId: 'b1', view: 'commit' }])
+  })
+})
