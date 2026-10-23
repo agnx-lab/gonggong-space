@@ -23,4 +23,12 @@ export default {
   没有差异: 'No differences',
   '二进制文件，无法显示差异': "Binary file; the diff can't be shown",
   '差异过大，已截断': 'Diff too large; truncated',
+  忽略空白后没有差异: 'No differences when ignoring whitespace',
+  差异视图: 'Diff view',
+  统一: 'Unified',
+  并排: 'Side by side',
+  忽略空白: 'Ignore whitespace',
+  显示完整文件: 'Show full file',
+  上一处改动: 'Previous change',
+  下一处改动: 'Next change',
 } satisfies Record<string, string>

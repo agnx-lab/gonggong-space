@@ -44,6 +44,38 @@ export function parsePatch(patch: string): DiffFile[] {
   return files
 }
 
+export interface DiffRow {
+  kind: 'context' | 'add' | 'del' | 'hunk' | 'note'
+  oldNo: number | null
+  newNo: number | null
+  /** The code without its +/-/space mark; hunk headers and notes as they are. */
+  text: string
+}
+
+const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+
+/** A file's patch lines numbered in the old and the new file; lines before any hunk header count from 1. */
+export function diffRows(lines: string[]): DiffRow[] {
+  let oldNo = 1
+  let newNo = 1
+  return lines.map((line): DiffRow => {
+    if (line.startsWith('@@')) {
+      const hunk = HUNK.exec(line)
+      if (hunk) {
+        oldNo = Number(hunk[1])
+        newNo = Number(hunk[2])
+      }
+      return { kind: 'hunk', oldNo: null, newNo: null, text: line }
+    }
+    const text = line.slice(1)
+    if (line.startsWith('+')) return { kind: 'add', oldNo: null, newNo: newNo++, text }
+    if (line.startsWith('-')) return { kind: 'del', oldNo: oldNo++, newNo: null, text }
+    // A blank line is a context line whose space was trimmed.
+    if (line.startsWith(' ') || line === '') return { kind: 'context', oldNo: oldNo++, newNo: newNo++, text }
+    return { kind: 'note', oldNo: null, newNo: null, text: line }
+  })
+}
+
 /** A path from a reply (relative, `./`-prefixed or absolute inside the workspace) against the patch's paths. */
 export function findFile(files: DiffFile[], path: string) {
   const p = path.replace(/^\.\//, '')

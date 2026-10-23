@@ -134,8 +134,9 @@ describe('conflict dialog', () => {
     fireEvent.click(within(row).getByRole('button', { name: '预览' }))
     expect(await within(row).findByText('我的改动（相对 v12）')).toBeTruthy()
     expect(within(row).getByText('最新版本的改动（v15）')).toBeTruthy()
-    expect(within(row).getByText('+one mine')).toBeTruthy()
-    expect(within(row).getByText('+two theirs')).toBeTruthy()
+    const lines = Array.from(row.querySelectorAll('.diff__line'), (l) => l.textContent)
+    expect(lines).toContain('+one mine')
+    expect(lines).toContain('+two theirs')
     expect(calls.filter((c) => c.path.includes('/blobs/'))).toHaveLength(3)
   })
 
