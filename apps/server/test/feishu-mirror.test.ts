@@ -404,6 +404,28 @@ describe('共工 → 飞书', () => {
     })
   })
 
+  it('an @ of a member linked to Feishu becomes a real Feishu @, also in a message for members only', async () => {
+    const { ownerHttp, group, member } = await setup()
+    const memberFs = await link(member.id)
+    const other = await t.seed.user({ name: '陈晨' })
+    await t.db.insert(groupMembers).values({ groupId: group.id, userId: other.id })
+    await ownerHttp.post(`/api/groups/${group.id}/messages`, {
+      body: '@codex @李娜 看看',
+      clientId: 'client-1',
+    })
+    await ownerHttp.post(`/api/groups/${group.id}/messages`, {
+      body: '@李娜 @陈晨 开会',
+      clientId: 'client-2',
+    })
+    await feishuIdle(t.ctx)
+    const at = `<at user_id="${memberFs.unionId}">李娜</at>`
+    expect(t.feishu.sent.filter((s) => s.msgType === 'text').map((s) => s.content)).toEqual([
+      { text: `@codex ${at} 看看` },
+      { text: `${at} @陈晨 开会` },
+    ])
+    expect(await t.db.select().from(runs)).toHaveLength(1)
+  })
+
   it('an author without Feishu is sent as 「名字：…」; plain messages are not mirrored', async () => {
     const { member, group } = await setup()
     const http = client(t, await t.seed.cookie(member.id))

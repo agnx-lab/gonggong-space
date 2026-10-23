@@ -251,8 +251,22 @@ async function singleChatApp(ctx: Ctx, chatId: string) {
   return link && appById(ctx, link.appId)
 }
 
+/** The body with each @ of a member linked to Feishu as a real Feishu @ (by union id, valid for any app). */
+async function withFeishuAts(ctx: Ctx, body: string, userIds: string[]) {
+  if (!userIds.length) return body
+  const linked = await ctx.db
+    .select({ name: users.name, unionId: feishuIdentities.unionId })
+    .from(feishuIdentities)
+    .innerJoin(users, eq(users.id, feishuIdentities.userId))
+    .where(inArray(feishuIdentities.userId, userIds))
+  // Longest first, so 「@王磊磊」 is not taken for 「@王磊」.
+  return linked
+    .sort((a, b) => b.name.length - a.name.length)
+    .reduce((text, u) => text.split(`@${u.name}`).join(`<at user_id="${u.unionId}">${u.name}</at>`), body)
+}
+
 /**
- * A web message that @-s bots goes to the bound chat through the main app: as its author when they authorized
+ * A web message that @-s bots or members goes to the bound chat through the main app: as its author when they authorized
  * Feishu, otherwise as 「名字：…」. A DM's single chat only has the bot app in it, which sends as 「名字：…」.
  */
 export async function mirrorUserMessage(
@@ -272,16 +286,17 @@ export async function mirrorUserMessage(
     if (!from) return
     const app = credsOf(from)
     const token = dm ? null : await userToken(ctx, author.id)
+    const body = await withFeishuAts(ctx, message.body, (message.meta as MessageMeta).userMentions ?? [])
     let sent: { messageId: string } | null = null
     if (token)
       sent = await ctx.feishu.api
-        .send(app, chat.chatId, textBody(message.body), { userToken: token })
+        .send(app, chat.chatId, textBody(body), { userToken: token })
         .catch((err) => {
           if (!(err instanceof FeishuError)) throw err
           return null
         })
     const byUser = !!sent
-    sent ??= await ctx.feishu.api.send(app, chat.chatId, textBody(`${author.name}：${message.body}`))
+    sent ??= await ctx.feishu.api.send(app, chat.chatId, textBody(`${author.name}：${body}`))
     await ctx.db.insert(feishuMessageLinks).values({
       feishuMessageId: sent.messageId,
       chatId: chat.chatId,
@@ -318,7 +333,7 @@ export async function mirrorRecall(ctx: Ctx, messageId: string, groupId: string)
 /** 共工 edit of a mirrored message edits its Feishu copy. */
 export async function mirrorEdit(
   ctx: Ctx,
-  message: Pick<typeof messages.$inferSelect, 'id' | 'groupId' | 'body'>,
+  message: { id: string; groupId: string; body: string; userMentions?: string[] },
   authorName: string,
 ) {
   const [link] = await ctx.db
@@ -329,7 +344,8 @@ export async function mirrorEdit(
   enqueue(ctx, message.groupId, async () => {
     const sender = await asSender(ctx, link)
     if (!sender) return
-    const text = link.refId ? message.body : `${authorName}：${message.body}`
+    const body = await withFeishuAts(ctx, message.body, message.userMentions ?? [])
+    const text = link.refId ? body : `${authorName}：${body}`
     await ctx.feishu.api.edit(sender.app, link.feishuMessageId, textBody(text), sender.token)
   })
 }

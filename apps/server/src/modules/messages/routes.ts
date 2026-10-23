@@ -144,7 +144,7 @@ export function messageRoutes(ctx: Ctx) {
         else if (mentions.length) {
           await mirrorUserMessage(ctx, row, me)
           await triggerRuns(ctx, row)
-        }
+        } else if (userMentions.some((id) => id !== me.id)) await mirrorUserMessage(ctx, row, me)
       }
       return dto
     })
