@@ -1,22 +1,21 @@
-import {
-  type FilesTreeDto,
-  type FileTextDto,
-  type GitCompareDto,
-  type GitDiffDto,
-  type GitLogDto,
-  type GitOperationDto,
-  type GitOperationsDto,
-  type GitRefsDto,
-  PROTOCOL_VERSION,
-  type ServerToDaemon,
+import type {
+  FilesTreeDto,
+  FileTextDto,
+  GitCompareDto,
+  GitDiffDto,
+  GitLogDto,
+  GitOperationDto,
+  GitOperationsDto,
+  GitRefsDto,
 } from '@gonggong/protocol'
-import { and, asc, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { auditLogs, groupBots, groupRepos, groups, messages, notifications, runs } from '../src/db/schema.js'
 import { expireGitOperations } from '../src/modules/git/service.js'
 import { MASK } from '../src/modules/runs/redact.js'
-import { createTestApp, inbox, type TestApp } from './support/app.js'
-import { client, events } from './support/http.js'
+import { createTestApp, type TestApp } from './support/app.js'
+import { groupEvents as eventsOf, gitDaemon, gitWorld } from './support/git-daemon.js'
+import { events } from './support/http.js'
 
 let t: TestApp
 let clock: Date
@@ -26,90 +25,12 @@ beforeEach(async () => {
 })
 afterEach(() => t.close())
 
-type GitAsk = Extract<ServerToDaemon, { t: `git.${string}` }>
-
-async function daemon(token: string, features = ['gitOps', 'gitOps2']) {
-  const ws = t.ws('/ws/daemon')
-  const box = inbox(ws)
-  await box.opened
-  const send = (m: unknown) => ws.send(JSON.stringify(m))
-  send({
-    t: 'hello',
-    protocol: PROTOCOL_VERSION,
-    token,
-    daemonVersion: '0.1.0',
-    machine: { name: 'mbp', os: 'macos', arch: 'aarch64' },
-    agents: [],
-    features,
-  })
-  expect(await box.next()).toMatchObject({ t: 'welcome' })
-  /** The next git request; hello may first trigger workspace messages. */
-  const next = async <T extends GitAsk['t']>(type: T) => {
-    for (;;) {
-      const m = await box.next<ServerToDaemon>()
-      if (m.t === type) return m as Extract<GitAsk, { t: T }>
-    }
-  }
-  /** Answers the next git.action with ok / busy. */
-  const act = async (
-    o: { ok?: boolean; busy?: boolean; output?: string | null; error?: string | null } = {},
-  ) => {
-    const req = await next('git.action')
-    send({
-      t: 'git.action.result',
-      requestId: req.requestId,
-      ok: o.ok ?? true,
-      busy: o.busy ?? false,
-      output: o.output ?? 'done',
-      error: o.error ?? null,
-    })
-    return req
-  }
-  return { send, next, act, close: () => ws.close() }
-}
-
-async function world() {
-  const owner = await t.seed.user({ name: '王磊' })
-  const member = await t.seed.user({ name: '陈晨' })
-  const outsider = await t.seed.user({ name: '路人' })
-  const { machine, token } = await t.seed.machine(owner.id)
-  const bot = await t.seed.bot({ ownerId: owner.id, name: 'cc', machineId: machine.id })
-  const group = await t.seed.group({ createdBy: owner.id, memberIds: [member.id], botIds: [bot.id] })
-  await t.db
-    .insert(groupRepos)
-    .values({ groupId: group.id, url: 'git@git.corp:pay/pay.git', baseBranch: 'main' })
-  await t.db
-    .update(groupBots)
-    .set({ workspaceState: 'ready', workspacePath: '/w/pay' })
-    .where(eq(groupBots.groupId, group.id))
-  const owners = client(t, await t.seed.cookie(owner.id))
-  const members = client(t, await t.seed.cookie(member.id))
-  const outsiders = client(t, await t.seed.cookie(outsider.id))
-  const base = `/api/groups/${group.id}/bots/${bot.id}/git`
-  const run = async (status: string, groupId = group.id, botId = bot.id) => {
-    const [m] = await t.db
-      .insert(messages)
-      .values({ groupId, kind: 'user', authorUserId: owner.id, body: '@cc' })
-      .returning()
-    await t.db
-      .insert(runs)
-      .values({ groupId, botId, triggerMessageId: m!.id, originUserId: owner.id, status })
-  }
-  return { owner, member, outsider, machine, token, bot, group, owners, members, outsiders, base, run }
-}
+const daemon = (token: string, features?: string[]) => gitDaemon(t, token, features)
+const world = () => gitWorld(t)
+const groupEvents = (groupId: string) => eventsOf(t, groupId)
 
 const ops = (w: Awaited<ReturnType<typeof world>>) =>
   w.members.get<GitOperationsDto>(`/api/groups/${w.group.id}/git/operations`)
-
-/** The group's system event lines, oldest first. */
-const groupEvents = async (groupId: string) =>
-  (
-    await t.db
-      .select({ body: messages.body, meta: messages.meta })
-      .from(messages)
-      .where(and(eq(messages.groupId, groupId), eq(messages.kind, 'event')))
-      .orderBy(asc(messages.seq))
-  ).map((m) => m.body)
 
 describe('git reads', () => {
   it('tells an older daemon apart at once instead of waiting for it', async () => {
@@ -512,7 +433,12 @@ describe('git actions', () => {
       body: { message: '推送基准分支需要再次确认' },
     })
     const confirmed = w.owners.post<GitOperationDto>(`${w.base}/actions`, { ...push, confirmBase: true })
-    expect(await d.act()).toMatchObject({ action: 'push', branch: 'main', remote: 'origin', identity: null })
+    expect(await d.act()).toMatchObject({
+      action: 'push',
+      branch: 'main',
+      remote: 'origin',
+      identity: { name: 'cc', email: `${w.bot.id.slice(0, 8)}@bots.gonggong.local` },
+    })
     expect((await confirmed).body).toMatchObject({ status: 'succeeded', pushesBase: true })
 
     const feature = w.owners.post<GitOperationDto>(`${w.base}/actions`, { action: 'push', branch: 'feat/x' })

@@ -700,4 +700,11 @@ export const en = {
   该操作已处理: 'This operation was already handled',
   该操作已过期: 'This operation has expired',
   '只有 Bot 主人可以处理 Git 操作申请': 'Only the Bot owner can decide git requests',
+  提交不存在: 'Commit not found',
+  受保护的基准分支不能强制推送: 'The protected base branch cannot be force-pushed',
+  受保护的基准分支不能在远程删除: 'The protected base branch cannot be deleted on the remote',
+  请选择要提交的文件: 'Choose the files to commit',
+  请选择保留哪一方或填写合并结果: 'Choose which side to keep or fill in the merge result',
+  '合并结果含有已脱敏的内容，请保留一方或在本机解决':
+    'The merge result contains redacted text; keep one side or resolve it on the machine',
 } satisfies Record<string, string>

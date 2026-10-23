@@ -6,9 +6,16 @@ import {
   FILE_TEXT_MAX_BYTES,
   type FilesTreeDto,
   type FileTextDto,
+  GIT_RESOLVE_MAX_BYTES,
   GitActionReq,
+  type GitBlameDto,
+  GitBlameQuery,
+  type GitChangesDto,
+  GitChangesQuery,
   type GitCompareDto,
   GitCompareQuery,
+  type GitConflictDto,
+  GitConflictQuery,
   type GitDiffDto,
   GitDiffQuery,
   type GitLogDto,
@@ -19,6 +26,10 @@ import {
   GitRefreshReq,
   type GitRefsDto,
   GitRefsQuery,
+  type GitShowDto,
+  GitShowQuery,
+  type GitStashesDto,
+  GitStashesQuery,
   type ServerToDaemon,
 } from '@gonggong/protocol'
 import { and, desc, eq, ne } from 'drizzle-orm'
@@ -34,7 +45,9 @@ import { notify, resolveNotifications } from '../notifications/notify.js'
 import { groupRedactor } from '../secrets/resolve.js'
 import { onlineMachine } from '../workspaces/provision.js'
 import {
+  assertAllowed,
   assertIdle,
+  assertValid,
   auditDetail,
   execute,
   featureFor,
@@ -45,12 +58,27 @@ import {
   operationDtos,
   PENDING_MS,
   publishOperation,
+  setOnly,
   summary,
 } from './service.js'
 
 type Read = Extract<
   ServerToDaemon,
-  { t: 'git.refs' | 'git.log' | 'git.tree' | 'git.read' | 'git.compare' | 'git.diff' | 'git.refresh' }
+  {
+    t:
+      | 'git.refs'
+      | 'git.log'
+      | 'git.show'
+      | 'git.tree'
+      | 'git.read'
+      | 'git.compare'
+      | 'git.diff'
+      | 'git.changes'
+      | 'git.blame'
+      | 'git.stashes'
+      | 'git.conflict'
+      | 'git.refresh'
+  }
 >
 type Answer = Extract<DaemonToServer, { t: `${Read['t']}.result` }>
 type ReadBody = {
@@ -62,6 +90,8 @@ const READ_TIMEOUT_MS = 15_000
 /** The daemon gives `git fetch` 120 s. */
 const FETCH_TIMEOUT_MS = 130_000
 const DIFF_MAX_BYTES = 1024 * 1024
+/** A resolution's text (GIT_RESOLVE_MAX_BYTES) with room for its JSON escapes. */
+const ACTION_BODY_LIMIT = 3 * 1024 * 1024
 const LOG_PAGE = 50
 const SETTLED_SHOWN = 20
 const strip = (p: string) => p.replace(/^\/+|\/+$/g, '')
@@ -116,54 +146,129 @@ export function gitRoutes(ctx: Ctx) {
     })
 
     app.get('/api/groups/:id/bots/:botId/git/log', async (req: Req): Promise<GitLogDto> => {
-      const { target } = await member(req)
-      const { ref, skip } = GitLogQuery.parse(req.query)
-      const res = await ask(
-        target,
-        { t: 'git.log', ref: ref ?? null, skip, limit: LOG_PAGE },
-        'git.log.result',
-      )
+      const { repo, ref, skip, path, ...flags } = GitLogQuery.parse(req.query)
+      const filter = setOnly({ ...flags, path: path && (strip(path) || undefined) })
+      const { target } = await member(req, repo || filter ? 'gitOps3' : 'gitOps')
+      const msg = { t: 'git.log', repo, ref: ref ?? null, skip, limit: LOG_PAGE, filter } as const
+      const res = await ask(target, msg, 'git.log.result')
       return { commits: res.commits, hasMore: res.hasMore }
     })
 
+    app.get('/api/groups/:id/bots/:botId/git/show', async (req: Req): Promise<GitShowDto> => {
+      const { repo, commit } = GitShowQuery.parse(req.query)
+      const { target } = await member(req, 'gitOps3')
+      const res = await ask(target, { t: 'git.show', repo, commit }, 'git.show.result')
+      if (!res.commit) return fail('not_found', '提交不存在')
+      const redact = await groupRedactor(ctx, target.group.id)
+      const { committer, committerEmail, committedAt, branches } = res
+      return { commit: res.commit, body: redact(res.body), committer, committerEmail, committedAt, branches }
+    })
+
     app.get('/api/groups/:id/bots/:botId/git/tree', async (req: Req): Promise<FilesTreeDto> => {
-      const { target } = await member(req)
       const q = GitRefPathQuery.parse(req.query)
+      const { target } = await member(req, q.repo ? 'gitOps3' : 'gitOps')
       const path = strip(q.path)
-      const res = await ask(target, { t: 'git.tree', ref: q.ref, path }, 'git.tree.result')
+      const res = await ask(target, { t: 'git.tree', repo: q.repo, ref: q.ref, path }, 'git.tree.result')
       return { path, entries: res.entries, truncated: res.truncated }
     })
 
     app.get('/api/groups/:id/bots/:botId/git/text', async (req: Req): Promise<FileTextDto> => {
-      const { target } = await member(req)
       const q = GitRefPathQuery.parse(req.query)
+      const { target } = await member(req, q.repo ? 'gitOps3' : 'gitOps')
       const path = strip(q.path)
       if (!path) return fail('invalid', '缺少文件路径')
-      const msg = { t: 'git.read', ref: q.ref, path, maxBytes: FILE_TEXT_MAX_BYTES } as const
+      const msg = { t: 'git.read', repo: q.repo, ref: q.ref, path, maxBytes: FILE_TEXT_MAX_BYTES } as const
       const res = await ask(target, msg, 'git.read.result')
       return { path, size: res.size, binary: res.binary, mime: res.mime, text: res.text }
     })
 
     app.get('/api/groups/:id/bots/:botId/git/compare', async (req: Req): Promise<GitCompareDto> => {
-      const { target } = await member(req)
-      const { from, to } = GitCompareQuery.parse(req.query)
-      const res = await ask(target, { t: 'git.compare', from, to: to ?? null }, 'git.compare.result')
+      const { repo, from, to } = GitCompareQuery.parse(req.query)
+      const { target } = await member(req, repo ? 'gitOps3' : 'gitOps')
+      const res = await ask(target, { t: 'git.compare', repo, from, to: to ?? null }, 'git.compare.result')
       return { changes: res.changes }
     })
 
     app.get('/api/groups/:id/bots/:botId/git/diff', async (req: Req): Promise<GitDiffDto> => {
-      const { target } = await member(req, 'gitOps2')
       const q = GitDiffQuery.parse(req.query)
+      const options = setOnly({ ignoreWhitespace: q.ignoreWhitespace, context: q.context })
+      const { target } = await member(req, q.repo || options ? 'gitOps3' : 'gitOps2')
       const msg = {
         t: 'git.diff',
+        repo: q.repo,
         from: q.from,
         to: q.to ?? null,
         path: (q.path && strip(q.path)) || null,
         maxBytes: DIFF_MAX_BYTES,
+        ...options,
       } as const
       const res = await ask(target, msg, 'git.diff.result')
       const redact = await groupRedactor(ctx, target.group.id)
       return { patch: res.patch && redact(res.patch), truncated: res.truncated }
+    })
+
+    app.get('/api/groups/:id/bots/:botId/git/changes', async (req: Req): Promise<GitChangesDto> => {
+      const { repo } = GitChangesQuery.parse(req.query)
+      const { target } = await member(req, repo ? 'gitOps3' : 'gitOps')
+      const machineId = target.bot.machineId
+      if (!repo && !(machineId && ctx.hub.features(machineId).includes('gitOps3'))) {
+        const msg = { t: 'git.compare', from: 'HEAD', to: null } as const
+        const { changes } = await ask(target, msg, 'git.compare.result')
+        const plain = { untracked: false, add: null, del: null }
+        return {
+          changes: changes.map((c) => ({ ...c, ...plain })),
+          conflicts: [],
+          ongoing: null,
+          head: null,
+          limited: true,
+        }
+      }
+      const res = await ask(target, { t: 'git.changes', repo }, 'git.changes.result')
+      return {
+        changes: res.changes,
+        conflicts: res.conflicts,
+        ongoing: res.ongoing,
+        head: res.head,
+        limited: false,
+      }
+    })
+
+    app.get('/api/groups/:id/bots/:botId/git/blame', async (req: Req): Promise<GitBlameDto> => {
+      const q = GitBlameQuery.parse(req.query)
+      const { target } = await member(req, 'gitOps3')
+      const path = strip(q.path)
+      if (!path) return fail('invalid', '缺少文件路径')
+      const res = await ask(
+        target,
+        { t: 'git.blame', repo: q.repo, ref: q.ref ?? null, path },
+        'git.blame.result',
+      )
+      return { ranges: res.ranges, commits: res.commits }
+    })
+
+    app.get('/api/groups/:id/bots/:botId/git/stashes', async (req: Req): Promise<GitStashesDto> => {
+      const { repo } = GitStashesQuery.parse(req.query)
+      const { target } = await member(req, 'gitOps3')
+      const res = await ask(target, { t: 'git.stashes', repo }, 'git.stashes.result')
+      return { stashes: res.stashes }
+    })
+
+    app.get('/api/groups/:id/bots/:botId/git/conflict', async (req: Req): Promise<GitConflictDto> => {
+      const q = GitConflictQuery.parse(req.query)
+      const { target } = await member(req, 'gitOps3')
+      const path = strip(q.path)
+      if (!path) return fail('invalid', '缺少文件路径')
+      const msg = { t: 'git.conflict', repo: q.repo, path, maxBytes: GIT_RESOLVE_MAX_BYTES } as const
+      const res = await ask(target, msg, 'git.conflict.result')
+      const redact = await groupRedactor(ctx, target.group.id)
+      const text = (s: string | null) => s && redact(s)
+      return {
+        base: text(res.base),
+        ours: text(res.ours),
+        theirs: text(res.theirs),
+        merged: text(res.merged),
+        binary: res.binary,
+      }
     })
 
     app.post('/api/groups/:id/bots/:botId/git/refresh', async (req: Req, reply: FastifyReply) => {
@@ -178,49 +283,56 @@ export function gitRoutes(ctx: Ctx) {
       return reply.code(204).send()
     })
 
-    app.post('/api/groups/:id/bots/:botId/git/actions', async (req: Req): Promise<GitOperationDto> => {
-      const me = await requireUser(ctx, req)
-      const { group } = await requireMember(ctx, req.params.id, me.id)
-      const body = GitActionReq.parse(req.body)
-      const target = await gitTarget(ctx, group, req.params.botId, featureFor(fields(body)))
-      const base = target.workspace.repo.branch
-      const pushesBase = body.action === 'push' && target.group.protectBase && body.branch === base
-      const owner = target.bot.ownerId === me.id
-      if (owner) {
-        if (pushesBase && !body.confirmBase) fail('conflict', '推送基准分支需要再次确认')
-        await assertIdle(ctx, target)
-      }
-      const [op] = (await ctx.db
-        .insert(gitOperations)
-        .values({
+    app.post(
+      '/api/groups/:id/bots/:botId/git/actions',
+      { bodyLimit: ACTION_BODY_LIMIT },
+      async (req: Req): Promise<GitOperationDto> => {
+        const me = await requireUser(ctx, req)
+        const { group } = await requireMember(ctx, req.params.id, me.id)
+        const body = GitActionReq.parse(req.body)
+        assertValid(body)
+        const columns = fields(body)
+        const target = await gitTarget(ctx, group, req.params.botId, featureFor(columns))
+        assertAllowed(columns, target)
+        const base = target.workspace.repo.branch
+        const pushesBase = body.action === 'push' && target.group.protectBase && body.branch === base
+        const owner = target.bot.ownerId === me.id
+        if (owner) {
+          if (pushesBase && !body.confirmBase) fail('conflict', '推送基准分支需要再次确认')
+          await assertIdle(ctx, target)
+        }
+        const [op] = (await ctx.db
+          .insert(gitOperations)
+          .values({
+            groupId: target.group.id,
+            botId: target.bot.id,
+            ...columns,
+            pushesBase,
+            status: owner ? 'running' : 'pending_approval',
+            requestedBy: me.id,
+            createdAt: ctx.now(),
+            expiresAt: new Date(ctx.now().getTime() + PENDING_MS),
+          })
+          .returning()) as [GitOperation]
+        if (owner) return run(op, target, true)
+        await notify(ctx, target.bot.ownerId, 'git_operation_request', {
           groupId: target.group.id,
           botId: target.bot.id,
-          ...fields(body),
-          pushesBase,
-          status: owner ? 'running' : 'pending_approval',
-          requestedBy: me.id,
-          createdAt: ctx.now(),
-          expiresAt: new Date(ctx.now().getTime() + PENDING_MS),
+          botName: target.bot.name,
+          byName: me.name,
+          summary: summary(op),
+          operationId: op.id,
         })
-        .returning()) as [GitOperation]
-      if (owner) return run(op, target, true)
-      await notify(ctx, target.bot.ownerId, 'git_operation_request', {
-        groupId: target.group.id,
-        botId: target.bot.id,
-        botName: target.bot.name,
-        byName: me.name,
-        summary: summary(op),
-        operationId: op.id,
-      })
-      await audit(ctx, {
-        category: 'admin',
-        actorUserId: me.id,
-        groupId: target.group.id,
-        action: 'git.request',
-        detail: auditDetail(op),
-      })
-      return publishOperation(ctx, op)
-    })
+        await audit(ctx, {
+          category: 'admin',
+          actorUserId: me.id,
+          groupId: target.group.id,
+          action: 'git.request',
+          detail: auditDetail(op),
+        })
+        return publishOperation(ctx, op)
+      },
+    )
 
     app.post<{ Params: { id: string } }>(
       '/api/git-operations/:id/decide',
@@ -238,7 +350,10 @@ export function gitRoutes(ctx: Ctx) {
         if (target.bot.ownerId !== me.id) return fail('forbidden', '只有 Bot 主人可以处理 Git 操作申请')
         if (row.op.status !== 'pending_approval') return fail('conflict', '该操作已处理')
         if (row.op.expiresAt <= ctx.now()) return fail('conflict', '该操作已过期')
-        if (approve) await assertIdle(ctx, target)
+        if (approve) {
+          assertAllowed(row.op, target)
+          await assertIdle(ctx, target)
+        }
         const [op] = await ctx.db
           .update(gitOperations)
           .set({
