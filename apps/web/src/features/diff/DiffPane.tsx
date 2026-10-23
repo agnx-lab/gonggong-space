@@ -1,29 +1,16 @@
 import type { DiffScope } from '@gonggong/protocol'
-import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { t } from '../../i18n'
 import { EmptyState, Icon, NoChangesArt, Spinner } from '../../ui'
 import { DiffFileList, DiffLayoutToggle, DiffScopeBar, DiffView, emptyText, scopeNote } from './DiffParts'
 import { findFile, groupByRepo, isMultiRepo } from './patch'
+import { useWide } from './useWide'
 import type { WorkspaceDiff } from './useWorkspaceDiff'
+
+export { useWide }
 
 /** Below this the file list folds into a dropdown above the diff (design §4.4). */
 const WIDE_PX = 900
-
-/** Whether the element is at least `px` wide, tracked as the workbench is resized. */
-export function useWide(ref: RefObject<HTMLElement | null>, px: number) {
-  const [wide, setWide] = useState(true)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    // A hidden tab (display: none) measures 0; keep its last layout rather than folding it.
-    const measure = () => el.clientWidth && setWide(el.clientWidth >= px)
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    measure()
-    return () => ro.disconnect()
-  }, [ref, px])
-  return wide
-}
 
 interface DiffPaneProps {
   diff: WorkspaceDiff

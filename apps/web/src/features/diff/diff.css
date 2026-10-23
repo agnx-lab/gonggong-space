@@ -1,4 +1,4 @@
-/* Shared diff pieces: file list, five-cell bar, unified view (the run tab's 改动 view and the diff tab). */
+/* Shared diff pieces: file list, five-cell bar, the diff view and its toolbar. */
 .diff__files {
   display: flex;
   flex-direction: column;
@@ -128,43 +128,153 @@
     transform: scaleX(0);
   }
 }
+/* Diff view: old and new line numbers in a gutter (drawn from data-n, so a copy leaves them out), unified or
+   side by side; the changed words of a paired line get a stronger tint. The gutter is opaque: code scrolls
+   under it. */
 .diff {
+  --diff-line: 20px;
+  --diff-num: calc(var(--diff-digits, 3) * 1ch + 2 * var(--space-8));
+  --diff-gutter: var(--window-bg);
+  --diff-hunk: color-mix(in srgb, var(--accent) 7%, var(--content-bg));
+  --diff-add-num: color-mix(in srgb, var(--system-green) 14%, var(--tint-green));
+  --diff-del-num: color-mix(in srgb, var(--system-red) 12%, var(--tint-red));
+  --diff-add-word: color-mix(in srgb, var(--system-green) 30%, var(--tint-green));
+  --diff-del-word: color-mix(in srgb, var(--system-red) 26%, var(--tint-red));
+  border: 1px solid var(--separator);
   border-radius: var(--radius-field);
-  background: var(--quote-fill);
+  background: var(--content-bg);
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: var(--text-subheadline-size);
-  line-height: var(--text-body-line);
+  font-size: var(--text-callout-size);
+  line-height: var(--diff-line);
 }
 .diff__name {
-  padding: var(--space-6) var(--space-12);
+  padding: var(--space-4) var(--space-12);
   border-bottom: 1px solid var(--separator);
+  background: var(--diff-gutter);
   color: var(--label-secondary);
   overflow-wrap: anywhere;
 }
+/* Rows stretch to the longest line, so their tints reach across when the code scrolls sideways. */
 .diff__lines {
+  display: grid;
   overflow-x: auto;
 }
 .diff__line {
-  width: max-content;
-  min-width: 100%;
-  padding: 0 var(--space-12);
+  display: grid;
+  grid-template-columns: var(--diff-num) var(--diff-num) 1fr;
+  min-height: var(--diff-line);
   color: var(--label-secondary);
+}
+.diff__num {
+  position: sticky;
+  left: 0;
+  padding: 0 var(--space-8);
+  background: var(--diff-gutter);
+  color: var(--label-secondary);
+  font-size: var(--text-subheadline-size);
+  text-align: right;
+  user-select: none;
+}
+.diff__num + .diff__num {
+  left: var(--diff-num);
+}
+.diff__num::before {
+  content: attr(data-n);
+}
+.diff__code {
+  padding: 0 var(--space-12) 0 var(--space-8);
   white-space: pre;
 }
-.diff__line--add {
+.diff__line--add,
+.diff__side--add {
   background: var(--tint-green);
   color: var(--tint-green-text);
 }
-.diff__line--del {
+.diff__line--del,
+.diff__side--del {
   background: var(--tint-red);
   color: var(--tint-red-text);
 }
+.diff__line--add > .diff__num,
+.diff__side--add > .diff__num {
+  background: var(--diff-add-num);
+  color: var(--tint-green-text);
+}
+.diff__line--del > .diff__num,
+.diff__side--del > .diff__num {
+  background: var(--diff-del-num);
+  color: var(--tint-red-text);
+}
+.diff__line--hunk,
+.diff__line--hunk > .diff__num {
+  background: var(--diff-hunk);
+}
 .diff__line--hunk {
   color: var(--accent-text);
+  font-size: var(--text-subheadline-size);
 }
-.diff__line--note {
+.diff__line--note,
+.diff__side--note {
   color: var(--label-tertiary);
+  font-style: italic;
+}
+.diff__word--add,
+.diff__word--del {
+  border-radius: 2px;
+}
+.diff__word--add {
+  background: var(--diff-add-word);
+}
+.diff__word--del {
+  background: var(--diff-del-word);
+}
+/* Side by side: old line left, new line right; long lines wrap instead of scrolling. */
+.diff__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.diff__side {
+  display: grid;
+  grid-template-columns: var(--diff-num) minmax(0, 1fr);
+  min-height: var(--diff-line);
+  color: var(--label-secondary);
+}
+.diff__side + .diff__side {
+  border-left: 1px solid var(--separator);
+}
+.diff__side--empty {
+  background: var(--quote-fill);
+}
+.diff__lines--split > .diff__line {
+  grid-template-columns: var(--diff-num) minmax(0, 1fr);
+}
+.diff__lines--split .diff__code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.diff__lines--split[data-select="old"] [data-side="new"],
+.diff__lines--split[data-select="new"] [data-side="old"],
+.diff__lines--split[data-select] .diff__line--hunk {
+  user-select: none;
+}
+/* The change the toolbar stepped to flashes. */
+.diff__block {
+  position: relative;
+}
+.diff__block[data-flash]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  animation: diff-flash 1.2s ease-out;
+}
+@keyframes diff-flash {
+  from {
+    opacity: 0.22;
+  }
 }
 .diff__path {
   display: flex;
@@ -304,6 +414,27 @@
   background: var(--tint-orange);
   color: var(--tint-orange-text);
   font-size: var(--text-subheadline-size);
+}
+/* Sticks to the top of whatever scrolls the diff; stuck, it sits below that box's top padding, which its shadow
+   covers so code doesn't peek over it. */
+.diff-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-12);
+  padding: var(--space-2) 0 var(--space-4);
+  background: var(--content-bg);
+  box-shadow: 0 calc(-1 * var(--space-8)) 0 var(--content-bg);
+  font-size: var(--text-callout-size);
+}
+.diff-toolbar__end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 /* The diff tab body fills the workbench. */

@@ -1,10 +1,12 @@
 import type { GitDiffDto } from '@gonggong/protocol'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { t } from '../../i18n'
 import { api, errorText } from '../../lib/api'
 import { EmptyState, NoChangesArt, Spinner } from '../../ui'
 import { DiffView } from './DiffParts'
+import { DiffToolbar } from './DiffToolbar'
 import { type DiffFile, parsePatch } from './patch'
+import { useDiffSettings } from './store'
 
 interface GitDiff {
   url: string
@@ -30,9 +32,37 @@ export function useGitDiff(url: string, stamp = '') {
   return state?.url === url ? state : null
 }
 
-/** One file's diff read from `url` (gitUrls.diff with its path); `stamp` re-reads a work tree diff. */
-export function GitFileDiff({ url, path, stamp }: { url: string; path: string; stamp?: string }) {
-  const diff = useGitDiff(url, stamp)
+/** Whole-file context: more lines than any file the viewer would show. */
+const FULL_CONTEXT = 100_000
+
+function withSettings(url: string, ignoreWhitespace: boolean, fullContext: boolean) {
+  const params = [ignoreWhitespace && 'ignoreWhitespace=1', fullContext && `context=${FULL_CONTEXT}`]
+  const query = params.filter(Boolean).join('&')
+  return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url
+}
+
+/**
+ * One file's diff read from `url` (gitUrls.diff with its path) under a DiffToolbar (`toolbar={false}` leaves it
+ * out), read again as its whitespace and whole-file settings change; `stamp` re-reads a work tree diff. `actions`
+ * go at the toolbar's right end.
+ */
+export function GitFileDiff({
+  url,
+  path,
+  stamp,
+  toolbar = true,
+  actions,
+}: {
+  url: string
+  path: string
+  stamp?: string
+  toolbar?: boolean
+  actions?: ReactNode
+}) {
+  const ignoreWhitespace = useDiffSettings((s) => s.ignoreWhitespace)
+  const fullContext = useDiffSettings((s) => s.fullContext)
+  const diff = useGitDiff(withSettings(url, ignoreWhitespace, fullContext), stamp)
+  const root = useRef<HTMLDivElement>(null)
   const body = () => {
     if (!diff)
       return (
@@ -46,14 +76,19 @@ export function GitFileDiff({ url, path, stamp }: { url: string; path: string; s
     // A patch cut before its first hunk has nothing to show but the note.
     if (!file)
       return diff.truncated ? null : (
-        <EmptyState compact illustration={<NoChangesArt />} title={t('没有差异')} />
+        <EmptyState
+          compact
+          illustration={<NoChangesArt />}
+          title={ignoreWhitespace ? t('忽略空白后没有差异') : t('没有差异')}
+        />
       )
     if (file.binary)
       return <EmptyState compact icon="doc" title={t('二进制文件，无法显示差异')} description={file.path} />
     return <DiffView file={file} />
   }
   return (
-    <div className="git-diff" data-testid="git-diff">
+    <div ref={root} className="git-diff" data-testid="git-diff">
+      {toolbar ? <DiffToolbar target={root} actions={actions} /> : null}
       {diff?.truncated ? (
         <div className="git-diff__note" role="status">
           {t('差异过大，已截断')}

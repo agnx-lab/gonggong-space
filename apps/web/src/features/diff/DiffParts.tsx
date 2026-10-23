@@ -1,18 +1,32 @@
 import type { DiffRepo, DiffScope } from '@gonggong/protocol'
-import { type CSSProperties, Fragment, memo, type ReactNode, useMemo, useState } from 'react'
+import {
+  type CSSProperties,
+  Fragment,
+  type MouseEvent,
+  memo,
+  type ReactNode,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { cx } from '../../lib/cx'
-import { Icon, IconButton, langOf, SegmentedControl, Tokens, useHighlight } from '../../ui'
+import { type HlToken, Icon, IconButton, langOf, SegmentedControl, Tokens, useHighlight } from '../../ui'
 import {
   type DiffFile,
   type DiffNode,
+  type DiffRow,
   diffCells,
+  diffRows,
   diffTree,
   groupByRepo,
   isMultiRepo,
   type RepoGroup,
   repoPrefix,
 } from './patch'
-import { useDiffLayout } from './store'
+import { type DiffBlock, diffBlocks } from './split'
+import { type DiffViewMode, useDiffLayout, useDiffSettings } from './store'
+import { useWide } from './useWide'
+import { type WordRange, wordMarks } from './words'
 import './diff.css'
 import { t } from '../../i18n'
 
@@ -225,52 +239,195 @@ function DiffFileRow({
   )
 }
 
-const lineClass = (l: string) =>
-  l.startsWith('+')
-    ? 'add'
-    : l.startsWith('-')
-      ? 'del'
-      : l.startsWith('@@')
-        ? 'hunk'
-        : l.startsWith(' ')
-          ? ''
-          : 'note'
+/** Below this width side by side is too cramped: diffs show unified. */
+export const SPLIT_MIN_PX = 640
 
-const isCode = (l: string) => /^[+\- ]/.test(l)
+/** 0 = the old file, 1 = the new one. */
+type Side = 0 | 1
+type RowTokens = (row: number, side: Side) => HlToken[] | undefined
 
-export const DiffView = memo(function DiffView({ file }: { file: DiffFile }) {
-  // Code lines of all hunks tokenized as one text: the n-th code line maps to the n-th token line.
-  const code = useMemo(
-    () =>
-      file.lines
-        .filter(isCode)
-        .map((l) => l.slice(1))
-        .join('\n'),
-    [file.lines],
+/**
+ * Syntax tokens per row once both sides are ready. Each side is tokenized as its own file (context lines belong to
+ * both), so a string or comment opened on one side doesn't colour the other.
+ */
+function useRowTokens(rows: DiffRow[], path: string): RowTokens | null {
+  const { code, at } = useMemo(() => {
+    const sides: [string[], string[]] = [[], []]
+    const at = rows.map((r) => [
+      r.kind === 'context' || r.kind === 'del' ? sides[0].push(r.text) - 1 : -1,
+      r.kind === 'context' || r.kind === 'add' ? sides[1].push(r.text) - 1 : -1,
+    ])
+    return { code: sides.map((s) => s.join('\n')), at }
+  }, [rows])
+  const lang = langOf(path)
+  const old = useHighlight(code[0] ?? '', lang)
+  const neu = useHighlight(code[1] ?? '', lang)
+  if (!old || !neu) return null
+  return (row, side) => (side ? neu : old)[at[row]?.[side] ?? -1]
+}
+
+/** The tokens' pieces within [from, to) of their line. */
+function cut(tokens: HlToken[], from: number, to: number) {
+  const out: HlToken[] = []
+  let at = 0
+  for (const tk of tokens) {
+    const end = at + tk.content.length
+    if (end > from && at < to)
+      out.push({ ...tk, content: tk.content.slice(Math.max(from - at, 0), Math.min(to, end) - at) })
+    at = end
+  }
+  return out
+}
+
+/** A line's code, in syntax colours once ready, its changed words (`marks`) tinted more strongly. */
+function Code({
+  text,
+  tokens,
+  marks,
+  kind,
+}: {
+  text: string
+  tokens: HlToken[] | undefined
+  marks: WordRange[] | undefined
+  kind: DiffRow['kind']
+}) {
+  if (!marks) return tokens?.length ? <Tokens tokens={tokens} /> : text
+  const part = (from: number, to: number) =>
+    tokens?.length ? <Tokens tokens={cut(tokens, from, to)} /> : text.slice(from, to)
+  const out: ReactNode[] = []
+  let at = 0
+  for (const [from, to] of marks) {
+    if (from > at) out.push(<Fragment key={at}>{part(at, from)}</Fragment>)
+    out.push(
+      <span key={from} className={`diff__word--${kind}`}>
+        {part(from, to)}
+      </span>,
+    )
+    at = to
+  }
+  if (at < text.length) out.push(<Fragment key={at}>{part(at, text.length)}</Fragment>)
+  return out
+}
+
+const SIGN: Partial<Record<DiffRow['kind'], string>> = { add: '+', del: '-', context: ' ' }
+
+interface LinesProps {
+  rows: DiffRow[]
+  blocks: DiffBlock[]
+  marks: Map<number, WordRange[]>
+  tokens: RowTokens | null
+}
+
+/** A change is wrapped so the toolbar can step to it; other rows go as they are. */
+function blockOf(block: DiffBlock, children: ReactNode) {
+  const key = block.rows[0]
+  return block.change ? (
+    <div key={key} className="diff__block" data-change="">
+      {children}
+    </div>
+  ) : (
+    <Fragment key={key}>{children}</Fragment>
   )
-  const tokens = useHighlight(code, langOf(file.path))
-  let n = 0
-  return (
-    <div className="diff">
-      <div className="diff__name">{file.path}</div>
-      <div className="diff__lines">
-        {file.lines.map((l, i) => {
-          const t = isCode(l) ? tokens?.[n++] : undefined
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional and never reorder
-            <div key={i} className={cx('diff__line', lineClass(l) && `diff__line--${lineClass(l)}`)}>
-              {t?.length ? (
-                <>
-                  {l[0]}
-                  <Tokens tokens={t} />
-                </>
-              ) : (
-                l || ' '
-              )}
-            </div>
-          )
-        })}
+}
+
+function UnifiedLines({ rows, blocks, marks, tokens }: LinesProps) {
+  const line = (i: number) => {
+    const row = rows[i]
+    if (!row) return null
+    const sign = SIGN[row.kind]
+    return (
+      <div key={i} className={cx('diff__line', row.kind !== 'context' && `diff__line--${row.kind}`)}>
+        <span className="diff__num" data-n={row.oldNo ?? undefined} />
+        <span className="diff__num" data-n={row.newNo ?? undefined} />
+        <span className="diff__code">
+          {sign === undefined ? (
+            row.text
+          ) : (
+            <>
+              {sign}
+              <Code
+                text={row.text}
+                tokens={tokens?.(i, row.kind === 'del' ? 0 : 1)}
+                marks={marks.get(i)}
+                kind={row.kind}
+              />
+            </>
+          )}
+        </span>
       </div>
+    )
+  }
+  return <div className="diff__lines">{blocks.map((b) => blockOf(b, b.rows.map(line)))}</div>
+}
+
+/** A selection stays on the side it starts on, so copying takes one file's code. */
+function pickSide(e: MouseEvent<HTMLDivElement>) {
+  const side = (e.target as Element).closest<HTMLElement>('[data-side]')?.dataset.side
+  if (side) e.currentTarget.dataset.select = side
+}
+
+function SplitLines({ rows, blocks, marks, tokens }: LinesProps) {
+  const cell = (i: number | null, side: Side) => {
+    const row = i === null ? undefined : rows[i]
+    const name = side ? 'new' : 'old'
+    if (i === null || !row) return <div className="diff__side diff__side--empty" data-side={name} />
+    return (
+      <div className={cx('diff__side', row.kind !== 'context' && `diff__side--${row.kind}`)} data-side={name}>
+        <span className="diff__num" data-n={(side ? row.newNo : row.oldNo) ?? undefined} />
+        <span className="diff__code">
+          {row.kind === 'note' ? (
+            row.text
+          ) : (
+            <Code text={row.text} tokens={tokens?.(i, side)} marks={marks.get(i)} kind={row.kind} />
+          )}
+        </span>
+      </div>
+    )
+  }
+  const pair = ([o, n]: [number | null, number | null]) => {
+    const hunk = o === null ? undefined : rows[o]
+    if (hunk?.kind === 'hunk')
+      return (
+        <div key={o} className="diff__line diff__line--hunk">
+          <span className="diff__num" />
+          <span className="diff__code">{hunk.text}</span>
+        </div>
+      )
+    return (
+      <div key={`${o}:${n}`} className="diff__pair">
+        {cell(o, 0)}
+        {cell(n, 1)}
+      </div>
+    )
+  }
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: only keeps a text selection on one side
+    <div className="diff__lines diff__lines--split" onMouseDown={pickSide}>
+      {blocks.map((b) => blockOf(b, b.pairs.map(pair)))}
+    </div>
+  )
+}
+
+/**
+ * One file's diff with old and new line numbers: unified, or side by side when `view` (default: the stored choice)
+ * asks for it and there is room.
+ */
+export const DiffView = memo(function DiffView({ file, view }: { file: DiffFile; view?: DiffViewMode }) {
+  const stored = useDiffSettings((s) => s.view)
+  const root = useRef<HTMLDivElement>(null)
+  const roomy = useWide(root, SPLIT_MIN_PX)
+  const { rows, blocks, marks, digits } = useMemo(() => {
+    const rows = diffRows(file.lines)
+    const blocks = diffBlocks(rows)
+    const last = rows.reduce((n, r) => Math.max(n, r.oldNo ?? 0, r.newNo ?? 0), 0)
+    return { rows, blocks, marks: wordMarks(rows, blocks), digits: Math.max(2, String(last).length) }
+  }, [file.lines])
+  const tokens = useRowTokens(rows, file.path)
+  const Lines = (view ?? stored) === 'split' && roomy ? SplitLines : UnifiedLines
+  return (
+    <div ref={root} className="diff" style={{ '--diff-digits': digits } as CSSProperties}>
+      <div className="diff__name">{file.path}</div>
+      <Lines rows={rows} blocks={blocks} marks={marks} tokens={tokens} />
     </div>
   )
 })
