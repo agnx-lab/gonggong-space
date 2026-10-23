@@ -1,24 +1,26 @@
-//! Manual git from the group: views of any ref that never touch the work tree, and the owner's writes (checkout,
-//! fast-forward pull, commit, push), never forced.
+//! Manual git from the group: views of any ref, of the work tree's changes and of what stopped midway, that never
+//! touch the work tree or the index. The owner's writes are in [`crate::git_write`].
 use crate::explorer::{self, SNIFF_BYTES};
-use crate::git::{self, git, git_bytes, git_capped_bytes, git_input};
+use crate::git::{self, EMPTY_TREE, git, git_bytes, git_capped_bytes, git_output};
 use crate::protocol::{
-    GitBranch, GitBranchKind, GitChange, GitChangeKind, GitCommit, GitIdentity, GitRemote, TreeEntry,
+    GitBlameCommit, GitBlameRange, GitBranch, GitBranchKind, GitChange, GitChangeKind, GitCommit, GitConflict,
+    GitConflictSide, GitHeadCommit, GitLogFilter, GitLogOrder, GitOngoing, GitRemote, GitStash, GitTag, GitWorkChange,
+    TreeEntry,
 };
-use crate::repo::{self, remote_git, remote_output};
+use crate::repo::{self, remote_git};
 use crate::t;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 
-fn repo_dir(dir: &Path) -> Result<(), String> {
+pub(crate) fn repo_dir(dir: &Path) -> Result<(), String> {
     if git::is_repo(dir) { Ok(()) } else { Err(git::not_git().into()) }
 }
 
 /// A ref, branch or remote name given to git as an argument: one starting with `-` would be read as an option.
-fn arg(name: &str) -> Result<&str, String> {
+pub(crate) fn arg(name: &str) -> Result<&str, String> {
     match name.starts_with('-') || name.is_empty() {
         true => Err(t!("无效的名称：{name}", name = name)),
         false => Ok(name),
@@ -26,13 +28,18 @@ fn arg(name: &str) -> Result<&str, String> {
 }
 
 /// `rel` inside a tree, `/`-separated without empty or `.` parts ('' = the root); `..` and absolute paths are refused.
-fn tree_path(rel: &str) -> Result<String, String> {
+pub(crate) fn tree_path(rel: &str) -> Result<String, String> {
     let path = Path::new(rel);
     if path.components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir)) {
         return Err(t!("路径超出工作区：{path}", path = rel));
     }
     let parts: Vec<_> = path.components().filter_map(|c| c.as_os_str().to_str()).filter(|p| *p != ".").collect();
     Ok(parts.join("/"))
+}
+
+/// A path in the daemon's private dir, which manual git never acts on.
+pub(crate) fn private(path: &str) -> bool {
+    format!("{path}/").starts_with(git::PRIVATE_DIR)
 }
 
 /// The directory of `repo`, a path as GitStatus.repos reports it, in the workspace `dir` (None = `dir` itself): a
@@ -64,13 +71,25 @@ fn object(r#ref: Option<&str>, rel: &str) -> Result<String, String> {
 
 const REFS_FORMAT: &str = "%(refname)%00%(symref)%00%(HEAD)%00%(upstream:short)%00%(upstream:track,nobracket)%00\
                            %(objectname:short)%00%(committerdate:iso-strict)%00%(subject)";
+/// A tag's own fields, then those of what it points at (`*`: set when it is an annotated tag).
+const TAGS_FORMAT: &str = "%(refname:lstrip=2)%00%(objecttype)%00%(objectname:short)%00%(subject)%00\
+                           %(committerdate:iso-strict)%00%(*objecttype)%00%(*objectname:short)%00%(*subject)%00\
+                           %(*committerdate:iso-strict)";
 
-/// Local branches, then remote-tracking ones (without `origin/HEAD`), and the remotes' fetch URLs.
-pub async fn refs(dir: &Path) -> Result<(Vec<GitBranch>, Vec<GitRemote>), String> {
+pub struct Refs {
+    pub branches: Vec<GitBranch>,
+    pub remotes: Vec<GitRemote>,
+    pub tags: Vec<GitTag>,
+    pub recent: Vec<String>,
+}
+
+/// Local branches, then remote-tracking ones (without `origin/HEAD`), the remotes' fetch URLs, the tags newest first
+/// and the local branches checked out lately.
+pub async fn refs(dir: &Path) -> Result<Refs, String> {
     repo_dir(dir)?;
     let format = format!("--format={REFS_FORMAT}");
     let args = ["for-each-ref", &format, "refs/heads", "refs/remotes"];
-    let (listing, remotes) = tokio::join!(git(dir, &args), git(dir, &["remote", "-v"]));
+    let (listing, remotes, tags) = tokio::join!(git(dir, &args), git(dir, &["remote", "-v"]), tags(dir));
     let mut branches = vec![];
     for line in listing?.lines() {
         let f: Vec<&str> = line.split('\0').collect();
@@ -102,7 +121,8 @@ pub async fn refs(dir: &Path) -> Result<(Vec<GitBranch>, Vec<GitRemote>), String
         .filter_map(|l| l.strip_suffix(" (fetch)")?.split_once('\t'))
         .map(|(name, url)| GitRemote { name: name.into(), url: repo::redact(url) })
         .collect();
-    Ok((branches, remotes))
+    let recent = recent(dir, &branches).await;
+    Ok(Refs { branches, remotes, tags: tags?, recent })
 }
 
 /// N of `ahead N` in `ahead 2, behind 1`; 0 when absent.
@@ -110,33 +130,214 @@ fn count(track: &str, label: &str) -> u32 {
     track.split(", ").find_map(|p| p.strip_prefix(label)?.parse().ok()).unwrap_or(0)
 }
 
-/// Up to `limit` commits from `ref` after `skip`, and whether there are more.
-pub async fn log(dir: &Path, r#ref: Option<&str>, skip: u32, limit: u32) -> Result<(Vec<GitCommit>, bool), String> {
+/// Tags pointing at commits, newest first.
+async fn tags(dir: &Path) -> Result<Vec<GitTag>, String> {
+    let format = format!("--format={TAGS_FORMAT}");
+    let raw = git(dir, &["for-each-ref", "--sort=-creatordate", &format, "refs/tags"]).await?;
+    let tags = raw.lines().filter_map(|line| {
+        let f: Vec<&str> = line.split('\0').collect();
+        let [name, kind, commit, subject, at, peeled_kind, peeled, peeled_subject, peeled_at] = f[..] else {
+            return None;
+        };
+        let (annotated, commit, subject, at) = match (kind, peeled_kind) {
+            ("commit", _) => (false, commit, subject, at),
+            ("tag", "commit") => (true, peeled, peeled_subject, peeled_at),
+            _ => return None,
+        };
+        Some(GitTag { name: name.into(), commit: commit.into(), annotated, subject: subject.into(), at: at.into() })
+    });
+    Ok(tags.collect())
+}
+
+const RECENT_MAX: usize = 5;
+
+/// Up to RECENT_MAX existing local branches but the current one, latest checked out first (HEAD's reflog).
+async fn recent(dir: &Path, branches: &[GitBranch]) -> Vec<String> {
+    let args = ["log", "-g", "--format=%gs", "--grep-reflog=^checkout: moving from ", "-n200", "HEAD", "--"];
+    let Ok(raw) = git(dir, &args).await else { return vec![] };
+    let locals: HashSet<&str> =
+        branches.iter().filter(|b| b.kind == GitBranchKind::Local && !b.current).map(|b| b.name.as_str()).collect();
+    let mut recent: Vec<String> = vec![];
+    // `checkout: moving from A to B`: B was checked out after A.
+    for (from, to) in raw.lines().filter_map(|l| l.strip_prefix("checkout: moving from ")?.split_once(" to ")) {
+        for name in [to, from] {
+            if locals.contains(name) && !recent.iter().any(|r| r == name) {
+                recent.push(name.into());
+            }
+        }
+        if recent.len() >= RECENT_MAX {
+            break;
+        }
+    }
+    recent.truncate(RECENT_MAX);
+    recent
+}
+
+const COMMIT_FORMAT: &str = "%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D";
+
+fn commit_of(fields: &[&str]) -> Option<GitCommit> {
+    let [hash, short, author, email, at, subject, parents, refs] = fields[..] else { return None };
+    Some(GitCommit {
+        hash: hash.into(),
+        short_hash: short.into(),
+        author: author.into(),
+        email: email.into(),
+        at: at.into(),
+        subject: subject.into(),
+        parents: parents.split_whitespace().map(String::from).collect(),
+        refs: refs.split(", ").filter(|r| !r.is_empty()).map(String::from).collect(),
+    })
+}
+
+/// Up to `limit` commits from `ref` (or a range) after `skip`, narrowed by `filter`, each before its parents; and
+/// whether there are more.
+pub async fn log(
+    dir: &Path,
+    r#ref: Option<&str>,
+    skip: u32,
+    limit: u32,
+    filter: Option<&GitLogFilter>,
+) -> Result<(Vec<GitCommit>, bool), String> {
     repo_dir(dir)?;
-    let rev = arg(r#ref.unwrap_or("HEAD"))?;
-    let (skip, n) = (format!("--skip={skip}"), format!("-n{}", limit + 1));
-    let format = "--format=%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%D%x1e";
-    let raw = git(dir, &["log", "--decorate=short", format, &skip, &n, rev, "--"]).await?;
+    let f = filter.cloned().unwrap_or_default();
+    let on = |flag: Option<bool>| flag == Some(true);
+    let given = |s: Option<String>| s.filter(|s| !s.trim().is_empty());
+    let (author, text, path) = (given(f.author), given(f.text), given(f.path).map(|p| tree_path(&p)).transpose()?);
+    let regexp = on(f.regexp) && text.is_some();
+    let mut args: Vec<String> = ["--literal-pathspecs", "log", "--decorate=short"].map(String::from).to_vec();
+    args.extend([format!("--format={COMMIT_FORMAT}%x1e"), format!("--skip={skip}"), format!("-n{}", limit + 1)]);
+    args.push(if f.order == Some(GitLogOrder::Topo) { "--topo-order" } else { "--date-order" }.into());
+    if on(f.first_parent) {
+        args.push("--first-parent".into());
+    }
+    if on(f.no_merges) {
+        args.push("--no-merges".into());
+    }
+    if author.is_some() || text.is_some() {
+        // Fixed strings unless the text is a regexp; the author is matched as typed either way.
+        args.push(if regexp { "-E" } else { "-F" }.into());
+        if !on(f.match_case) {
+            args.push("-i".into());
+        }
+    }
+    if let Some(author) = author {
+        args.push(format!("--author={}", if regexp { escape_regex(&author) } else { author }));
+    }
+    if let Some(text) = text {
+        args.push(format!("--grep={text}"));
+    }
+    if let Some(since) = given(f.since) {
+        args.push(format!("--since={}", day(&since, "00:00:00")));
+    }
+    if let Some(until) = given(f.until) {
+        args.push(format!("--until={}", day(&until, "23:59:59")));
+    }
+    let tip = match on(f.all) {
+        true => {
+            args.extend(["--branches", "--remotes", "--tags", "HEAD"].map(String::from));
+            "HEAD".to_string()
+        }
+        false => {
+            let rev = arg(r#ref.unwrap_or("HEAD"))?;
+            args.push(rev.into());
+            range_tip(rev).to_string()
+        }
+    };
+    args.push("--".into());
+    if let Some(path) = path.filter(|p| !p.is_empty()) {
+        // A file's history goes on past its renames.
+        if is_file(dir, &tip, &path).await {
+            args.insert(args.len() - 1, "--follow".into());
+        }
+        args.push(path);
+    }
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let raw = git(dir, &args).await?;
     let mut commits: Vec<GitCommit> = raw
         .split('\x1e')
-        .filter_map(|record| {
-            let f: Vec<&str> = record.trim_start_matches('\n').split('\0').collect();
-            let [hash, short, author, email, at, subject, parents, refs] = f[..] else { return None };
-            Some(GitCommit {
-                hash: hash.into(),
-                short_hash: short.into(),
-                author: author.into(),
-                email: email.into(),
-                at: at.into(),
-                subject: subject.into(),
-                parents: parents.split_whitespace().map(String::from).collect(),
-                refs: refs.split(", ").filter(|r| !r.is_empty()).map(String::from).collect(),
-            })
-        })
+        .filter_map(|record| commit_of(&record.trim_start_matches('\n').split('\0').collect::<Vec<_>>()))
         .collect();
     let more = commits.len() > limit as usize;
     commits.truncate(limit as usize);
     Ok((commits, more))
+}
+
+/// An extended regex matching `s` literally.
+fn escape_regex(s: &str) -> String {
+    s.chars().fold(String::new(), |mut out, c| {
+        if "\\.^$|?*+()[]{}".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+        out
+    })
+}
+
+/// A bare `YYYY-MM-DD` at `time` (git would otherwise take the current time of day); anything else as given.
+fn day(date: &str, time: &str) -> String {
+    let b = date.as_bytes();
+    let bare = b.len() == 10 && b[4] == b'-' && b[7] == b'-' && date.chars().filter(char::is_ascii_digit).count() == 8;
+    if bare { format!("{date} {time}") } else { date.to_string() }
+}
+
+/// The revision a range ends at (`a..b`, `a...b` → b; `a..` → HEAD).
+fn range_tip(rev: &str) -> &str {
+    match rev.rsplit_once("..") {
+        Some((_, tip)) if !tip.trim_start_matches('.').is_empty() => tip.trim_start_matches('.'),
+        Some(_) => "HEAD",
+        None => rev,
+    }
+}
+
+/// `rel` is a file in the work tree or at `rev`.
+async fn is_file(dir: &Path, rev: &str, rel: &str) -> bool {
+    dir.join(rel).is_file()
+        || git(dir, &["cat-file", "-t", &format!("{rev}:{rel}")]).await.is_ok_and(|t| t.trim() == "blob")
+}
+
+pub struct Show {
+    pub commit: GitCommit,
+    pub body: String,
+    pub committer: String,
+    pub committer_email: String,
+    pub committed_at: String,
+    pub branches: Vec<String>,
+}
+
+/// Local and remote-tracking branches containing a commit, at most this many.
+const CONTAINING_MAX: usize = 100;
+
+/// One commit with its whole message, its committer and the branches that contain it.
+pub async fn show(dir: &Path, commit: &str) -> Result<Show, String> {
+    repo_dir(dir)?;
+    let rev = format!("{}^{{commit}}", arg(commit)?);
+    let hash = git(dir, &["rev-parse", "-q", "--verify", &rev]).await;
+    let hash = hash.map_err(|_| t!("提交不存在：{commit}", commit = commit))?.trim().to_string();
+    let format = format!("--format={COMMIT_FORMAT}%x00%cn%x00%ce%x00%cI%x00%B");
+    let log = ["log", "-1", "--decorate=short", &format, &hash, "--"];
+    let contains = ["branch", "-a", "--contains", &hash, "--format=%(refname)%00%(symref)"];
+    let (raw, containing) = tokio::join!(git(dir, &log), git(dir, &contains));
+    let raw = raw?;
+    let f: Vec<&str> = raw.splitn(12, '\0').collect();
+    let (head, rest) = (f.get(..8).unwrap_or_default(), f.get(8..).unwrap_or_default());
+    let (Some(commit), [committer, committer_email, committed_at, body]) = (commit_of(head), rest) else {
+        return Err(t!("提交不存在：{commit}", commit = commit));
+    };
+    let branches = containing?
+        .lines()
+        .filter_map(|l| l.split_once('\0').filter(|(_, symref)| symref.is_empty()).map(|(name, _)| name))
+        .map(|name| name.strip_prefix("refs/heads/").or_else(|| name.strip_prefix("refs/remotes/")).unwrap_or(name))
+        .take(CONTAINING_MAX)
+        .map(String::from)
+        .collect();
+    Ok(Show {
+        commit,
+        body: body.trim_end().to_string(),
+        committer: committer.to_string(),
+        committer_email: committer_email.to_string(),
+        committed_at: committed_at.to_string(),
+        branches,
+    })
 }
 
 /// One directory of `ref`'s tree, ordered and capped like the work tree browser.
@@ -201,6 +402,13 @@ pub async fn compare(dir: &Path, from: &str, to: Option<&str>) -> Result<Vec<Git
     Ok(changes)
 }
 
+/// How git.diff shows changes: `-w`, and context lines (`-U`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DiffOptions {
+    pub ignore_whitespace: bool,
+    pub context: Option<u32>,
+}
+
 /// The patch from `from` to `to` (None = the work tree with its untracked files), of `path` only when given, cut at
 /// `max_bytes`; true when cut.
 pub async fn diff(
@@ -209,6 +417,7 @@ pub async fn diff(
     to: Option<&str>,
     path: Option<&str>,
     max_bytes: usize,
+    options: DiffOptions,
 ) -> Result<(String, bool), String> {
     repo_dir(dir)?;
     let from = arg(from)?;
@@ -217,7 +426,13 @@ pub async fn diff(
         Some(to) => arg(to)?.to_string(),
         None => git::work_tree(dir).await?,
     };
-    let mut args = vec!["--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "-M", from, &to, "--"];
+    let context = options.context.map(|n| format!("-U{n}"));
+    let mut args = vec!["--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "-M"];
+    if options.ignore_whitespace {
+        args.push("-w");
+    }
+    args.extend(context.as_deref());
+    args.extend([from, &to, "--"]);
     args.extend(path.as_deref().filter(|p| !p.is_empty()));
     let out = git_capped_bytes(dir, &args, max_bytes.saturating_add(1)).await?;
     let truncated = out.len() > max_bytes;
@@ -234,141 +449,333 @@ pub async fn diff(
     Ok((patch, truncated))
 }
 
+pub struct Changes {
+    pub changes: Vec<GitWorkChange>,
+    pub conflicts: Vec<GitConflict>,
+    pub ongoing: Option<GitOngoing>,
+    pub head: Option<GitHeadCommit>,
+}
+
+/// The work tree against HEAD as a commit would take it (untracked files flagged, line counts), unmerged paths apart,
+/// what stopped midway and HEAD's commit. Renames only pair tracked paths: an untracked file is no rename target.
+pub async fn changes(dir: &Path) -> Result<Changes, String> {
+    repo_dir(dir)?;
+    let (tree, head, untracked, conflicts, ongoing) =
+        tokio::join!(git::work_tree(dir), head_commit(dir), untracked(dir), unmerged(dir), git::ongoing(dir));
+    let (tree, untracked, conflicts) = (tree?, untracked?, conflicts?);
+    let base = head.as_ref().map_or(EMPTY_TREE, |h| h.hash.as_str());
+    let raw = git(dir, &["diff", "--raw", "--numstat", "-z", "-M", base, &tree, "--"]).await?;
+    let (entries, mut counts) = raw_numstat(&raw);
+    let unmerged: HashSet<&str> = conflicts.iter().map(|c| c.path.as_str()).collect();
+    let skip = |p: &str| private(p) || unmerged.contains(p);
+    let mut changes = vec![];
+    let mut split = HashSet::new();
+    for (status, old, path) in entries {
+        if skip(&path) || old.as_deref().is_some_and(skip) {
+            continue;
+        }
+        let (change, old_path) = match status {
+            'R' if untracked.contains(&path) => {
+                split.extend([old.unwrap_or_default(), path]);
+                continue;
+            }
+            'R' => (GitChangeKind::Renamed, old),
+            'A' | 'C' => (GitChangeKind::Added, None),
+            'D' => (GitChangeKind::Deleted, None),
+            _ => (GitChangeKind::Modified, None),
+        };
+        let (add, del) = counts.get(&path).copied().unwrap_or_default();
+        changes.push(GitWorkChange { untracked: untracked.contains(&path), path, change, old_path, add, del });
+    }
+    if !split.is_empty() {
+        // A rename onto an untracked file is that file added and its source deleted, counted on their own.
+        let raw = git(dir, &["diff", "--raw", "--numstat", "-z", "--no-renames", base, &tree, "--"]).await?;
+        let (entries, own) = raw_numstat(&raw);
+        counts.extend(own);
+        for (status, _, path) in entries.into_iter().filter(|(_, _, p)| split.contains(p)) {
+            let change = if status == 'D' { GitChangeKind::Deleted } else { GitChangeKind::Added };
+            let (add, del) = counts.get(&path).copied().unwrap_or_default();
+            let untracked = untracked.contains(&path);
+            changes.push(GitWorkChange { untracked, path, change, old_path: None, add, del });
+        }
+        changes.sort_by(|a, b| a.path.cmp(&b.path));
+    }
+    Ok(Changes { changes, conflicts, ongoing: ongoing?, head })
+}
+
+type Counts = HashMap<String, (Option<u32>, Option<u32>)>;
+
+/// `git diff --raw --numstat -z`: (status letter, source of a rename or copy, path) per change, and the added and
+/// deleted lines per path (None for binary files).
+fn raw_numstat(raw: &str) -> (Vec<(char, Option<String>, String)>, Counts) {
+    let (mut entries, mut counts) = (vec![], HashMap::new());
+    let mut tokens = raw.split('\0');
+    while let Some(token) = tokens.next() {
+        if let Some(meta) = token.strip_prefix(':') {
+            let status = meta.rsplit(' ').next().and_then(|s| s.chars().next()).unwrap_or('M');
+            let first = tokens.next().unwrap_or_default().to_string();
+            match status {
+                'R' | 'C' => entries.push((status, Some(first), tokens.next().unwrap_or_default().to_string())),
+                _ => entries.push((status, None, first)),
+            }
+        } else if !token.is_empty() {
+            let mut f = token.splitn(3, '\t');
+            let (add, del, path) = (f.next(), f.next(), f.next().unwrap_or_default());
+            // A rename's counts are followed by its two paths.
+            let path = if path.is_empty() { tokens.nth(1).unwrap_or_default() } else { path };
+            let n = |v: Option<&str>| v.and_then(|v| v.parse().ok());
+            counts.insert(path.to_string(), (n(add), n(del)));
+        }
+    }
+    (entries, counts)
+}
+
+/// Untracked files (not ignored), relative to `dir`.
+pub(crate) async fn untracked(dir: &Path) -> Result<HashSet<String>, String> {
+    let raw = git(dir, &["ls-files", "-z", "--others", "--exclude-standard"]).await?;
+    // An embedded repo is listed as its directory.
+    Ok(raw.split('\0').filter(|p| !p.is_empty()).map(|p| p.trim_end_matches('/').to_string()).collect())
+}
+
+/// HEAD's commit; None on an unborn branch.
+async fn head_commit(dir: &Path) -> Option<GitHeadCommit> {
+    let hash = git::head(dir).await?;
+    let contains = format!("--contains={hash}");
+    let log = ["log", "-1", "--format=%h%x00%B", &hash, "--"];
+    let remote = ["for-each-ref", &contains, "--count=1", "--format=%(refname)", "refs/remotes"];
+    let (raw, remote) = tokio::join!(git(dir, &log), git(dir, &remote));
+    let raw = raw.ok()?;
+    let (short, message) = raw.split_once('\0')?;
+    let pushed = remote.is_ok_and(|r| !r.trim().is_empty());
+    Some(GitHeadCommit { short_hash: short.into(), hash, message: message.trim_end().into(), pushed })
+}
+
+/// The stages (base, ours, theirs) of each unmerged path.
+async fn stages(dir: &Path, path: Option<&str>) -> Result<BTreeMap<String, [Option<String>; 3]>, String> {
+    let mut args = vec!["--literal-pathspecs", "ls-files", "-u", "-z"];
+    if let Some(path) = path {
+        args.extend(["--", path]);
+    }
+    let raw = git(dir, &args).await?;
+    let mut stages: BTreeMap<String, [Option<String>; 3]> = BTreeMap::new();
+    // `<mode> <object> <stage>\t<path>`
+    for (meta, path) in raw.split('\0').filter_map(|e| e.split_once('\t')) {
+        let mut meta = meta.split(' ').skip(1);
+        let (Some(object), Some(stage)) = (meta.next(), meta.next().and_then(|s| s.parse::<usize>().ok())) else {
+            continue;
+        };
+        if (1..=3).contains(&stage) {
+            stages.entry(path.to_string()).or_default()[stage - 1] = Some(object.to_string());
+        }
+    }
+    Ok(stages)
+}
+
+/// Unmerged paths and what each side did to them.
+pub(crate) async fn unmerged(dir: &Path) -> Result<Vec<GitConflict>, String> {
+    let side = |base: bool, this: bool| match (this, base) {
+        (false, _) => GitConflictSide::Deleted,
+        (true, true) => GitConflictSide::Modified,
+        (true, false) => GitConflictSide::Added,
+    };
+    Ok(stages(dir, None)
+        .await?
+        .into_iter()
+        .map(|(path, [base, ours, theirs])| GitConflict {
+            path,
+            ours: side(base.is_some(), ours.is_some()),
+            theirs: side(base.is_some(), theirs.is_some()),
+        })
+        .collect())
+}
+
+pub struct Blame {
+    pub ranges: Vec<GitBlameRange>,
+    pub commits: Vec<GitBlameCommit>,
+}
+
+/// Who last changed each line of `rel` at `ref` (None = the work tree: lines not committed yet have commit '').
+pub async fn blame(dir: &Path, r#ref: Option<&str>, rel: &str) -> Result<Blame, String> {
+    repo_dir(dir)?;
+    let path = tree_path(rel)?;
+    if path.is_empty() {
+        return Err(t!("不是文件：{path}", path = rel));
+    }
+    let mut args = vec!["blame", "--porcelain"];
+    if let Some(r) = r#ref {
+        args.push(arg(r)?);
+    }
+    args.extend(["--", &path]);
+    Ok(parse_blame(&git(dir, &args).await?))
+}
+
+fn parse_blame(raw: &str) -> Blame {
+    let (mut ranges, mut commits) = (Vec::<GitBlameRange>::new(), Vec::<GitBlameCommit>::new());
+    // The commit whose header lines follow, by index in `commits`, and its author time and zone until both are read.
+    let (mut current, mut time, mut zone): (Option<usize>, Option<i64>, Option<String>) = (None, None, None);
+    for line in raw.lines().filter(|l| !l.starts_with('\t')) {
+        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+        let mut numbers = value.split(' ').map(|n| n.parse::<u32>().ok());
+        let hex = matches!(key.len(), 40 | 64) && key.bytes().all(|b| b.is_ascii_hexdigit());
+        // `<hash> <source line> <final line>[ <lines in group>]` heads each line of the file.
+        if let (true, Some(Some(_)), Some(Some(at))) = (hex, numbers.next(), numbers.next()) {
+            let commit = if key.bytes().all(|b| b == b'0') { String::new() } else { key.to_string() };
+            match ranges.last_mut() {
+                Some(r) if r.commit == commit && r.start + r.count == at => r.count += 1,
+                _ => ranges.push(GitBlameRange { start: at, count: 1, commit: commit.clone() }),
+            }
+            current = match commit.is_empty() {
+                true => None,
+                false => Some(commits.iter().position(|c| c.hash == commit).unwrap_or_else(|| {
+                    commits.push(GitBlameCommit {
+                        short_hash: commit[..7].to_string(),
+                        hash: commit,
+                        author: String::new(),
+                        email: String::new(),
+                        at: String::new(),
+                        subject: String::new(),
+                    });
+                    commits.len() - 1
+                })),
+            };
+            continue;
+        }
+        let Some(c) = current.map(|i| &mut commits[i]) else { continue };
+        match key {
+            "author" => c.author = value.into(),
+            "author-mail" => c.email = value.trim_start_matches('<').trim_end_matches('>').into(),
+            "author-time" => time = value.parse().ok(),
+            "author-tz" => zone = Some(value.into()),
+            "summary" => c.subject = value.into(),
+            _ => {}
+        }
+        if let (Some(t), Some(z)) = (time, zone.as_deref()) {
+            c.at = iso(t, z);
+            (time, zone) = (None, None);
+        }
+    }
+    Blame { ranges, commits }
+}
+
+/// `seconds` since the epoch in the zone `+hhmm`, as git's strict ISO 8601.
+fn iso(seconds: i64, zone: &str) -> String {
+    let sign = if zone.starts_with('-') { -1 } else { 1 };
+    let digits = zone.trim_start_matches(['+', '-']);
+    let minutes = digits.get(..2).and_then(|h| h.parse::<i32>().ok()).unwrap_or(0) * 60
+        + digits.get(2..4).and_then(|m| m.parse::<i32>().ok()).unwrap_or(0);
+    let offset =
+        chrono::FixedOffset::east_opt(sign * minutes * 60).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+    chrono::DateTime::from_timestamp(seconds, 0).map(|d| d.with_timezone(&offset).to_rfc3339()).unwrap_or_default()
+}
+
+/// The stash list, newest first.
+pub async fn stashes(dir: &Path) -> Result<Vec<GitStash>, String> {
+    repo_dir(dir)?;
+    let raw = git(dir, &["stash", "list", "--format=%H%x00%cI%x00%P%x00%gs"]).await?;
+    let stashes = raw.lines().enumerate().filter_map(|(index, line)| {
+        let [hash, at, parents, subject] = line.splitn(4, '\0').collect::<Vec<_>>()[..] else { return None };
+        let (message, branch) = stash_message(subject);
+        let untracked = parents.split_whitespace().count() > 2;
+        Some(GitStash { index: index as u32, hash: hash.into(), message, branch, at: at.into(), untracked })
+    });
+    Ok(stashes.collect())
+}
+
+/// The message to show and the branch a stash was made on: git's `WIP on <branch>: …` is kept as is, a custom
+/// `On <branch>: <message>` loses its prefix; `(no branch)` is a detached HEAD.
+fn stash_message(subject: &str) -> (String, Option<String>) {
+    let branch = |b: &str| (b != "(no branch)").then(|| b.to_string());
+    if let Some((b, _)) = subject.strip_prefix("WIP on ").and_then(|r| r.split_once(": ")) {
+        return (subject.into(), branch(b));
+    }
+    match subject.strip_prefix("On ").and_then(|r| r.split_once(": ")) {
+        Some((b, message)) => (message.into(), branch(b)),
+        None => (subject.into(), None),
+    }
+}
+
+pub struct Conflict {
+    pub base: Option<String>,
+    pub ours: Option<String>,
+    pub theirs: Option<String>,
+    pub merged: Option<String>,
+    pub binary: bool,
+}
+
+/// An unmerged path's three versions (None = absent on that side) and git's diff3 merge of them when all three are
+/// text; any binary side makes them all None. A side over `max_bytes` is refused.
+pub async fn conflict(dir: &Path, rel: &str, max_bytes: u64) -> Result<Conflict, String> {
+    repo_dir(dir)?;
+    let path = tree_path(rel)?;
+    let stages = stages(dir, Some(&path)).await?;
+    let Some(objects) = stages.get(&path) else { return Err(t!("没有冲突：{path}", path = path)) };
+    let mut sides: Vec<Option<Vec<u8>>> = vec![];
+    for object in objects {
+        let Some(object) = object else {
+            sides.push(None);
+            continue;
+        };
+        let size: u64 = git(dir, &["cat-file", "-s", object]).await?.trim().parse().map_err(|e| format!("{e}"))?;
+        if size > max_bytes {
+            return Err(t!("冲突文件超过 {max} 字节：{path}", max = max_bytes, path = path));
+        }
+        sides.push(Some(git_bytes(dir, &["cat-file", "blob", object]).await?));
+    }
+    let text = |b: &Vec<u8>| String::from_utf8(b.clone()).ok().filter(|s| !s.contains('\0'));
+    if sides.iter().flatten().any(|b| text(b).is_none()) {
+        return Ok(Conflict { base: None, ours: None, theirs: None, merged: None, binary: true });
+    }
+    let [base, ours, theirs] = [&sides[0], &sides[1], &sides[2]].map(|s| s.as_ref().and_then(text));
+    let merged = match (&base, &ours, &theirs) {
+        (Some(base), Some(ours), Some(theirs)) => Some(merge_file(dir, base, ours, theirs).await?),
+        _ => None,
+    };
+    Ok(Conflict { base, ours, theirs, merged, binary: false })
+}
+
+/// `git merge-file --diff3` of the three texts, conflict markers labelled ours / base / theirs.
+async fn merge_file(dir: &Path, base: &str, ours: &str, theirs: &str) -> Result<String, String> {
+    let scratch = Scratch::new()?;
+    let files = [("ours", ours), ("base", base), ("theirs", theirs)].map(|(name, text)| {
+        let file = scratch.0.join(name);
+        std::fs::write(&file, text).map(|_| file.to_string_lossy().into_owned())
+    });
+    let [ours, base, theirs] = files;
+    let (ours, base, theirs) = (ours.map_err(io)?, base.map_err(io)?, theirs.map_err(io)?);
+    let args = ["merge-file", "-p", "--diff3", "-L", "ours", "-L", "base", "-L", "theirs", &ours, &base, &theirs];
+    let out = git_output(dir, &args, &[], None).await?;
+    // The exit code is the number of conflicts (capped at 127); a negative one is an error.
+    match out.status.code() {
+        Some(0..=127) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+        _ => Err(String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or(t!("git 执行失败")).to_string()),
+    }
+}
+
+fn io(e: std::io::Error) -> String {
+    t!("无法写入临时文件：{e}", e = e)
+}
+
+/// A temp dir for merge-file's inputs, removed however the merge ends.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Result<Self, String> {
+        let dir = git::unique_temp("gonggong-merge");
+        std::fs::create_dir_all(&dir).map_err(io)?;
+        Ok(Scratch(dir))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// `git fetch --prune` of every remote.
 pub async fn fetch(dir: &Path) -> Result<(), String> {
     repo_dir(dir)?;
     remote_git(dir, &["fetch", "--prune", "--all"], Some(NETWORK_TIMEOUT)).await.map(drop).map_err(|f| f.detail)
-}
-
-/// `[branch abc1234] subject` of HEAD.
-async fn head_line(dir: &Path) -> Result<String, String> {
-    let branch = git::branch(dir).await.unwrap_or_else(|| "HEAD".into());
-    let head = git(dir, &["log", "-1", "--format=%h %s"]).await?;
-    let (short, subject) = head.trim().split_once(' ').unwrap_or((head.trim(), ""));
-    Ok(format!("[{branch} {short}] {subject}"))
-}
-
-async fn has_ref(dir: &Path, full: &str) -> bool {
-    git(dir, &["show-ref", "--verify", "--quiet", full]).await.is_ok()
-}
-
-/// Switches to a local branch; `remote/x` without a local `x` creates `x` tracking it. Local changes the switch
-/// would overwrite make git refuse.
-pub async fn checkout(dir: &Path, branch: &str) -> Result<String, String> {
-    repo_dir(dir)?;
-    let branch = arg(branch)?;
-    if has_ref(dir, &format!("refs/heads/{branch}")).await {
-        git(dir, &["switch", branch]).await?;
-    } else if has_ref(dir, &format!("refs/remotes/{branch}")).await {
-        let remotes = git(dir, &["remote"]).await?;
-        let local = remotes
-            .lines()
-            .find_map(|r| branch.strip_prefix(r)?.strip_prefix('/'))
-            .ok_or_else(|| t!("分支不存在：{branch}", branch = branch))?;
-        match has_ref(dir, &format!("refs/heads/{local}")).await {
-            true => git(dir, &["switch", local]).await?,
-            false => git(dir, &["switch", "-c", local, "--track", branch]).await?,
-        };
-    } else {
-        return Err(t!("分支不存在：{branch}", branch = branch));
-    }
-    head_line(dir).await
-}
-
-/// Fast-forwards the current branch from its upstream; anything else is refused.
-pub async fn pull(dir: &Path) -> Result<String, String> {
-    repo_dir(dir)?;
-    if git(dir, &["rev-parse", "--abbrev-ref", "@{upstream}"]).await.is_err() {
-        return Err(t!("当前分支没有上游分支，无法拉取").into());
-    }
-    let out = remote_git(dir, &["pull", "--ff-only", "--no-rebase"], Some(NETWORK_TIMEOUT)).await;
-    let out = out.map_err(|f| f.detail)?;
-    Ok(out.lines().next().unwrap_or_default().trim().to_string())
-}
-
-/// Commits every change of the work tree, or only those of `paths` (work tree relative), but the daemon's private dir,
-/// as `identity`, else the machine's config. With `paths`, whatever else was staged stays staged and out of the commit.
-pub async fn commit(
-    dir: &Path,
-    message: &str,
-    paths: Option<&[String]>,
-    identity: Option<&GitIdentity>,
-) -> Result<String, String> {
-    repo_dir(dir)?;
-    if message.trim().is_empty() {
-        return Err(t!("缺少提交说明").into());
-    }
-    let who = identity.map(|i| [format!("user.name={}", i.name), format!("user.email={}", i.email)]);
-    let mut args: Vec<&str> = vec![];
-    if let Some([name, email]) = &who {
-        args.extend(["-c", name, "-c", email]);
-    }
-    let out = match paths {
-        None => {
-            let spec = git::everything(dir).await;
-            git(dir, &[&["add", "-A", "--"][..], spec].concat()).await?;
-            if git(dir, &["diff", "--cached", "--quiet"]).await.is_ok() {
-                return Err(t!("没有可提交的改动").into());
-            }
-            args.extend(["commit", "-m", message]);
-            git(dir, &args).await?
-        }
-        Some(paths) => {
-            let mut picked = vec![];
-            for p in paths {
-                let p = tree_path(p)?;
-                if !p.is_empty() && !format!("{p}/").starts_with(git::PRIVATE_DIR) {
-                    picked.push(p);
-                }
-            }
-            let list: Vec<u8> = picked.iter().flat_map(|p| [p.as_bytes(), b"\0"].concat()).collect();
-            // update-index takes literal paths, deleted (even already staged as deleted) or untracked ones alike.
-            git_input(dir, &["update-index", "--add", "--remove", "-z", "--stdin"], &list).await?;
-            let staged = git(dir, &["diff", "--cached", "--no-renames", "--name-only", "-z"]).await?;
-            let staged: HashSet<&str> = staged.split('\0').collect();
-            if !picked.iter().any(|p| staged.contains(p.as_str())) {
-                return Err(t!("没有可提交的改动").into());
-            }
-            // `--only` (implied by the pathspec) commits these paths alone, leaving the rest of the index as it was.
-            args.push("--literal-pathspecs");
-            args.extend(["commit", "--only", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", message]);
-            git_input(dir, &args, &list).await?
-        }
-    };
-    Ok(out.lines().next().unwrap_or_default().trim().to_string())
-}
-
-/// Pushes `branch` to `remote`, setting the upstream when the branch has none. Never forced: a rejection is
-/// returned as git reports it.
-pub async fn push(dir: &Path, remote: &str, branch: &str) -> Result<String, String> {
-    repo_dir(dir)?;
-    let (remote, branch) = (arg(remote)?, arg(branch)?);
-    let upstream = format!("{branch}@{{upstream}}");
-    let mut args = vec!["push", "--porcelain"];
-    if git(dir, &["rev-parse", "--abbrev-ref", &upstream]).await.is_err() {
-        args.push("-u");
-    }
-    args.extend([remote, branch]);
-    let out = remote_output(dir, &args, Some(NETWORK_TIMEOUT)).await.map_err(|f| f.detail)?;
-    // --porcelain: `<flag>\t<from>:<to>\t<summary>` per ref, flag `!` when rejected.
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let refs: Vec<(char, &str)> = stdout
-        .lines()
-        .filter_map(|l| {
-            let mut f = l.splitn(3, '\t');
-            let flag = f.next()?.chars().next()?;
-            let (_, summary) = (f.next()?, f.next()?);
-            Some((flag, summary))
-        })
-        .collect();
-    if let Some((_, why)) = refs.iter().find(|(flag, _)| *flag == '!') {
-        return Err(format!("{remote}/{branch} {why}"));
-    }
-    if !out.status.success() {
-        return Err(repo::explain(&String::from_utf8_lossy(&out.stderr)));
-    }
-    let summary = refs.first().map_or("", |(_, s)| s);
-    Ok(format!("{remote}/{branch} {summary}"))
 }
 
 #[cfg(test)]
@@ -389,5 +796,59 @@ mod tests {
             assert!(at(Some(bad)).is_err(), "{bad}");
         }
         assert!(repo_path(dir, &[], Some("/x/sdk")).is_err());
+    }
+
+    #[test]
+    fn log_arguments_keep_what_was_typed() {
+        assert_eq!(escape_regex("a.b(c)*"), r"a\.b\(c\)\*");
+        assert_eq!(day("2026-10-31", "23:59:59"), "2026-10-31 23:59:59");
+        assert_eq!(day("2026-10-31T08:00:00Z", "23:59:59"), "2026-10-31T08:00:00Z");
+        let tips = [("main..feat", "feat"), ("main...feat", "feat"), ("main..", "HEAD"), ("v1.2", "v1.2")];
+        for (rev, tip) in tips {
+            assert_eq!(range_tip(rev), tip, "{rev}");
+        }
+    }
+
+    #[test]
+    fn stash_subjects_give_the_message_and_branch() {
+        let wip = "WIP on feat/x: a1b2c3d 修复";
+        assert_eq!(stash_message(wip), (wip.to_string(), Some("feat/x".into())));
+        assert_eq!(stash_message("On main: fix: refund"), ("fix: refund".into(), Some("main".into())));
+        assert_eq!(stash_message("On (no branch): try"), ("try".into(), None));
+        assert_eq!(stash_message("autostash"), ("autostash".into(), None));
+    }
+
+    #[test]
+    fn raw_and_numstat_records_pair_up() {
+        let raw = ":100644 100644 aaa bbb M\0src/a.txt\0:100644 100644 ccc ccc R100\0old.md\0new.md\0\
+                   :000000 100644 000 ddd A\0logo.png\0\
+                   2\t1\tsrc/a.txt\0\
+                   0\t0\t\0old.md\0new.md\0\
+                   -\t-\tlogo.png\0";
+        let (entries, counts) = raw_numstat(raw);
+        let entries: Vec<_> = entries.iter().map(|(s, old, p)| (*s, old.as_deref(), p.as_str())).collect();
+        assert_eq!(entries, [('M', None, "src/a.txt"), ('R', Some("old.md"), "new.md"), ('A', None, "logo.png")]);
+        assert_eq!(
+            (counts["src/a.txt"], counts["new.md"], counts["logo.png"]),
+            ((Some(2), Some(1)), (Some(0), Some(0)), (None, None))
+        );
+    }
+
+    #[test]
+    fn blame_groups_lines_by_commit() {
+        let a = "a".repeat(40);
+        let raw = format!(
+            "{a} 1 1 2\nauthor 张三\nauthor-mail <z@corp.com>\nauthor-time 1792454400\nauthor-tz +0800\nsummary 发布\n\
+             filename x\n\tone\n{a} 2 2\n\ttwo\n{z} 3 3 1\nauthor Not Committed Yet\nauthor-mail <not.committed.yet>\n\
+             author-time 1792454400\nauthor-tz +0000\nsummary Version of x\nfilename x\n\tthree\n",
+            z = "0".repeat(40)
+        );
+        let b = parse_blame(&raw);
+        let ranges: Vec<_> = b.ranges.iter().map(|r| (r.start, r.count, r.commit.as_str())).collect();
+        assert_eq!(ranges, [(1, 2, a.as_str()), (3, 1, "")]);
+        assert_eq!(b.commits.len(), 1);
+        let c = &b.commits[0];
+        assert_eq!((c.short_hash.as_str(), c.author.as_str(), c.email.as_str()), ("aaaaaaa", "张三", "z@corp.com"));
+        assert_eq!((c.at.as_str(), c.subject.as_str()), ("2026-10-20T08:00:00+08:00", "发布"));
     }
 }

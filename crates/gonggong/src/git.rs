@@ -1,5 +1,7 @@
 //! Workspace git plumbing for partition mode (spec §5): shells out to the machine's `git` so its credentials apply.
-use crate::protocol::{DiffRepo, GitStatus, PATCH_MAX_BYTES, RepoKind, RepoStatus, WorkspaceKind};
+use crate::protocol::{
+    DiffRepo, GitOngoing, GitOngoingKind, GitStatus, PATCH_MAX_BYTES, RepoKind, RepoStatus, WorkspaceKind,
+};
 use crate::t;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
@@ -13,7 +15,7 @@ use tokio::sync::OnceCell;
 
 /// Daemon-private files inside a workspace; never reported as the agent's changes.
 pub(crate) const PRIVATE_DIR: &str = ".gonggong/";
-const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+pub(crate) const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 /// Appended to a patch cut at PATCH_MAX_BYTES.
 pub fn patch_truncated() -> &'static str {
     t!("… 补丁超过 512 KB，已截断\n")
@@ -99,6 +101,38 @@ pub(crate) async fn git_input(dir: &Path, args: &[&str], input: &[u8]) -> Result
     let out = child.wait_with_output().await.map_err(|e| t!("无法执行 git：{e}", e = e))?;
     let _ = writer.await;
     if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).into_owned()) } else { Err(failure(&out.stderr)) }
+}
+
+/// The whole output of `git <args>` whatever its exit status, with `env` set and `input` on stdin: a write tells its
+/// conflicts from other failures itself, and merge-file exits with its conflict count.
+pub(crate) async fn git_output(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    input: Option<&[u8]>,
+) -> Result<std::process::Output, String> {
+    let mut child = crate::proc::async_command("git")
+        .arg("-C")
+        .arg(dir)
+        .args(UNQUOTED)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .envs(env.iter().copied())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| t!("无法执行 git：{e}", e = e))?;
+    let writer = child.stdin.take().zip(input).map(|(mut stdin, input)| {
+        let input = input.to_vec();
+        tokio::spawn(async move { tokio::io::AsyncWriteExt::write_all(&mut stdin, &input).await })
+    });
+    let out = child.wait_with_output().await.map_err(|e| t!("无法执行 git：{e}", e = e))?;
+    if let Some(writer) = writer {
+        let _ = writer.await;
+    }
+    Ok(out)
 }
 
 fn failure(stderr: &[u8]) -> String {
@@ -245,11 +279,100 @@ async fn status_in(
             checked_at,
             workspace,
             repos,
+            head: None,
+            ongoing: None,
+            conflicts: None,
+            stashes: None,
         });
     }
-    let p = probe(dir, scans).await?;
+    let (p, (head, ongoing, conflicts, stashes)) = tokio::join!(probe(dir, scans), root_state(dir, scans));
+    let (p, ongoing) = (p?, ongoing?.map(|o| o.kind));
     let (branch, ahead, behind, dirty_count) = (p.branch, p.ahead, p.behind, Some(p.dirty));
-    Ok(GitStatus { branch, ahead, behind, dirty: p.dirty > 0, dirty_count, checked_at, workspace, repos })
+    let (dirty, conflicts, stashes) = (p.dirty > 0, Some(conflicts?), Some(stashes?));
+    Ok(GitStatus {
+        branch,
+        ahead,
+        behind,
+        dirty,
+        dirty_count,
+        checked_at,
+        workspace,
+        repos,
+        head,
+        ongoing,
+        conflicts,
+        stashes,
+    })
+}
+
+type RootState = (Option<String>, Result<Option<GitOngoing>, String>, Result<u32, String>, Result<u32, String>);
+
+/// The root repo's HEAD (short), what stopped midway, its unmerged paths and stashes.
+async fn root_state(dir: &Path, scans: &Scans) -> RootState {
+    let (head, ongoing, porcelain, stashes) = tokio::join!(
+        git(dir, &["rev-parse", "-q", "--short", "--verify", "HEAD"]),
+        ongoing(dir),
+        scans.porcelain(dir),
+        git(dir, &["stash", "list", "--format=%H"]),
+    );
+    let unmerged = porcelain.map(|p| p.values().filter(|xy| UNMERGED.contains(&xy.as_str())).count() as u32);
+    (head.ok().map(|h| h.trim().to_string()), ongoing, unmerged, stashes.map(|s| s.lines().count() as u32))
+}
+
+/// Porcelain `XY` of an unmerged path.
+const UNMERGED: [&str; 7] = ["DD", "AU", "UD", "UA", "DU", "AA", "UU"];
+
+/// What stopped midway in `dir`'s repo, read from the state git keeps in its git dir. A rebase wins over the merges,
+/// picks and reverts it may stop in; `git am` (rebase-apply without `rebasing`) is not reported.
+pub(crate) async fn ongoing(dir: &Path) -> Result<Option<GitOngoing>, String> {
+    let names = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "MERGE_MSG"];
+    let mut args = vec!["rev-parse"];
+    args.extend(names.iter().flat_map(|n| ["--git-path", n]));
+    let raw = git(dir, &args).await?;
+    // Relative to `dir` (absolute in a linked worktree or submodule), on every git version.
+    let paths: Vec<PathBuf> = raw.lines().map(|p| dir.join(p)).collect();
+    let [merge_dir, apply_dir, merge_head, pick_head, revert_head, merge_msg] = &paths[..] else {
+        return Err(t!("git 执行失败").into());
+    };
+    let read = |p: &Path| std::fs::read_to_string(p).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let message = read(merge_msg)
+        .map(|m| m.lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>().join("\n").trim().to_string())
+        .filter(|m| !m.is_empty());
+    // A state file holds a full hash (MERGE_HEAD: one per merged head).
+    let short = async |hash: Option<String>| -> Option<String> {
+        let hash = hash?.lines().next()?.to_string();
+        git(dir, &["rev-parse", "--short", &hash]).await.ok().map(|h| h.trim().to_string())
+    };
+    let (kind, subject, step, total) = if merge_dir.is_dir() || apply_dir.join("rebasing").exists() {
+        let (state, step, total) =
+            if merge_dir.is_dir() { (merge_dir, "msgnum", "end") } else { (apply_dir, "next", "last") };
+        let number = |name: &str| -> Option<u32> { read(&state.join(name))?.parse().ok() };
+        let subject = match read(&state.join("head-name")) {
+            Some(name) if name != "detached HEAD" => Some(name.trim_start_matches("refs/heads/").to_string()),
+            _ => short(read(&state.join("orig-head"))).await,
+        };
+        (GitOngoingKind::Rebase, subject, number(step), number(total))
+    } else if merge_head.exists() {
+        let subject = match message.as_deref().and_then(merged_branch) {
+            Some(branch) => Some(branch),
+            None => short(read(merge_head)).await,
+        };
+        (GitOngoingKind::Merge, subject, None, None)
+    } else if pick_head.exists() {
+        (GitOngoingKind::CherryPick, short(read(pick_head)).await, None, None)
+    } else if revert_head.exists() {
+        (GitOngoingKind::Revert, short(read(revert_head)).await, None, None)
+    } else {
+        return Ok(None);
+    };
+    Ok(Some(GitOngoing { kind, subject, step, total, message }))
+}
+
+/// `x` of a prepared `Merge branch 'x'` / `Merge remote-tracking branch 'x'` message.
+fn merged_branch(message: &str) -> Option<String> {
+    let first = message.lines().next()?;
+    let rest = first.strip_prefix("Merge branch '").or_else(|| first.strip_prefix("Merge remote-tracking branch '"))?;
+    Some(rest.split_once('\'')?.0.to_string())
 }
 
 /// The workspace (label '') and each additional directory, labelled with its absolute path.
@@ -387,7 +510,7 @@ pub struct Snapshot {
     subs: BTreeMap<String, Snapshot>,
 }
 
-async fn head(dir: &Path) -> Option<String> {
+pub(crate) async fn head(dir: &Path) -> Option<String> {
     git(dir, &["rev-parse", "-q", "--verify", "HEAD"]).await.ok().map(|h| h.trim().to_string())
 }
 
@@ -403,15 +526,20 @@ pub async fn snapshot(dir: &Path) -> Result<Snapshot, String> {
     Ok(Snapshot { head, tree, base, subs })
 }
 
+/// A path in the temp dir that no other call, of this process or another, gets.
+pub(crate) fn unique_temp(prefix: &str) -> PathBuf {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}-{}-{nanos}-{seq}", std::process::id()))
+}
+
 /// A scratch index, deleted with its lock however the staging ends: a diff dropped on timeout leaves nothing behind.
 struct Scratch(PathBuf);
 
 impl Scratch {
     fn new() -> Self {
-        static SEQ: AtomicU64 = AtomicU64::new(0);
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-        Scratch(std::env::temp_dir().join(format!("gonggong-index-{}-{nanos}-{seq}", std::process::id())))
+        Scratch(unique_temp("gonggong-index"))
     }
 }
 
@@ -747,7 +875,7 @@ async fn discard_own(dir: &Path, snap: &Snapshot) -> Result<usize, String> {
 }
 
 /// Removes a file, then any directories left empty by it (up to the workspace root).
-fn remove(root: &Path, file: &Path) -> Result<(), String> {
+pub(crate) fn remove(root: &Path, file: &Path) -> Result<(), String> {
     if let Err(e) = std::fs::remove_file(file)
         && e.kind() != std::io::ErrorKind::NotFound
     {
@@ -1281,6 +1409,10 @@ mod tests {
             checked_at: None,
             workspace: WorkspaceKind::Cd,
             repos: vec![st("a", "main", true), st("b", "feat/x", false)],
+            head: None,
+            ongoing: None,
+            conflicts: None,
+            stashes: None,
         };
         assert!(s.checked_at.is_some());
         assert_eq!(GitStatus { checked_at: None, ..s }, want);
