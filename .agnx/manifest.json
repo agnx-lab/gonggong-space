@@ -1,0 +1,42 @@
+{
+  "id": "gonggong",
+  "name": "共工空间",
+  "version": "0.1.0",
+  "description": "Gonggong Space 整仓：群聊指挥本机 Agent，Web 嵌进工作区 Tab",
+  "engines": {
+    "agnx": ">=1.0.0"
+  },
+  "main": "./dist/index.js",
+  "icon": "./docs/brand/logo.svg",
+  "platforms": {
+    "desktop": "supported",
+    "web": "supported",
+    "mobile": "unsupported"
+  },
+  "sidecar": {
+    "supervised": true,
+    "ensureTool": ".agnx/tools/ensure-gonggong.mjs",
+    "stateFile": "gonggong.json",
+    "defaultPort": 5173
+  },
+  "guest": {
+    "kind": "web",
+    "auth": "none",
+    "capabilities": ["cookies"],
+    "preferStrategy": "guest-webview"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "gonggong.open",
+        "title": "共工空间"
+      }
+    ],
+    "panels": [
+      {
+        "id": "gonggong.main",
+        "title": "共工空间"
+      }
+    ]
+  }
+}

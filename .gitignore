@@ -16,3 +16,7 @@ website/.vitepress/cache/
 videos/*/snapshots/
 videos/*/renders/
 videos/*/.hyperframes/
+
+# Agnx 子应用胶水产物必须入库（上游裸 dist 规则会误伤 .agnx/dist）
+!.agnx/dist/
+!.agnx/dist/**

@@ -1,0 +1,10 @@
+{
+  "appId": "gonggong",
+  "installState": "installed",
+  "launchMode": "packaged",
+  "source": {
+    "kind": "github",
+    "url": "https://github.com/yoqu/gonggong-space"
+  },
+  "updatedAt": "2026-10-10T01:52:38.426Z"
+}

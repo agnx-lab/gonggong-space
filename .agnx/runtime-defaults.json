@@ -1,0 +1,7 @@
+{
+  "webPort": 5173,
+  "serverPort": 8787,
+  "pgPort": 54339,
+  "adminPassword": "gonggong",
+  "databaseUrl": ""
+}
